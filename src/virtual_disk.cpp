@@ -1,0 +1,330 @@
+#include "virtual_disk.h"
+
+#include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <fstream>
+#include <iomanip>
+#include <map>
+#include <sstream>
+
+namespace fs = std::filesystem;
+
+namespace {
+
+constexpr unsigned kDirectoryBytes = 8192;
+constexpr unsigned kDirectoryEntries = 256;
+constexpr unsigned kBlockSize = 2048;
+constexpr unsigned kFirstDataBlock = 4;
+constexpr unsigned kLastBlock = 399;
+
+wchar_t FoldLatin(wchar_t ch) {
+  switch (ch) {
+    case L'Á': case L'Ä': case L'á': case L'ä': return L'A';
+    case L'Č': case L'č': return L'C';
+    case L'Ď': case L'ď': return L'D';
+    case L'É': case L'Ě': case L'é': case L'ě': return L'E';
+    case L'Í': case L'í': return L'I';
+    case L'Ĺ': case L'Ľ': case L'ĺ': case L'ľ': return L'L';
+    case L'Ň': case L'ň': return L'N';
+    case L'Ó': case L'Ô': case L'Ö': case L'ó': case L'ô': case L'ö': return L'O';
+    case L'Ŕ': case L'Ř': case L'ŕ': case L'ř': return L'R';
+    case L'Š': case L'š': return L'S';
+    case L'Ť': case L'ť': return L'T';
+    case L'Ú': case L'Ů': case L'Ü': case L'ú': case L'ů': case L'ü': return L'U';
+    case L'Ý': case L'ý': return L'Y';
+    case L'Ž': case L'ž': return L'Z';
+    default: return ch;
+  }
+}
+
+std::string CpmPart(const std::wstring& source, std::size_t maximum) {
+  std::string result;
+  for (wchar_t original : source) {
+    wchar_t folded = FoldLatin(original);
+    if (folded >= L'a' && folded <= L'z') folded -= L'a' - L'A';
+    char out = '_';
+    if ((folded >= L'A' && folded <= L'Z') ||
+        (folded >= L'0' && folded <= L'9')) {
+      out = static_cast<char>(folded);
+    } else if (folded == L'_' || folded == L'-' || folded == L'$' ||
+               folded == L'#' || folded == L'@' || folded == L'!' ||
+               folded == L'%' || folded == L'&' || folded == L'~' ||
+               folded == L'^') {
+      out = static_cast<char>(folded);
+    }
+    if (result.empty() || result.back() != '_' || out != '_') result.push_back(out);
+    if (result.size() == maximum) break;
+  }
+  while (!result.empty() && (result.back() == '_' || result.back() == ' ')) result.pop_back();
+  return result.empty() ? "FILE" : result;
+}
+
+std::string Trim(const uint8_t* begin, std::size_t length) {
+  std::string value(reinterpret_cast<const char*>(begin), length);
+  for (char& ch : value) ch = static_cast<char>(ch & 0x7f);
+  while (!value.empty() && value.back() == ' ') value.pop_back();
+  return value;
+}
+
+}  // namespace
+
+bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
+  std::error_code ec;
+  fs::path absolute = fs::weakly_canonical(folder, ec);
+  if (ec || !fs::is_directory(absolute, ec)) {
+    error = L"Vybraný diskový priečinok neexistuje alebo nie je prístupný.";
+    return false;
+  }
+  folder_ = absolute;
+  return BuildImage(error);
+}
+
+std::string VirtualDisk::MakeCpmName(const fs::path& path) {
+  const std::string stem = CpmPart(path.stem().wstring(), 8);
+  const std::string type = CpmPart(path.extension().wstring().substr(
+      path.extension().wstring().empty() ? 0 : 1), 3);
+  return type.empty() || path.extension().empty() ? stem : stem + "." + type;
+}
+
+std::string VirtualDisk::UniqueCpmName(
+    const std::string& requested, const std::unordered_map<std::string, bool>& used) {
+  if (!used.contains(requested)) return requested;
+  const std::size_t dot = requested.find('.');
+  std::string stem = requested.substr(0, dot);
+  const std::string type = dot == std::string::npos ? "" : requested.substr(dot);
+  for (unsigned number = 1; number < 1000; ++number) {
+    const std::string suffix = "~" + std::to_string(number);
+    const std::string candidate = stem.substr(0, 8 - std::min<std::size_t>(8, suffix.size())) +
+                                  suffix + type;
+    if (!used.contains(candidate)) return candidate;
+  }
+  return "COLLIDE.$$$";
+}
+
+uint64_t VirtualDisk::Hash(const uint8_t* data, std::size_t size) {
+  uint64_t hash = 1469598103934665603ull;
+  for (std::size_t i = 0; i < size; ++i) {
+    hash ^= data[i];
+    hash *= 1099511628211ull;
+  }
+  return hash;
+}
+
+bool VirtualDisk::BuildImage(std::wstring& error) {
+  image_.fill(0xe5);
+  imported_.clear();
+  std::unordered_map<std::string, bool> used;
+  unsigned directoryIndex = 0;
+  unsigned nextBlock = kFirstDataBlock;
+  std::error_code ec;
+
+  std::vector<fs::directory_entry> files;
+  for (const auto& entry : fs::directory_iterator(folder_, ec)) {
+    if (ec) break;
+    if (!entry.is_regular_file(ec)) continue;
+    const std::wstring leaf = entry.path().filename().wstring();
+    if (leaf.starts_with(L".eureka-")) continue;
+    files.push_back(entry);
+  }
+  std::sort(files.begin(), files.end(), [](const auto& left, const auto& right) {
+    return left.path().filename().wstring() < right.path().filename().wstring();
+  });
+
+  for (const auto& entry : files) {
+    std::ifstream input(entry.path(), std::ios::binary);
+    if (!input) continue;
+    std::vector<uint8_t> data((std::istreambuf_iterator<char>(input)), {});
+    std::string cpmName = UniqueCpmName(MakeCpmName(entry.path()), used);
+    used[cpmName] = true;
+
+    const unsigned records = static_cast<unsigned>((data.size() + 127) / 128);
+    const unsigned blocks = static_cast<unsigned>((data.size() + kBlockSize - 1) / kBlockSize);
+    const unsigned extents = std::max(1u, (records + 127) / 128);
+    if (directoryIndex + extents > kDirectoryEntries ||
+        nextBlock + blocks > kLastBlock + 1) {
+      error = L"Obsah priečinka sa nezmestí na 800 KiB disk Eureky.";
+      return false;
+    }
+
+    const std::size_t dot = cpmName.find('.');
+    const std::string stem = cpmName.substr(0, dot);
+    const std::string type = dot == std::string::npos ? "" : cpmName.substr(dot + 1);
+    unsigned blockCursor = nextBlock;
+    unsigned remainingRecords = records;
+    for (unsigned extentNumber = 0; extentNumber < extents; ++extentNumber) {
+      uint8_t* directory = image_.data() + directoryIndex++ * 32;
+      std::fill(directory, directory + 32, 0);
+      directory[0] = 0;
+      std::fill(directory + 1, directory + 9, ' ');
+      std::fill(directory + 9, directory + 12, ' ');
+      std::copy(stem.begin(), stem.end(), directory + 1);
+      std::copy(type.begin(), type.end(), directory + 9);
+      directory[12] = static_cast<uint8_t>(extentNumber & 0x1f);
+      directory[14] = static_cast<uint8_t>(extentNumber >> 5);
+      const unsigned extentRecords = std::min(128u, remainingRecords);
+      directory[15] = static_cast<uint8_t>(extentRecords);
+      const unsigned extentBlocks = (extentRecords + 15) / 16;
+      for (unsigned slot = 0; slot < extentBlocks; ++slot) {
+        directory[16 + slot * 2] = static_cast<uint8_t>(blockCursor);
+        directory[17 + slot * 2] = static_cast<uint8_t>(blockCursor >> 8);
+        ++blockCursor;
+      }
+      remainingRecords -= extentRecords;
+    }
+
+    if (!data.empty()) {
+      std::copy(data.begin(), data.end(), image_.begin() + nextBlock * kBlockSize);
+      std::fill(image_.begin() + nextBlock * kBlockSize + data.size(),
+                image_.begin() + (nextBlock + blocks) * kBlockSize, 0x1a);
+    }
+    imported_[cpmName] = {entry.path(), data.size(), Hash(data.data(), data.size())};
+    nextBlock += blocks;
+  }
+  dirty_ = false;
+  return true;
+}
+
+std::string VirtualDisk::DirectoryName(const uint8_t* entry) {
+  const std::string stem = Trim(entry + 1, 8);
+  const std::string type = Trim(entry + 9, 3);
+  return type.empty() ? stem : stem + "." + type;
+}
+
+bool VirtualDisk::IsTextType(const std::string& cpmName) {
+  const std::size_t dot = cpmName.find('.');
+  if (dot == std::string::npos) return false;
+  const std::string type = cpmName.substr(dot + 1);
+  return type == "BAS" || type == "TXT" || type == "DOC" || type == "PAS" ||
+         type == "C" || type == "H" || type == "ASM" || type == "MAC" ||
+         type == "LIB" || type == "INC" || type == "BAT" || type == "SUB";
+}
+
+std::wstring VirtualDisk::DecodeCpmName(const std::string& cpmName) {
+  return std::wstring(cpmName.begin(), cpmName.end());
+}
+
+bool VirtualDisk::ExportImage(std::wstring& error) {
+  std::map<std::string, ExportedFile> files;
+  for (unsigned index = 0; index < kDirectoryEntries; ++index) {
+    const uint8_t* entry = image_.data() + index * 32;
+    if (entry[0] > 0x1f) continue;
+    const std::string name = DirectoryName(entry);
+    if (name.empty()) continue;
+    Extent extent;
+    extent.number = entry[12] + (static_cast<unsigned>(entry[14]) << 5);
+    extent.records = entry[15];
+    for (unsigned slot = 0; slot < 8; ++slot) {
+      extent.blocks[slot] = entry[16 + slot * 2] |
+                            (static_cast<uint16_t>(entry[17 + slot * 2]) << 8);
+    }
+    files[name].name = name;
+    files[name].extents.push_back(extent);
+  }
+
+  for (auto& [name, file] : files) {
+    std::sort(file.extents.begin(), file.extents.end(),
+              [](const Extent& a, const Extent& b) { return a.number < b.number; });
+    std::vector<uint8_t> data;
+    for (const Extent& extent : file.extents) {
+      unsigned remaining = extent.records;
+      for (uint16_t block : extent.blocks) {
+        if (!block || remaining == 0 || block > kLastBlock) break;
+        const unsigned records = std::min(16u, remaining);
+        const uint8_t* begin = image_.data() + block * kBlockSize;
+        data.insert(data.end(), begin, begin + records * kRecordSize);
+        remaining -= records;
+      }
+    }
+
+    auto imported = imported_.find(name);
+    fs::path output = imported == imported_.end()
+                          ? folder_ / DecodeCpmName(name)
+                          : imported->second.path;
+    std::size_t length = data.size();
+    if (imported != imported_.end() && imported->second.exact_size <= data.size()) {
+      bool paddingOnly = true;
+      for (std::size_t i = imported->second.exact_size; i < data.size(); ++i) {
+        if (data[i] != 0x1a && data[i] != 0) { paddingOnly = false; break; }
+      }
+      if (paddingOnly) length = imported->second.exact_size;
+    } else if (IsTextType(name)) {
+      auto end = std::find(data.begin(), data.end(), 0x1a);
+      length = static_cast<std::size_t>(end - data.begin());
+    }
+
+    if (imported != imported_.end() && length == imported->second.exact_size &&
+        Hash(data.data(), length) == imported->second.hash) {
+      continue;
+    }
+    std::ofstream stream(output, std::ios::binary | std::ios::trunc);
+    if (!stream) {
+      error = L"Nemožno zapísať súbor " + output.wstring();
+      return false;
+    }
+    stream.write(reinterpret_cast<const char*>(data.data()),
+                 static_cast<std::streamsize>(length));
+  }
+
+  // Deletions are made recoverable by moving the original host file into a
+  // private trash folder rather than erasing it.
+  fs::path trash = folder_ / L".eureka-trash";
+  for (const auto& [name, imported] : imported_) {
+    if (files.contains(name)) continue;
+    std::error_code ec;
+    fs::create_directories(trash, ec);
+    fs::path destination = trash / imported.path.filename();
+    unsigned suffix = 1;
+    while (fs::exists(destination, ec)) {
+      destination = trash / (imported.path.stem().wstring() + L"-" +
+                              std::to_wstring(suffix++) + imported.path.extension().wstring());
+    }
+    fs::rename(imported.path, destination, ec);
+    if (ec) {
+      error = L"Nemožno presunúť zmazaný súbor do .eureka-trash.";
+      return false;
+    }
+  }
+  return true;
+}
+
+bool VirtualDisk::Flush(std::wstring& error) {
+  if (!dirty_) return true;
+  if (!ExportImage(error)) return false;
+  dirty_ = false;
+  return true;
+}
+
+bool VirtualDisk::ReadRecord(unsigned track, unsigned record, uint8_t* destination) const {
+  // CP/M BIOS logical sectors are numbered 0..SPT-1. Physical WD177x
+  // sectors remain 1-based and are handled separately below.
+  if (track >= kTracks || record >= kRecordsPerTrack) return false;
+  const std::size_t offset = (track * kRecordsPerTrack + record) * kRecordSize;
+  std::copy_n(image_.data() + offset, kRecordSize, destination);
+  return true;
+}
+
+bool VirtualDisk::WriteRecord(unsigned track, unsigned record, const uint8_t* source) {
+  if (track >= kTracks || record >= kRecordsPerTrack) return false;
+  const std::size_t offset = (track * kRecordsPerTrack + record) * kRecordSize;
+  std::copy_n(source, kRecordSize, image_.data() + offset);
+  dirty_ = true;
+  return true;
+}
+
+bool VirtualDisk::ReadPhysicalSector(unsigned cylinder, unsigned side, unsigned sector,
+                                     uint8_t* destination) const {
+  if (cylinder >= 80 || side > 1 || sector == 0 || sector > 10) return false;
+  const std::size_t offset = ((cylinder * 2 + side) * 10 + sector - 1) * 512;
+  std::copy_n(image_.data() + offset, 512, destination);
+  return true;
+}
+
+bool VirtualDisk::WritePhysicalSector(unsigned cylinder, unsigned side, unsigned sector,
+                                      const uint8_t* source) {
+  if (cylinder >= 80 || side > 1 || sector == 0 || sector > 10) return false;
+  const std::size_t offset = ((cylinder * 2 + side) * 10 + sector - 1) * 512;
+  std::copy_n(source, 512, image_.data() + offset);
+  dirty_ = true;
+  return true;
+}

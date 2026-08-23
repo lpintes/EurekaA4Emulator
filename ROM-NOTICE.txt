@@ -1,0 +1,3 @@
+A4ROM.DMP is firmware supplied by the owner of the original Eureka A4 dump.
+It is data consumed by the emulator and is not covered by LICENSE.txt.
+Do not redistribute the ROM unless you have the necessary rights.

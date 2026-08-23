@@ -1,0 +1,695 @@
+#include "machine.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+#include <fstream>
+
+namespace fs = std::filesystem;
+
+namespace {
+constexpr uint8_t kTimer0Vector = 0x04;
+constexpr uint8_t kTimer1Vector = 0x06;
+constexpr uint8_t kTif0 = 0x40;
+constexpr uint8_t kTif1 = 0x80;
+constexpr uint8_t kTie0 = 0x10;
+constexpr uint8_t kTie1 = 0x20;
+constexpr uint8_t kTde0 = 0x01;
+constexpr uint8_t kTde1 = 0x02;
+
+uint8_t BcdOrBinary(int value) {
+  return static_cast<uint8_t>(value);
+}
+}
+
+bool EurekaMachine::LoadRom(const fs::path& path, std::wstring& error) {
+  std::ifstream stream(path, std::ios::binary);
+  if (!stream) {
+    error = L"Nemožno otvoriť A4ROM.DMP.";
+    return false;
+  }
+  stream.read(reinterpret_cast<char*>(memory_.data()), kRomSize);
+  if (stream.gcount() != static_cast<std::streamsize>(kRomSize) || stream.peek() != EOF) {
+    error = L"A4ROM.DMP musí mať presne 262144 bajtov.";
+    return false;
+  }
+  romLoaded_ = true;
+  return true;
+}
+
+bool EurekaMachine::MountDisk(const fs::path& folder, std::wstring& error) {
+  return disk_.Mount(folder, error);
+}
+
+void EurekaMachine::Reset() {
+  if (!romLoaded_) return;
+  std::fill(memory_.begin() + kRomSize, memory_.end(), 0);
+  io_.fill(0);
+  rtcRam_.fill(0);
+  cbar_ = 0xf0;
+  cbr_ = 0;
+  bbr_ = 0;
+  outputLatch_ = 0;
+  dac_ = 0x80;
+  cycles_ = 0;
+  instructions_ = 0;
+  timerAccum_[0] = timerAccum_[1] = 0;
+  timerCurrent_[0] = timerCurrent_[1] = 0xffff;
+  timerControlRead_[0] = timerControlRead_[1] = false;
+  timerPending_[0] = timerPending_[1] = false;
+  audioPhase_ = 0;
+  audio_.clear();
+  keys_.clear();
+  firmwareKeys_.clear();
+  membraneKeys_.clear();
+  membraneKey_ = 0;
+  membraneScansRemaining_ = 0;
+  keyboardInitialized_ = false;
+  biosWaiting_ = false;
+  consoleOutput_.clear();
+  speechInput_.clear();
+  biosTrack_ = 0;
+  biosSector_ = 0;
+  biosDma_ = 0x80;
+  biosReads_ = 0;
+  fdcStatus_ = 0;
+  fdcTrack_ = 0;
+  fdcSector_ = 1;
+  fdcCommand_ = 0;
+  fdcBuffer_.clear();
+  fdcPosition_ = 0;
+  fdcWriting_ = false;
+  fdcIntrq_ = false;
+  csioReady_ = false;
+
+  // Hardware reset values used by the ROM while probing serial devices.
+  io_[0x04] = 0x02;
+  io_[0x05] = 0x02;
+  io_[0x0a] = 0;
+  io_[0x10] = 0;
+  io_[0x0e] = io_[0x0f] = io_[0x16] = io_[0x17] = 0xff;
+  z80_init(&cpu_);
+  cpu_.read_byte = ReadMemory;
+  cpu_.write_byte = WriteMemory;
+  cpu_.port_in = ReadPort;
+  cpu_.port_out = WritePort;
+  cpu_.userdata = this;
+}
+
+uint32_t EurekaMachine::PhysicalAddress(uint16_t logical) const {
+  const uint16_t bankStart = static_cast<uint16_t>(cbar_ & 0x0f) << 12;
+  const uint16_t common1Start = static_cast<uint16_t>(cbar_ & 0xf0) << 8;
+  uint32_t physical;
+  if (logical < bankStart) physical = logical;
+  else if (logical < common1Start) physical = logical + (static_cast<uint32_t>(bbr_) << 12);
+  else physical = logical + (static_cast<uint32_t>(cbr_) << 12);
+  return physical & 0xfffff;
+}
+
+uint8_t EurekaMachine::ReadMemory(void* context, uint16_t logical) {
+  auto* machine = static_cast<EurekaMachine*>(context);
+  return machine->memory_[machine->PhysicalAddress(logical)];
+}
+
+void EurekaMachine::WritePhysical(uint32_t physical, uint8_t value, uint16_t pc) {
+  if (physical >= kRamBase) {
+    memory_[physical] = value;
+    return;
+  }
+  // Anything below kRamBase is ROM or an unmapped hole.  Dropping the write is
+  // the safe choice, but dropping it silently hides both firmware bugs and a
+  // wrongly placed RAM window, so it is counted when diagnostics are on.
+  if (diag_.enabled()) diag_.NoteDroppedWrite(pc, physical, value);
+}
+
+void EurekaMachine::WriteMemory(void* context, uint16_t logical, uint8_t value) {
+  auto* machine = static_cast<EurekaMachine*>(context);
+  machine->WritePhysical(machine->PhysicalAddress(logical), value,
+                         machine->cpu_.pc);
+}
+
+uint8_t EurekaMachine::Peek(uint16_t logical) const {
+  return memory_[PhysicalAddress(logical)];
+}
+
+void EurekaMachine::Poke(uint16_t logical, uint8_t value) {
+  WriteMemory(this, logical, value);
+}
+
+uint16_t EurekaMachine::PeekWord(uint16_t logical) const {
+  return Peek(logical) | (static_cast<uint16_t>(Peek(logical + 1)) << 8);
+}
+
+uint8_t EurekaMachine::ReadRtc(uint16_t port) const {
+  std::time_t now = std::time(nullptr);
+  std::tm local{};
+  localtime_s(&local, &now);
+  const unsigned index = port & 7;
+  switch (index) {
+    case 0: {
+      const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch()).count();
+      return BcdOrBinary(static_cast<int>((millis / 10) % 100));
+    }
+    case 1: return BcdOrBinary(local.tm_hour);
+    case 2: return BcdOrBinary(local.tm_min);
+    case 3: return BcdOrBinary(local.tm_sec);
+    case 4: return BcdOrBinary(local.tm_mon + 1);
+    case 5: return BcdOrBinary(local.tm_mday);
+    case 6: return BcdOrBinary(local.tm_year % 100);
+    case 7: return BcdOrBinary(local.tm_wday);
+    default: return 0;
+  }
+}
+
+uint8_t EurekaMachine::ReadInputBuffer() const {
+  // The two analogue comparators are successively approximated by firmware
+  // driving the shared DAC. Bit 6 of the output latch selects the X/Y pair.
+  const bool yPair = (outputLatch_ & 0x40) != 0;
+  const uint8_t vm1Threshold = yPair ? 0x80 : 0x64;  // speech-rate / thermometer
+  const uint8_t vm2Threshold = yPair ? 0xdc : 0x80;  // battery / external meter
+  uint8_t value = 0x2c;  // CTS available, no ring and no modem carrier.
+  if (dac_ >= vm1Threshold) value |= 0x01;
+  if (dac_ >= vm2Threshold) value |= 0x02;
+  if (fdcIntrq_) value |= 0x02;  // floppy controller interrupt request
+  return value;
+}
+
+uint8_t EurekaMachine::ReadMembraneKeyboard(uint8_t port) {
+  if (membraneKey_ == 0 && !membraneKeys_.empty()) {
+    membraneKey_ = membraneKeys_.front();
+    membraneKeys_.pop_front();
+    // A Windows key-down is represented as a short physical press.  The ROM
+    // observes three stable scans before accepting a chord and scans this path
+    // through its heartbeat scheduler, so keep it asserted for a little over
+    // 300 ms at the documented 75 Hz scan rate.
+    membraneScansRemaining_ = 25;
+  }
+  uint8_t value = 0;
+  if (membraneKey_ != 0) {
+    const uint8_t kind = membraneKey_ & 0xc0;
+    const uint8_t number = membraneKey_ & 0x0f;
+    if (port == 0x8a && kind == 0xc0 && number < 8) value = 1u << number;
+    if (port == 0x89) {
+      if (kind == 0x80) value |= number & 0x0f;
+      // The production A4 ROM decodes the second modifier from row 2 bit 7.
+      if ((membraneKey_ & 0x20) != 0) value |= 0x80;
+      if (membraneScansRemaining_ > 0 && --membraneScansRemaining_ == 0)
+        membraneKey_ = 0;
+    }
+    // Despite an early manual's row labels, this ROM image derives K_SHIFT
+    // from row 0 bit 6 (the otherwise unused matrix position).
+    if (port == 0x8c && (membraneKey_ & 0x10) != 0) value |= 0x40;
+  }
+  return value;
+}
+
+void EurekaMachine::InjectFirmwareKey() {
+  if (!keyboardInitialized_ || firmwareKeys_.empty() || Peek(0xc100) != 0xc3) return;
+  const uint8_t readIndex = Peek(0xc679) & 0x1f;
+  const uint8_t writeIndex = Peek(0xc67a) & 0x1f;
+  // Insert only when the ROM queue is empty. C678 is a key-type result flag,
+  // not a busy flag, and legitimately remains set after function keys.
+  if (readIndex != writeIndex) return;
+  const uint8_t next = static_cast<uint8_t>((writeIndex + 1) & 0x1f);
+  if (next == readIndex) return;
+  const uint16_t entry = static_cast<uint16_t>(0xc67b + writeIndex * 2);
+  Poke(entry, 0);  // ordinary key-down event
+  Poke(static_cast<uint16_t>(entry + 1), firmwareKeys_.front());
+  Poke(0xc67a, next);
+  firmwareKeys_.pop_front();
+}
+
+uint8_t EurekaMachine::ReadPort(z80* cpu, uint16_t port) {
+  auto* machine = static_cast<EurekaMachine*>(cpu->userdata);
+  const uint8_t value = ReadPortInner(cpu, port);
+  if (machine->diag_.enabled() &&
+      machine->diag_.traces(static_cast<uint8_t>(port)))
+    machine->diag_.TracePortRead(cpu->pc, port, value);
+  return value;
+}
+
+uint8_t EurekaMachine::ReadPortInner(z80* cpu, uint16_t port) {
+  auto* machine = static_cast<EurekaMachine*>(cpu->userdata);
+  const uint8_t low = static_cast<uint8_t>(port);
+  switch (port) {
+    case 0x0190: case 0x0191: case 0x0192: case 0x0193:
+    case 0x0194: case 0x0195: case 0x0196: case 0x0197:
+      return machine->rtcRam_[port & 7];
+    case 0x0290: return 0;
+    case 0x0291: return machine->io_[0x91];
+    default: break;
+  }
+  if (low >= 0x90 && low <= 0x97) return machine->ReadRtc(low);
+  switch (low) {
+    case 0x04: return static_cast<uint8_t>(machine->io_[0x04] | 0x02);
+    case 0x05: return static_cast<uint8_t>(machine->io_[0x05] | 0x02);
+    case 0x08: return 0;
+    case 0x09: return 0;
+    case 0x0a: return static_cast<uint8_t>(machine->io_[0x0a] |
+                                           (machine->csioReady_ ? 0x80 : 0));
+    case 0x0b:
+      machine->csioReady_ = false;
+      return 0xaa;
+    case 0x0c: return machine->ReadTimerData(0, false);
+    case 0x0d: return machine->ReadTimerData(0, true);
+    case 0x10:
+      machine->timerControlRead_[0] = machine->timerControlRead_[1] = true;
+      return machine->io_[0x10];
+    case 0x14: return machine->ReadTimerData(1, false);
+    case 0x15: return machine->ReadTimerData(1, true);
+    case 0x18: return static_cast<uint8_t>((machine->cycles_ / 20) & 0xff);
+    case 0x30: return machine->io_[0x30];
+    case 0x38: return machine->cbr_;
+    case 0x39: return machine->bbr_;
+    case 0x3a: return machine->cbar_;
+    // The membrane keyboard uses true logic: a set bit means a pressed key.
+    case 0x89: case 0x8a: case 0x8c:
+      return machine->ReadMembraneKeyboard(low);
+    case 0x98: {
+      const uint8_t status = machine->fdcStatus_;
+      machine->fdcIntrq_ = false;
+      return status;
+    }
+    case 0x99: return machine->fdcTrack_;
+    case 0x9a: return machine->fdcSector_;
+    case 0x9b: return machine->ReadFdcData();
+    case 0xa8: return machine->ReadInputBuffer();
+    case 0xb8: return 0xff;
+    default:
+      if (machine->diag_.enabled())
+        machine->diag_.NotePortRead(cpu->pc, port, machine->io_[low]);
+      return machine->io_[low];
+  }
+}
+
+void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
+  auto* machine = static_cast<EurekaMachine*>(cpu->userdata);
+  const uint8_t low = static_cast<uint8_t>(port);
+  const uint8_t previous = machine->io_[low];
+  if (machine->diag_.enabled() && machine->diag_.traces(low))
+    machine->diag_.TracePortWrite(cpu->pc, port, value);
+  switch (port) {
+    case 0x0190: case 0x0191: case 0x0192: case 0x0193:
+    case 0x0194: case 0x0195: case 0x0196: case 0x0197:
+      machine->rtcRam_[port & 7] = value;
+      return;
+    case 0x0290: case 0x0291:
+      machine->io_[static_cast<uint8_t>(port)] = value;
+      return;
+    default: break;
+  }
+  if (low != 0x10) machine->io_[low] = value;
+  switch (low) {
+    case 0x0a: machine->csioReady_ = true; break;
+    case 0x0b: break;
+    case 0x0c: machine->WriteTimerData(0, false, value); break;
+    case 0x0d: machine->WriteTimerData(0, true, value); break;
+    case 0x10:
+      // TIF1/TIF0 are read-only; only the low six control bits are writable.
+      machine->io_[0x10] = static_cast<uint8_t>((machine->io_[0x10] & 0xc0) |
+                                                (value & 0x3f));
+      break;
+    case 0x14: machine->WriteTimerData(1, false, value); break;
+    case 0x15: machine->WriteTimerData(1, true, value); break;
+    case 0x30: {
+      uint8_t status = previous;
+      if ((value & 0x20) == 0)
+        status = static_cast<uint8_t>((status & ~0x80) | (value & 0x80));
+      if ((value & 0x10) == 0)
+        status = static_cast<uint8_t>((status & ~0x40) | (value & 0x40));
+      status = static_cast<uint8_t>((status & 0xc0) | (value & 0x0d));
+      machine->io_[0x30] = status;
+      if ((status & 0x40) != 0) machine->RunDma0();
+      if ((status & 0x80) != 0) machine->RunDma1();
+      break;
+    }
+    case 0x38: machine->cbr_ = value; break;
+    case 0x39: machine->bbr_ = value; break;
+    case 0x3a: machine->cbar_ = value; break;
+    case 0x80: case 0xa0:
+      // Stored in io_ above; the machine does not act on these yet, so record
+      // the bit transitions instead of letting them disappear.
+      if (machine->diag_.enabled())
+        machine->diag_.NoteLatch(cpu->pc, low, previous, value);
+      break;
+    case 0x88: machine->dac_ = value; break;
+    case 0x98: machine->StartFdcCommand(value); break;
+    case 0x99: machine->fdcTrack_ = value; break;
+    case 0x9a: machine->fdcSector_ = value; break;
+    case 0x9b: machine->WriteFdcData(value); break;
+    case 0xb0:
+      if (machine->diag_.enabled())
+        machine->diag_.NoteLatch(cpu->pc, low, machine->outputLatch_, value);
+      machine->outputLatch_ = value;
+      break;
+    default:
+      if (machine->diag_.enabled())
+        machine->diag_.NotePortWrite(cpu->pc, port, value);
+      break;
+  }
+}
+
+void EurekaMachine::RunDma0() {
+  uint32_t source = io_[0x20] | (static_cast<uint32_t>(io_[0x21]) << 8) |
+                    (static_cast<uint32_t>(io_[0x22] & 0x0f) << 16);
+  uint32_t destination = io_[0x23] | (static_cast<uint32_t>(io_[0x24]) << 8) |
+                         (static_cast<uint32_t>(io_[0x25] & 0x0f) << 16);
+  uint32_t count = io_[0x26] | (static_cast<uint32_t>(io_[0x27]) << 8);
+  if (count == 0) count = 65536;
+  for (uint32_t index = 0; index < count; ++index) {
+    // Routed through the guarded write so a stray descriptor cannot corrupt
+    // the ROM image, which Reset() does not restore.
+    WritePhysical((destination + index) & 0xfffff,
+                  memory_[(source + index) & 0xfffff], cpu_.pc);
+  }
+  io_[0x26] = io_[0x27] = 0;
+  io_[0x30] &= ~0x40;
+}
+
+void EurekaMachine::RunDma1() {
+  // Channel 1 is always memory <-> I/O.  28h-2Ah hold the 20-bit memory
+  // address, 2Bh-2Ch the I/O address, 2Eh-2Fh the byte count.  DCNTL bit 1
+  // selects the direction and bit 0 whether the memory address counts down.
+  //
+  // The ROM uses this for Write Track: 7000 bytes -- one double-density
+  // track -- streamed from a RAM buffer into the floppy data register at 9Bh.
+  const uint8_t mode = io_[0x32] & 0x03;
+  const bool toMemory = (mode & 0x02) != 0;
+  const int32_t step = (mode & 0x01) != 0 ? -1 : 1;
+  uint32_t address = io_[0x28] | (static_cast<uint32_t>(io_[0x29]) << 8) |
+                     (static_cast<uint32_t>(io_[0x2a] & 0x0f) << 16);
+  const uint16_t port = static_cast<uint16_t>(
+      io_[0x2b] | (static_cast<uint16_t>(io_[0x2c]) << 8));
+  uint32_t count = io_[0x2e] | (static_cast<uint32_t>(io_[0x2f]) << 8);
+  if (count == 0) count = 65536;
+
+  // Real transfers are paced by DREQ1; running the whole block at once keeps
+  // the model simple and matches how channel 0 already behaves.  Nothing in
+  // this ROM observes the intermediate state.
+  for (uint32_t index = 0; index < count; ++index) {
+    if (toMemory)
+      WritePhysical(address & 0xfffff, ReadPort(&cpu_, port), cpu_.pc);
+    else
+      WritePort(&cpu_, port, memory_[address & 0xfffff]);
+    address = static_cast<uint32_t>(address + step) & 0xfffff;
+  }
+
+  io_[0x28] = static_cast<uint8_t>(address);
+  io_[0x29] = static_cast<uint8_t>(address >> 8);
+  io_[0x2a] = static_cast<uint8_t>((io_[0x2a] & 0xf0) | ((address >> 16) & 0x0f));
+  io_[0x2e] = io_[0x2f] = 0;
+  io_[0x30] = static_cast<uint8_t>(io_[0x30] & ~0x80);  // DE1 clears at BCR1 = 0
+}
+
+void EurekaMachine::StartFdcCommand(uint8_t command) {
+  fdcCommand_ = command;
+  fdcBuffer_.clear();
+  fdcPosition_ = 0;
+  fdcWriting_ = false;
+  fdcIntrq_ = false;
+  const uint8_t type = command & 0xf0;
+  if (type == 0x00) {
+    fdcTrack_ = 0;
+    fdcStatus_ = 0;
+  } else if (type == 0x10) {
+    fdcTrack_ = io_[0x9b];
+    fdcStatus_ = 0;
+  } else if ((command & 0xe0) == 0x80) {
+    fdcBuffer_.resize(512);
+    const unsigned side = outputLatch_ & 1;
+    if (disk_.ReadPhysicalSector(fdcTrack_, side, fdcSector_, fdcBuffer_.data()))
+      fdcStatus_ = 0x03;
+    else
+      fdcStatus_ = 0x10;
+  } else if ((command & 0xe0) == 0xa0) {
+    fdcBuffer_.assign(512, 0);
+    fdcWriting_ = true;
+    fdcStatus_ = 0x03;
+  } else if (type == 0xc0) {
+    fdcBuffer_ = {fdcTrack_, static_cast<uint8_t>(outputLatch_ & 1),
+                  fdcSector_, 2, 0, 0};
+    fdcStatus_ = 0x03;
+  } else if (type == 0xd0) {
+    fdcStatus_ = 0;
+  } else if (type == 0xe0) {
+    fdcBuffer_.resize(5120);
+    for (unsigned sector = 1; sector <= 10; ++sector) {
+      disk_.ReadPhysicalSector(fdcTrack_, outputLatch_ & 1, sector,
+                               fdcBuffer_.data() + (sector - 1) * 512);
+    }
+    fdcStatus_ = 0x03;
+  } else if (type == 0xf0) {
+    fdcBuffer_.assign(6250, 0);
+    fdcWriting_ = true;
+    fdcStatus_ = 0x03;
+  } else {
+    fdcStatus_ = 0;
+  }
+  // Type I commands and Force Interrupt finish inside this model, so they
+  // raise INTRQ straight away.  Type II and III commands raise it when their
+  // data transfer runs out, in ReadFdcData and WriteFdcData below.
+  if ((command & 0x80) == 0 || type == 0xd0) fdcIntrq_ = true;
+}
+
+uint8_t EurekaMachine::ReadFdcData() {
+  if (fdcPosition_ >= fdcBuffer_.size()) {
+    fdcStatus_ = 0;
+    return 0;
+  }
+  const uint8_t value = fdcBuffer_[fdcPosition_++];
+  if (fdcPosition_ == fdcBuffer_.size()) {
+    fdcStatus_ = 0;
+    fdcIntrq_ = true;
+  }
+  return value;
+}
+
+void EurekaMachine::WriteFdcData(uint8_t value) {
+  io_[0x9b] = value;
+  if (!fdcWriting_ || fdcPosition_ >= fdcBuffer_.size()) return;
+  fdcBuffer_[fdcPosition_++] = value;
+  if (fdcPosition_ == fdcBuffer_.size()) {
+    if ((fdcCommand_ & 0xe0) == 0xa0) {
+      disk_.WritePhysicalSector(fdcTrack_, outputLatch_ & 1, fdcSector_,
+                                fdcBuffer_.data());
+    }
+    fdcStatus_ = 0;
+    fdcWriting_ = false;
+    fdcIntrq_ = true;
+  }
+}
+
+uint16_t EurekaMachine::TimerReload(unsigned channel) const {
+  const unsigned base = channel == 0 ? 0x0e : 0x16;
+  return io_[base] | (static_cast<uint16_t>(io_[base + 1]) << 8);
+}
+
+uint8_t EurekaMachine::ReadTimerData(unsigned channel, bool high) {
+  if (timerControlRead_[channel]) {
+    const uint8_t flag = channel == 0 ? kTif0 : kTif1;
+    io_[0x10] &= static_cast<uint8_t>(~flag);
+    timerPending_[channel] = false;
+    timerControlRead_[channel] = false;
+  }
+  return static_cast<uint8_t>(high ? timerCurrent_[channel] >> 8
+                                   : timerCurrent_[channel]);
+}
+
+void EurekaMachine::WriteTimerData(unsigned channel, bool high, uint8_t value) {
+  const uint8_t enable = channel == 0 ? kTde0 : kTde1;
+  if ((io_[0x10] & enable) != 0) return;
+  if (high)
+    timerCurrent_[channel] = static_cast<uint16_t>((timerCurrent_[channel] & 0x00ff) |
+                                                   (value << 8));
+  else
+    timerCurrent_[channel] = static_cast<uint16_t>((timerCurrent_[channel] & 0xff00) | value);
+}
+
+void EurekaMachine::RenderAudio(uint32_t cpuCycles) {
+  audioPhase_ += static_cast<uint64_t>(cpuCycles) * kAudioHz;
+  while (audioPhase_ >= kCpuHz) {
+    audio_.push_back(static_cast<int16_t>((static_cast<int>(dac_) - 128) << 8));
+    audioPhase_ -= kCpuHz;
+  }
+}
+
+void EurekaMachine::Advance(uint32_t cpuCycles) {
+  cycles_ += cpuCycles;
+  RenderAudio(cpuCycles);
+  const uint8_t control = io_[0x10];
+  for (unsigned channel = 0; channel < 2; ++channel) {
+    const uint8_t enable = channel == 0 ? kTde0 : kTde1;
+    if ((control & enable) == 0) {
+      timerAccum_[channel] = 0;
+      continue;
+    }
+    timerAccum_[channel] += cpuCycles;
+    while (timerAccum_[channel] >= 20) {
+      timerAccum_[channel] -= 20;
+      if (timerCurrent_[channel] == 0) timerCurrent_[channel] = TimerReload(channel);
+      else --timerCurrent_[channel];
+      if (timerCurrent_[channel] == 0) {
+        timerPending_[channel] = true;
+        io_[0x10] |= channel == 0 ? kTif0 : kTif1;
+      }
+    }
+  }
+}
+
+void EurekaMachine::ScheduleInterrupt() {
+  if (cpu_.int_pending || !cpu_.iff1) return;
+  const uint8_t control = io_[0x10];
+  if (timerPending_[0] && (control & kTie0)) {
+    // HD64180 internal interrupts always use I/IL vectored acquisition,
+    // independently of the Z80 IM setting.
+    cpu_.interrupt_mode = 2;
+    z80_gen_int(&cpu_, static_cast<uint8_t>((io_[0x33] & 0xe0) | kTimer0Vector));
+  } else if (timerPending_[1] && (control & kTie1)) {
+    cpu_.interrupt_mode = 2;
+    z80_gen_int(&cpu_, static_cast<uint8_t>((io_[0x33] & 0xe0) | kTimer1Vector));
+  }
+}
+
+void EurekaMachine::ReturnFromCall() {
+  cpu_.pc = PeekWord(cpu_.sp);
+  cpu_.sp += 2;
+}
+
+bool EurekaMachine::InterceptBios() {
+  // Eureka's extended CP/M BIOS jump table lives at C100. Page zero points
+  // at BOOT/WBOOT targets, not at the beginning of this table.
+  constexpr uint16_t base = 0xc100;
+  if (Peek(base) != 0xc3) return true;
+  unsigned function = 0;
+  if (cpu_.pc >= base && cpu_.pc < static_cast<uint16_t>(base + 23 * 3) &&
+      (cpu_.pc - base) % 3 == 0) {
+    function = (cpu_.pc - base) / 3;
+  } else {
+    // ROM applications also call the first-level BIOS stubs directly.
+    constexpr uint16_t targets = 0xc03a;
+    if (cpu_.pc < targets || cpu_.pc >= static_cast<uint16_t>(targets + 23 * 3) ||
+        (cpu_.pc - targets) % 3 != 0) return true;
+    function = (cpu_.pc - targets) / 3;
+  }
+  const uint16_t bc = (static_cast<uint16_t>(cpu_.b) << 8) | cpu_.c;
+  switch (function) {
+    case 2:  // console status
+      cpu_.a = keys_.empty() ? 0 : 0xff;
+      ReturnFromCall();
+      return true;
+    case 3:  // console input
+      if (keys_.empty()) {
+        biosWaiting_ = true;
+        return false;
+      }
+      cpu_.a = keys_.front();
+      keys_.pop_front();
+      // H bit 0 distinguishes Eureka function/cursor key codes from ordinary
+      // text in the ROM console ABI.
+      cpu_.h = (cpu_.a & 0x80) != 0 ? 1 : 0;
+      keyboardInitialized_ = true;
+      biosWaiting_ = false;
+      ReturnFromCall();
+      return true;
+    case 4:  // console output: capture, then let the ROM feed screen and speech.
+      consoleOutput_.push_back(cpu_.c);
+      return true;
+    case 8:
+      biosTrack_ = 0;
+      ReturnFromCall();
+      return true;
+    case 10:
+      biosTrack_ = bc;
+      ReturnFromCall();
+      return true;
+    case 11:
+      biosSector_ = bc;
+      ReturnFromCall();
+      return true;
+    case 12:
+      biosDma_ = bc;
+      ReturnFromCall();
+      return true;
+    case 13: {
+      ++biosReads_;
+      std::array<uint8_t, VirtualDisk::kRecordSize> record{};
+      const bool ok = disk_.ReadRecord(biosTrack_, biosSector_, record.data());
+      if (ok) for (unsigned i = 0; i < record.size(); ++i) Poke(biosDma_ + i, record[i]);
+      cpu_.a = ok ? 0 : 1;
+      ReturnFromCall();
+      return true;
+    }
+    case 14: {
+      std::array<uint8_t, VirtualDisk::kRecordSize> record{};
+      for (unsigned i = 0; i < record.size(); ++i) record[i] = Peek(biosDma_ + i);
+      cpu_.a = disk_.WriteRecord(biosTrack_, biosSector_, record.data()) ? 0 : 1;
+      ReturnFromCall();
+      return true;
+    }
+    case 16:
+      cpu_.h = cpu_.b;
+      cpu_.l = cpu_.c;
+      ReturnFromCall();
+      return true;
+    default:
+      return true;
+  }
+}
+
+bool EurekaMachine::Step() {
+  InjectFirmwareKey();
+  if (!InterceptBios()) return false;
+  if (cpu_.pc == 0x0103 && PhysicalAddress(cpu_.pc) == 0x0103)
+    speechInput_.push_back(cpu_.a);
+  ScheduleInterrupt();
+  const unsigned long before = cpu_.cyc;
+  z80_step(&cpu_);
+  const uint32_t elapsed = static_cast<uint32_t>(cpu_.cyc - before);
+  Advance(elapsed);
+  ++instructions_;
+  return true;
+}
+
+void EurekaMachine::QueueKey(uint8_t key) {
+  if (biosWaiting_) {
+    keys_.push_back(key);
+    return;
+  }
+  // Eureka key codes with bit 7 set describe function/cursor chords on the
+  // built-in 20-key keyboard.  Present them on the real keyboard ports so the
+  // ROM's 75 Hz scanner and debounce logic see exactly the original hardware.
+  if ((key & 0x80) != 0) {
+    membraneKeys_.push_back(key);
+  } else if (keyboardInitialized_) {
+    // Printable keys from a Windows keyboard enter the same ROM-owned queue
+    // as characters decoded from the optional IBM PC/XT keyboard interface.
+    firmwareKeys_.push_back(key);
+  } else {
+    keys_.push_back(key);
+  }
+}
+
+void EurekaMachine::QueueText(const std::string& ascii) {
+  for (unsigned char ch : ascii) QueueKey(ch);
+}
+
+std::vector<uint8_t> EurekaMachine::TakeConsoleOutput() {
+  std::vector<uint8_t> output;
+  output.swap(consoleOutput_);
+  return output;
+}
+
+std::vector<uint8_t> EurekaMachine::TakeSpeechInput() {
+  std::vector<uint8_t> output;
+  output.swap(speechInput_);
+  return output;
+}
+
+std::vector<int16_t> EurekaMachine::TakeAudio() {
+  std::vector<int16_t> output;
+  output.swap(audio_);
+  return output;
+}

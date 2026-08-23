@@ -1,0 +1,13 @@
+# Firmvér sa nedistribuuje, viď ROM-NOTICE.txt
+*.dmp
+*.DMP
+A4ROM*
+
+# Odvodené zvukové súbory sa dajú kedykoľvek vyrobiť z tools/melodies.py
+audio/
+
+# Výstup zostavenia
+build/
+*.obj
+*.exe
+__pycache__/
