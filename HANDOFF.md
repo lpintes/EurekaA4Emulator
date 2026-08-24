@@ -10,6 +10,30 @@ doložené, a čo je otvorené. Podrobná mapa hardvéru je v `hardware-map.md`.
 
 ## 1. Zdroj
 
+### Oficiálna dokumentácia (od 24. 8. 2026)
+
+V `eurekatech/` je **Eureka A4 Technical Manual** od Robotronu aj
+s vývojárskou diskétou. `TECHMAN1/` má 14 kapitol, 9 príloh a hlavne
+zdrojové knižnice s pomenovanými adresami a bitovými maskami
+(`IOPORT.LIB`, `SYSEQU.LIB`, `SYSJUMPS.LIB`, `DEVICE.LIB`, `KB.LIB`…).
+`TECHMAN2/` je len Borlandov tutoriál k Turbo Pascalu, pre tento projekt
+bez hodnoty.
+
+Čo je kde:
+
+- `IOPORT.H` + `IOPORT.LIB` — úplná mapa externých I/O portov
+- `DEVICES.10` — volania zariadení vrátane chybových bitov diskety
+- `SYSRAM.A` — pomenované premenné SYSRAM
+- `MEMMAP.E` — fyzické mapy pamäte piatich variantov stroja
+- `FILE-FMT.D` — formáty `.TEL`, `.DIA`, `.MEL`, `.DAT`, `.BAS` a textového procesora
+- `PHONEMES.B` — zoznam fonémov, sedí s tabuľkou 64 alofónov na `0x1FE0`
+- `READ.COM`, `TP.COM`, `TPS.COM` — dobové binárky, testovacia záťaž pre EurekaDOS
+
+**Pred hádaním sa pozri sem.** Manuál uzavrel štyri z piatich otvorených
+otázok a ukázal, že dve „zistenia" odvodené z ROM boli nesprávne.
+
+### ROM
+
 Analyzovaný dump: `C:\b\a4rom.dmp`, 262144 B, MD5 `9aa101ab69fc367e114e1a84b08feea1`.
 
 Do repozitára **nepatrí** (viď `ROM-NOTICE.txt`). Nástroje ho hľadajú cez
@@ -61,8 +85,15 @@ Zabudovaný voltmeter a teplomer (`DVM`, `TIC`, `TIF` v BASICu).
   rozsah −32..+31. `*0` píla, `*1` sínus, `*8` obdĺžnik, `*9` trojuholník.
 - Vzorkovacia frekvencia je φ / (20 × (RLDR0+1)). **Nie je konštantná** —
   firmvér RLDR0 prepisuje za behu (13041-krát počas jedného prechodu
-  aplikáciami). To je softvérová páka na rýchlosť reči vedľa potenciometra,
-  ktorý mal reálny stroj.
+  aplikáciami). Manuál to potvrdzuje: Timer 0 obsluhuje reč **asi
+  7,5 kHz** a rýchlosť kolíše podľa výšky hlasu a typu alofónu. Zvukové
+  efekty bežia na dvojnásobku zvolenej frekvencie.
+- Ten potenciometer nie je len hardvérový: `vmsel_mask` (`B0h` bit 6)
+  v nule pripája na komparátor `vm1` práve posuvník rýchlosti reči,
+  takže firmvér si jeho polohu vie prečítať.
+- Heartbeat je Timer 1 na **75 Hz**. Bez neho stroj nezaznamená stlačenie
+  klávesu ani neozve echo. Zapisuje aj do `power_latch` a `output_latch`,
+  preto sa ich tiene v RAM musia aktualizovať *pred* zápisom na port.
 - Príkazový jazyk zvuku: `<frekv>[:<frekv>…][/<trvanie>][*<priebeh>]`,
   parser na `0x1636`. `:` sú súčasné hlasy (max 4), CR oddeľuje príkazy
   vnútri reťazca, prázdny reťazec ukončuje melódiu. `&` sa rozvinie na
@@ -117,11 +148,56 @@ Prompt „ano nebo ne?" odpovedá na **`Y`**, nie na `a` — na `0x19FD1` je
    nerobí. Doplnená podmienka `x_ != 1`.
 2. **`OTIM`/`OTDM` posielal B na horný bajt adresy.** Na Z180 tam patrí
    nula; tento stroj horný bajt dekóduje (hodiny na `0190h`/`0290h`).
-3. **Chýbal INTRQ disketovej radiča.** Bez neho každý diskový príkaz
-   vypršal — viď sekciu 6.
-4. **DMA kanál 1 sa neemuloval** (obsluha `DSTAT` testovala len bit 6).
-5. **DMA obchádzalo ochranu pamäte** a mohlo natrvalo poškodiť obraz ROM,
+3. **DMA kanál 1 sa neemuloval** (obsluha `DSTAT` testovala len bit 6).
+4. **DMA obchádzalo ochranu pamäte** a mohlo natrvalo poškodiť obraz ROM,
    ktorý `Reset()` neobnovuje.
+
+### Opravené po získaní manuálu
+
+Formátovanie diskety **prejde celé** a stroj ohlási „formátování
+skončeno". Tým sú prvýkrát naozaj vykonané DMA kanál 1 aj príkaz Write
+Track — kód, ktorý bol napísaný, ale nikdy nespustený. Vyžiadalo si to
+šesť opráv, každá odhalená až tou predchádzajúcou:
+
+1. **INTRQ radiča bol na porte `A8h` bit 1.** Tam ale patrí komparátor
+   batérie a nastavený bit znamená *vybitú batériu*. Preto každý diskový
+   príkaz končil hláškou „slabá baterie" — a preto zdvihnutie prahov na
+   `E0h` nič nezmenilo, lebo o výsledku rozhodoval `fdcIntrq_`, nie prah.
+   Zrušené; INTRQ sa na `A8h` nedá čítať.
+2. **Type I príkazy nehlásili INDEX.** Slučka na 19828 pýta po seeku bit 1
+   *stavového registra radiča* (98h), nie portu `A8h`. Doplnené
+   `TypeOneStatus()`: INDEX vždy (priečinok je vždy vložený a točiaci sa
+   disk), TRACK 00 podľa stopy.
+3. **DMA sa spúšťala pri zápise do DSTAT.** Firmvér ale povolí DMA
+   (19ED1) **skôr**, než vydá Write Track (19EE8), takže celá stopa
+   odtiekla do radiča, ktorý ešte neprenášal, a BUSY nikdy nezhaslo.
+   Kanál sa teraz „zaparkuje" a rozbehne až keď radič dáta naozaj chce.
+4. **Zaparkovanie nerozlišovalo smer.** Nevyprázdnený buffer po
+   overovacom čítaní vyzeral ako radič čakajúci na dáta, takže druhý
+   Write Track opäť prišiel o obsah. `FdcWantsDma()` teraz porovnáva smer
+   prenosu z DCNTL s tým, či radič zapisuje.
+5. **Čítacie príkazy držali BUSY, kým buffer niekto nevyprázdnil.**
+   Skutočný WD177x sektor dočíta aj bez obsluhy DRQ — nastaví Lost Data,
+   ale BUSY zhasne. Firmvér po formáte overuje stopu bez DMA, takže na
+   starom modeli visel na 19EF3. Čítania teraz končia stavom DRQ bez BUSY.
+6. **Krokovacie príkazy (`20h`–`70h`) sa neemulovali.** Formát chodí po
+   disku Step In (`50h`), nie seekom, takže sa všetkých 160 stôp
+   zapisovalo na stopu 0. Doplnené vrátane príznaku U a smeru kroku.
+
+Naviac: overovacie čítanie práve naformátovanej stopy uspeje aj mimo
+obrazu 800 KB. Firmvér zapíše **162 logických stôp** (0–161, teda
+o cylinder viac, než má dátová oblasť) a každú si overí; skutočná
+mechanika sa na cylinder 80 posunie a práve zapísanú stopu prečíta.
+
+Zmerané po oprave: 162 zápisov stopy, 1620 overovacích čítaní, 81 krokov,
+žiadna stopa zapísaná dvakrát.
+
+Ďalej opravené podľa manuálu:
+
+- **RTC dostal zapuzdrenie.** Čítanie registra `90h` zapuzdrí ostatné,
+  takže dávkové čítanie nepreskočí sekundu. Poradie registrov zostalo —
+  bolo správne, viď `hardware-map.md`.
+- **Adresný priestor zúžený na 19 bitov** (`kPhysicalMask = 0x7ffff`).
 
 ### Diagnostika
 
@@ -131,77 +207,79 @@ latchov po bitoch, kruhový záznam 512 udalostí. Výpis `Ctrl+Shift+D`
 alebo pri ukončení. Voliteľné trasovanie konkrétnych portov aj vtedy, keď
 ich model implementuje (`Diagnostics::set_trace`).
 
-Aktuálny stav: **žiadne zahodené zápisy, žiadne externé porty bez modelu**
-naprieč všetkými aplikáciami. `kRamBase = 0x70000` teda drží.
+Aktuálny stav: **žiadne externé porty bez modelu** naprieč všetkými
+aplikáciami. Zahodené zápisy sú jediné tri, na `1C1FA`–`1C1FC` z adresára
+disku (viď 6.2); `kRamBase = 0x70000` teda drží.
+
+Pozor pri hodnotení: `boot` tie zápisy neukáže, lebo sa k nim nedostane.
+Treba `sweep`, prípadne `seq kC7`.
 
 ---
 
 ## 6. Otvorené otázky
 
-### 6.1 Bit „slabá baterie" blokuje formátovanie
+Pôvodných päť otázok manuál a následné meranie uzavreli. Zostáva iné.
 
-Formátovanie je najbližší cieľ, lebo je to **jediná cesta, ktorá spustí
-DMA kanál 1 a príkaz Write Track** — obe sú v emulátore napísané, ale ani
-raz neoverené.
+### 6.1 Zvuk — najväčší nevyužitý priestor
 
-Chybový bajt sa rozhoduje na `0x13D09`:
+`RenderAudio()` je zero-order hold bez filtrácie, výstup 48 kHz, takže
+všetko nad polovicou vzorkovacej frekvencie DAC sa zrkadlí ako aliasing.
+Ignoruje sa bit povolenia zvuku (`80h` bit 7) aj `filtersel_mask`
+(`B0h` bit 4), ktorým rečový engine prepína medznú frekvenciu filtra.
+Latencia až 240 ms.
 
-| bit | hláška |
-|---|---|
-| 0 | v jednotce není disk — **vyriešené**, bol to timeout, chýbal INTRQ |
-| 1 | slabá baterie — **blokuje** |
-| 2 | formátovací chyba |
-| 6 | disk je chráněn proti zápisu (jediný, čo zodpovedá WD177x) |
+Teraz je známa aj cieľová frekvencia: **Timer 0 obsluhuje reč asi
+7,5 kHz** a kolíše podľa výšky hlasu a typu alofónu (kapitola 12).
+Zvukové efekty bežia na dvojnásobku zvolenej frekvencie (kapitola 14).
+Predchádzajúci odhad ~11 kHz bol vysoko. WAV-y v `audio/` sa dajú
+prerenderovať na správnu frekvenciu namiesto štyroch hádaných.
 
-Bajt prichádza reťazou `0x13CBE` → `0x199C7` → `0x19828`.
-Overené a **vylúčené**: komparátory DAC v `ReadInputBuffer()` to nie sú —
-zdvihnutie oboch prahov na `E0h` hlášku nezmenilo.
-
-Postup: `diag_probe ROM disk trace 20000000 baterie` a pozrieť koniec
-kruhového záznamu; prípadne rozšíriť trasované porty.
-
-### 6.2 Periféria na CSI/O
-
-Kód na `0x18801–0x188B0` a `0x1E001` používa Z180 CSI/O (CNTR `0Ah`,
-TRDR `0Bh`) s bitmi 2 a 3 portu `B0h` ako ručne kývanými linkami. Vyšle
-`FF`, prepne linky, čaká na odpoveď **`AA`** s timeoutom `0x6000`.
-Zariadenie nepomenované. Kandidát: meracia periféria (`DVM`, `TIC`, `TIF`).
-
-### 6.3 Nedotknuté bity latchov
-
-Počas celého prechodu aplikáciami sa nikdy nezmenili: **`B0` bit 0**
-(hustota diskety), **`A0` bit 2** (výber výstupného zariadenia).
-`B0` bit 7 (RTS pre ASCI1) tiež nie — treba sériovú reláciu.
-
-### 6.4 Zápis `ADh` na port `88h`
-
-Deje sa na `0x19A01` pred **každým** príkazom radiča. Rutina hneď za ním
-(`0x19A3E`) je kontrola BUSY s Force Interrupt, takže s batériou to
-nesúvisí. Čo ten zápis ovláda, otvorené.
-
-### 6.5 RTC — mapovanie registrov
-
-Emulátor má v `ReadRtc()` prehodené **hodiny so sekundami** a **mesiac
-s dňom**. Správne poradie od `case 0`: stotiny, sekundy, minúty, hodiny,
-deň, mesiac, rok. Dôkaz je v `hardware-map.md`. Hodnoty sú binárne, nie
-BCD. Emulátor navyše číta hostiteľský čas pri každom registri zvlášť,
-takže dávkové čítanie môže preskočiť sekundu.
-
-### 6.6 Adresný priestor
-
-`kPhysicalSize = 1<<20` a maska `0xfffff`. Najvyššia priama hodnota, akú
-ROM vloží do CBR alebo BBR, je `0x70`, čo s common area 1 dá `0x7FFFF` —
-presne strop 19-bitového HD64180. Odporúčam masku `0x7ffff`.
-
-### 6.7 Kvalita zvuku
-
-`RenderAudio()` je zero-order hold bez filtrácie; DAC beží okolo 11 kHz,
-výstup 48 kHz, takže všetko nad ~5,7 kHz sa zrkadlí ako aliasing.
-Ignoruje sa aj bit povolenia zvuku (`80h` bit 7). Latencia až 240 ms.
 Pre nevidiaceho používateľa je zvuk celé rozhranie, takže toto je
-najväčší nevyužitý priestor.
+najnaliehavejšia položka.
 
----
+### 6.2 Zahodené zápisy na 1C1FA–1C1FC
+
+Adresár disku (`C7`) trikrát zapíše na logickú `C1FA` s BBR=`10h`, čo
+padne do ROM na fyzickú `1C1FA`. Zahodenie je pravdepodobne správne
+(na kremíku sa zápis do ROM tiež stratí), ale stojí za overenie, či
+model BBR v tej chvíli sedí.
+
+**Nie je to regresia** — overené zostavením verzie z `HEAD` v gite.
+Tvrdenie „žiadne zahodené zápisy naprieč všetkými aplikáciami"
+v predchádzajúcej verzii tohto dokumentu bolo nepresné; sonda to hlási
+len pri `sweep` a `seq kC7`, nie pri `boot`.
+
+### 6.3 Port A8h bit 5
+
+Manuál hovorí, že je to `dcd0_mask`, detekcia nosnej z modemu. Táto ROM
+ho ale pollne aj v ceste tlačového výstupu (18F99, 18FB1, 19097). Buď je
+česká verzia zapojená inak, alebo je odvodenie „pripravenosť tlačiarne"
+nepresné. Bez sériovej relácie sa to nerozhodne.
+
+### 6.4 Bity latchov, ktoré sa nikdy nezmenili
+
+Počas prechodu aplikáciami zostali nedotknuté `B0` bit 0 (`fdc_side`)
+a `B0` bit 7 (`rts1_mask`). Prvý sa zmení pri diskovej práci s druhou
+stranou, druhý potrebuje sériovú reláciu. `A0` bit 2 (`pol_relay`) sa
+zmení až pri práci s telefónnou linkou.
+
+### 6.5 Formátovanie nemaže hostiteľský priečinok
+
+Emulátor formátovanie dokončí a ohlási úspech, ale obsah stopy zahodí:
+virtuálny disk je hostiteľský priečinok a mazať používateľove súbory
+preto, že emulovaný stroj formátoval, nie je rozhodnutie tohto modelu.
+Ak by sa to niekedy malo zmeniť, musí to byť vedomé a s potvrdením.
+
+### 6.6 Uzavreté otázky
+
+| bývalá otázka | výsledok |
+|---|---|
+| „slabá baterie" blokuje formátovanie | vyriešené, viď sekcia 5 |
+| periféria na CSI/O | je to klávesnica IBM PC (`FFh` = reset, `AAh` = BAT passed) |
+| nedotknuté bity latchov | pomenované z `IOPORT.LIB`, tri pôvodné výklady boli chybné |
+| zápis `ADh` na port `88h` | prah komparátora pre stráženie batérie počas diskovej operácie |
+| RTC — mapovanie registrov | emulátor bol **správne**; navrhovaná oprava by hodiny rozbila |
+| adresný priestor | maska zmenená na `0x7ffff`, 19 bitov HD64180 |
 
 ## 7. Nástroje
 
@@ -232,8 +310,29 @@ python tools\strings_kam.py 8 0xd000 0xe000
 
 Poradie podľa pomeru prínos/námaha:
 
-1. **Zvuk** (6.7) — najväčší dopad na použiteľnosť, žiadne neznáme.
-2. **RTC** (6.5) — dve prehodenia a snímka času, všetko doložené.
-3. **Batéria** (6.1) — odblokuje formátovanie a tým overenie DMA kanála 1.
-4. **Adresný priestor** (6.6) — jednoriadková zmena, ale mení správanie.
-5. **CSI/O** (6.2) — najviac neznáma, najmenej naliehavá.
+1. **Zvuk** (6.1) — najväčší dopad na použiteľnosť a teraz aj bez
+   neznámych: cieľová frekvencia DAC je asi 7,5 kHz, filter sa prepína
+   `B0h` bitom 4, povolenie zvuku je `80h` bit 7.
+2. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+   hádaných (`tools/melodies.py` a export dát reči).
+3. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+   databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
+   Doteraz to nešlo, lebo formáty neboli známe.
+4. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+   cestu adresára disku.
+5. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+   rozhodne otázku 6.3.
+
+### Čím sa dá testovať
+
+Manuálová disketa priniesla dobové binárky. `tests/integration_test.cpp`
+v režime `com` očakáva `READ.COM` v priečinku disku — je
+v `eurekatech/TECHMAN1/READ.COM`. Obidva integračné testy prechádzajú:
+
+```
+integration_test ROM DISK_FOLDER bas   -> PASS
+integration_test ROM DISK_FOLDER com   -> PASS (196 BIOS čítaní)
+```
+
+`TP.COM` a `TPS.COM` (Turbo Pascal) sú zatiaľ nevyskúšané a boli by
+podstatne tvrdším testom EurekaDOS.

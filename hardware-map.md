@@ -1,7 +1,15 @@
-# Eureka A4 — mapa hardvéru odvodená z ROM (a4rom.dmp)
+# Eureka A4 — mapa hardvéru
 
 Zdroj: `a4rom.dmp`, 262144 B, MD5 9aa101ab69fc367e114e1a84b08feea1.
-Všetko nižšie je odvodené výhradne z kódu v tejto ROM.
+
+Pôvodne bolo všetko nižšie odvodené výhradne z kódu v tejto ROM. Od
+24. 8. 2026 je k dispozícii aj **oficiálny Eureka A4 Technical Manual**
+v `eurekatech/` (príloha H `IOPORT.H` a súbor `IOPORT.LIB` sú úplnou
+mapou externých portov). Tam, kde sa odvodené a doložené líšilo, je
+nižšie uvedené oboje aj s vysvetlením, prečo odvodenie zlyhalo — inak by
+sa tá istá chyba dala urobiť znovu.
+
+Oficiálne názvy signálov sú prevzaté z `IOPORT.LIB`.
 
 ## Procesor a pamäť
 
@@ -30,17 +38,25 @@ Dekodér s výberom po 8 portoch: 80, 88, 90, 98, A0, A8, B0, B8.
 
 | port | smer | funkcia | istota |
 |---|---|---|---|
-| 80h | W | riadiaci latch, tieň C439h | vysoká |
-| 88h | W | 8-bit DAC (zvuk aj reč) | vysoká |
-| 89h, 8Ah, 8Ch | R | riadky klávesnicovej matice (3 bajty) | vysoká |
-| 98h | R/W | WD177x stav / príkaz | istá |
-| 99h | R/W | WD177x register stopy | istá |
-| 9Ah | R/W | WD177x register sektora | istá |
-| 9Bh | R/W | WD177x dátový register | istá |
-| A0h | W | riadiaci latch, tieň C43Ah | vysoká |
-| A8h | R | stavové vstupy | vysoká |
-| B0h | W | riadiaci latch, tieň C438h | vysoká |
-| B8h | R | čítaný len v slučke po vybití batérie | nízka |
+| 80h | W | `modem_latch` — riadenie modemu AM7910, tieň C439h | doložené |
+| 88h | W | `dac_port` — 8-bit DAC (reč, zvuk, DTMF, referencia komparátorov) | doložené |
+| 89h, 8Ah, 8Ch | R | `bkb_row2`, `bkb_row1`, `bkb_row0` — braillova klávesnica | doložené |
+| 90h–97h | R/W | hodiny reálneho času, sedem registrov + deň v týždni | doložené |
+| 190h–197h | R/W | `rtc_ram_*` — čas a dátum najbližšieho budíka | doložené |
+| 290h | R/W | `rtc_status` (čítanie) / `rtc_mask` (zápis) | doložené |
+| 291h | W | `rtc_command` — kryštál, 12/24 h, štart, povolenie prerušenia | doložené |
+| 98h | R/W | `fdc_status` / `fdc_command` — WD177x | doložené |
+| 99h | R/W | `fdc_track` | doložené |
+| 9Ah | R/W | `fdc_sector` | doložené |
+| 9Bh | R/W | `fdc_data` | doložené |
+| A0h | W | `power_latch` — napájanie podsystémov, tieň C43Ah | doložené |
+| A8h | R | `input_buffer` — komparátory a stavové linky | doložené |
+| B0h | W | `output_latch` — všeobecný výstupný latch, tieň C438h | doložené |
+| B8h | R/W | `pwr_stb` — **akýkoľvek prístup vypne stroj** | doložené |
+
+`B8h` nie je „čítaný po vybití batérie", ako sa pôvodne zdalo. Je to
+vypínač: takto sa Eureka vypína štyrmi kurzorovými klávesmi z hlavného
+menu aj po nečinnosti.
 
 Disketová radič potvrdený protokolom seek na 19806h:
 `IN A,(99h)` (aktuálna stopa) → `OUT (9Bh),A` (cieľová) → príkaz 14h.
@@ -84,18 +100,25 @@ OUT (88h),A     ; vzorka na DAC
 
 ## Bity riadiacich latchov
 
-### Port B0h (tieň C438h) — 53 odkazov
+### Port B0h `output_latch` (tieň C438h) — 53 odkazov
 
-| bit | význam | istota |
+| bit | názov | význam |
 |---|---|---|
-| 7 | RTS / riadenie toku pre ASCI1; nastavuje sa po `BIT 0,C` (len kanál 1) na 1860D a 1E0B3, nuluje sa po `IN0 A,(RDR1)` na 183BA | vysoká |
-| 6 | disk; nastavuje sa spolu s bitom 1 pri roztočení (`OR 42h`) | stredná |
-| 5 | povolenie sériového/tlačového bloku (`OR 20h` pri otvorení výstupu) | stredná |
-| 4 | prepínač zvukovej cesty; mení sa až po vyprázdnení výstupného buffera | stredná |
-| 3 | riadiaca linka periférie na CSI/O; pulzuje sa pred `OUT0 (CNTR)` | vysoká |
-| 2 | druhá riadiaca linka tej istej periférie; na 1889F sa preklápa 18-krát | vysoká |
-| 1 | výber jednotky/strany diskety; nuluje sa pred štartom motora, nastavuje po ňom | vysoká |
-| 0 | hustota / dátová rýchlosť diskety; berie sa z (IY+2Fh) štruktúry jednotky | vysoká |
+| 7 | `rts1_mask` | RTS na RS-232; nastavuje sa po `BIT 0,C` na 1860D a 1E0B3, nuluje po `IN0 A,(RDR1)` na 183BA |
+| 6 | `vmsel_mask` | výber dvojice komparátorov: 0 = vnútorný teplomer + externý voltmeter, 1 = potenciometer rýchlosti reči + **batéria** |
+| 5 | `dtmf_mask` | 0 pripojí DAC na telefónnu linku (tónová voľba), 1 pripojí modem |
+| 4 | `filtersel_mask` | medzná frekvencia filtra zvukového obvodu; 1 = normálna, 0 = vysoká. Ovláda ho rečový engine |
+| 3 | `kb_prime_mask` | aktívne v nule; zaistí, že sa ignoruje prvý hodinový bit bajtu z QWERTY klávesnice — požiadavka 64180 |
+| 2 | `kb_rst_mask` | aktívne v nule; reset QWERTY klávesnice, drží sa asi 200 ms |
+| 1 | `fdc_drv0` | aktívne v nule; výber disketovej jednotky. Kým nie je vybraná, radič je držaný v resete |
+| 0 | `fdc_side` | výber strany diskety, 0 = strana 0, 1 = strana 1 |
+
+Pôvodné odvodenie z ROM sa tu mýlilo v troch bitoch. Bit 0 nie je
+hustota, ale strana. Bit 6 nie je „disk"; `OR 42h` pri roztočení
+jednotky nastavuje bity 1 a 6 naraz preto, že s vybraným diskom sa
+zároveň prepnú komparátory na **stráženie batérie** počas diskovej
+operácie. A bity 2 a 3 nepatria neznámej periférii, ale klávesnici
+IBM PC.
 
 ### Port 80h (tieň C439h) — 14 odkazov
 
@@ -108,63 +131,125 @@ OUT (88h),A     ; vzorka na DAC
 
 Pokojový stav je C0h.
 
-### Port A0h (tieň C43Ah) — 28 odkazov
+### Port A0h `power_latch` (tieň C43Ah) — 28 odkazov
 
-| bit | význam | istota |
+| bit | názov | význam |
 |---|---|---|
-| 7–4 | nikde sa nenastavujú, nepoužité | vysoká |
-| 3 | napájanie rečového obvodu; na 004D9 `TST 08h`, potom `OR 08h`, a ak bol 0, inicializácia | stredná |
-| 2 | výber výstupného zariadenia; na 19047 podľa toho, či (C43Dh)==50h | stredná |
-| 1 | povolenie výstupu; nuluje sa spolu s bitom 2 (`AND F9h`) pri zatvorení | stredná |
-| 0 | motor diskety; 19A84 roztočí a nastaví, 1D0D4 po timeoute skontroluje stav radiča a zhasne | istá |
+| 7–4 | — | nepoužité |
+| 3 | `pol_voice` | napájanie zvukového obvodu. Po zapnutí treba čakať asi pol sekundy, než je reč možná — preto býva trvalo zapnutý. Na 004D9 `TST 08h`, potom `OR 08h`, a ak bol 0, inicializácia |
+| 2 | `pol_relay` | zopne relé spájajúce oddeľovací transformátor modemu s telefónnou linkou. Smie byť zopnuté len pri detekcii oznamovacieho tónu, tónovej voľbe a komunikácii — počas pulznej voľby musí byť rozopnuté |
+| 1 | `pol_modem` | napájanie obvodov modemu |
+| 0 | `pol_disk` | napájanie radiča a disketovej jednotky; 19A84 roztočí, 1D0D4 po timeoute zhasne |
 
-### Port A8h (čítanie)
+Bit 2 teda nie je „výber výstupného zariadenia". Podmienka na 19047,
+ktorá k tomu odvodeniu viedla, rozlišuje výstup na modem od ostatných
+ciest — čo relé skutočne ovláda, ale význam je telefónny, nie
+konzolový.
 
-| bit | význam | istota |
+### Port A8h `input_buffer` (čítanie)
+
+| bit | názov | význam |
 |---|---|---|
-| 5 | pripravenosť vysielača/tlačiarne; pollované s počítadlom pokusov na 18F99, 18FB1, 19097 | vysoká |
-| 1 | INTRQ disketovej radiča; na 19833 sa pollne a potom sa číta stav 98h | vysoká |
-| ostatné | nikde sa netestujú | — |
+| 7, 6 | — | nepoužité |
+| 5 | `dcd0_mask` | aktívne v nule; detekcia nosnej z modemu AM7910. Pollované s počítadlom pokusov na 18F99, 18FB1, 19097 |
+| 3 | `ring_mask` | aktívne v nule; prítomnosť vyzváňacieho napätia (automatické zdvihnutie) |
+| 2 | `cts1_mask` | aktívne v nule; CTS na RS-232 |
+| 1 | `vm2_mask` | druhý komparátor: podľa `vmsel` externý voltmeter alebo **napätie batérie** |
+| 0 | `vm1_mask` | prvý komparátor: podľa `vmsel` vnútorný teplomer alebo potenciometer rýchlosti reči |
+
+Bity 0 a 1 sú výsledky porovnania meraného napätia s napätím z DAC
+(0 až 1,31 V). Firmvér hodnotu získava binárnym vyhľadávaním — príloha
+kapitoly 10 pri `dev_battery` píše doslova „Input: DAC value in A after
+binary search".
+
+**Na bite 1 nie je INTRQ.** To odvodenie bolo chybné a v emulátore
+spôsobilo, že každý diskový príkaz skončil hláškou „slabá baterie":
+nastavený bit 1 znamená *vybitú batériu*, nie pripravenosť radiča. Na
+19837 sa `IN A,(A8h) / AND 02h / RET NZ` vracia s chybovým bajtom `02h`,
+čo je práve bit „slabá baterie". Slučka, ktorá naozaj čaká na disk,
+číta hneď za tým stav radiča na porte 98h a testuje jeho bit 1, teda
+**INDEX**.
+
+Poznámka: bit 5 je podľa manuálu DCD z modemu, ale táto ROM ho pollne
+aj v ceste tlačového výstupu. Buď je to v českej verzii inak zapojené,
+alebo je odvodenie „pripravenosť tlačiarne" nepresné. Otvorené.
 
 ## Hodiny reálneho času
 
-Sedem registrov na portoch 90h–96h, riadiaci register na porte 0290h/0291h
-(hodnoty 04h pred zápisom, 0Ch po ňom). Horný bajt adresy sa dekóduje.
+Devätnásť registrov: sedem pre čas a dátum, sedem pre budík, tri riadiace.
+Horný bajt adresy sa dekóduje, takže 0290h/0291h sú iné porty než 90h/91h
+(riadiace hodnoty 04h pred zápisom, 0Ch po ňom — `rtc_default` je 0Ch:
+normálny režim, prerušenie zakázané, beh, 24-hodinový formát, 32 kHz).
 
-Čítanie: slučka na 0DFA4 načíta 90h..96h zostupne do CB8B..CB85.
-Význam potvrdený konštantami pri prenose v rutine rozdielu časov na 0DC92:
+Poradie registrov na porte:
 
-| port | význam | dôkaz |
-|---|---|---|
-| 90h | stotiny sekundy | `ADD A,64h` (100) na 0DC9C |
-| 91h | sekundy | `ADD A,3Ch` (60) na 0DCB1 |
-| 92h | minúty | `ADD A,3Ch` (60) na 0DCBD |
-| 93h | hodiny | `ADD A,18h` (24) na 0DCC9 |
-| 94h | deň | poradie trojice CB85..CB87 pri viacbajtovom porovnaní (0DA00) |
-| 95h | mesiac | to isté |
-| 96h | rok mod 100 | `CP 64h / SUB 64h` na 0DF8A |
+| port | význam |
+|---|---|
+| 90h | stotiny sekundy, 0–99 |
+| 91h | hodiny, 0–23 |
+| 92h | minúty, 0–59 |
+| 93h | sekundy, 0–59 |
+| 94h | mesiac, 1–12 |
+| 95h | deň v mesiaci, 1–31 |
+| 96h | rok, 0–99 (1985 až 2084) |
+| 97h | deň v týždni, 0–6 — táto ROM ho nikdy nečíta |
+
+**Čítanie musí začať registrom 90h.** Ten okamih zapíše (zapuzdrí)
+všetky ostatné registre, takže dávkové čítanie nemôže preskočiť tik.
+Emulátor to modeluje v `SampleRtc()`.
 
 Hodnoty sú **binárne, nie BCD** — dôkaz je redukcia roku modulo sto
-binárnym `CP 64h / SUB 64h` na 0DF8A a rovnaký vzor na 0DA5B.
+binárnym `CP 64h / SUB 64h` na 0DF8A a rovnaký vzor na 0DA5B, plus
+`CP 55h` (85) na 0DFD6, ktoré rozlišuje roky 1985–1999 od 2000+.
 
-Pozor: zapisovacia rutina (0DF5A, 0DF7C) používa oproti čítacej
-zrkadlené poradie bufferu. Mapovanie portov treba brať z čítacej cesty.
+### Prečo pôvodné odvodenie vyšlo prehodené
 
-Port 97h táto ROM nikdy nečíta.
+Čítacia slučka na 0DFA4 uloží porty 90h..96h **zostupne** do CB8B..CB85
+a hneď za ňou, na 0DFBB, firmvér **sám prehodí dve dvojice**:
+`CB86` s `CB87` (porty 95h a 94h) a `CB8A` s `CB88` (porty 91h a 93h).
 
-## Neidentifikovaná periféria na CSI/O
+```
+0DFBB  LD B,(IX+1) / LD A,(IX+2) / LD (IX+1),A / LD (IX+2),B
+0DFC7  LD B,(IX+5) / LD A,(IX+3) / LD (IX+5),A / LD (IX+3),B
+```
+
+Vnútorný buffer CB85..CB8B teda ide vzostupne rok, mesiac, deň, hodina,
+minúta, sekunda, stotiny — v tomto poradí funguje viacbajtové porovnanie
+dátumov (0DA00) priamo. Rutina rozdielu časov na 0DC92 chodí po bufferi
+od CB8B nadol, takže `ADD A,64h`, `3Ch`, `3Ch`, `18h` sedí na stotiny,
+sekundy, minúty, hodiny — ale **v bufferi, nie na portoch**. Kto ten
+swap prehliadne, dostane hodiny prehodené so sekundami a mesiac s dňom.
+
+Zapisovacia rutina (0DF5A, 0DF7C) používa oproti čítacej zrkadlené
+poradie bufferu, čo tú istú pascu kladie druhýkrát.
+
+## Klávesnica IBM PC na CSI/O
 
 Kód na 18801–188B0 a 1E001 používa Z180 CSI/O (CNTR 0Ah, TRDR 0Bh)
-spolu s bitmi 2 a 3 portu B0h ako ručne kývanými riadiacimi linkami.
-Postupnosť: vyšli FFh, prepni linky, prijmi, hľadaj odpoveď **AAh**
-s timeoutom 6000h. Zariadenie sa nepodarilo pomenovať.
-Kandidáti: voltmeter/teplomer (BASIC má `DVM`, `TIC`, `TIF`, `TEC`, `TEF`).
+spolu s bitmi 2 a 3 portu B0h. Tie bity sú `kb_rst_mask`
+(reset klávesnice, aktívny v nule, drží sa asi 200 ms) a
+`kb_prime_mask`, ktorý nastaví latch tak, aby sa **ignoroval prvý
+hodinový bit** prichádzajúceho bajtu — manuál to označuje priamo za
+požiadavku 64180.
+
+Postupnosť „vyšli FFh, prepni linky, prijmi, čakaj na **AAh**
+s timeoutom 6000h" je teda štandardné privítanie klávesnice: `FFh` je
+príkaz Reset a `AAh` je odpoveď *Basic Assurance Test passed*.
+
+Meracia periféria to nie je. Voltmeter a teplomer (`DVM`, `TIC`, `TIF`)
+sa čítajú komparátormi na porte A8h proti DAC, nie cez CSI/O.
 
 ## Poznámky pre emulátor
 
 - Všetky tri latche sú v hardvéri len na zápis, ale firmvér ich zrkadlí
   v RAM na C438h/C439h/C43Ah. Emulátor sa proti tomu zrkadlu dá overiť.
-- Port 88h treba brať ako DAC pri každom zápise; jediný nevysvetlený
-  zápis je hodnota ADh na 19A01 v diskovej ceste.
+- Port 88h treba brať ako DAC pri každom zápise. Zápis `ADh` na 19A01
+  pred každým príkazom radiča **nie je nevysvetlený**: je to nastavenie
+  prahu komparátora pre stráženie batérie počas diskovej operácie
+  (`ADh` z rozsahu 1,31 V je asi 0,89 V). Servisná kapitola manuálu to
+  potvrdzuje aj z druhej strany — poškodená batéria „sa javí ako funkčná,
+  kým sa nesiahne na disk, a vtedy sa ohlási Low battery".
+- DAC je zdieľaný: reč, hudba, tónová voľba aj referencia komparátorov.
+  Meranie má zmysel len vtedy, keď cezeň práve nehrá reč.
 - Prvý míľnik pri rozbiehaní: ROM má zabudovaný autotest, ktorý zráta
   všetkých päť modulov a povie „všechny ROMy oukej".
