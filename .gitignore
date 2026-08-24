@@ -6,11 +6,10 @@ A4ROM*
 # Odvodené zvukové súbory sa dajú kedykoľvek vyrobiť z tools/melodies.py
 audio/
 
-# Výstup zostavenia
+# Výstup zostavenia: build/ sú medzivýstupy, bin/ hotové EXE
 build/
+bin/
+*.o
 *.obj
 *.exe
 __pycache__/
-
-# Medzivýstup mingw pri rýchlej kontrole prekladu
-*.o

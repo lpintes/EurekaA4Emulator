@@ -117,7 +117,7 @@ perkinsovej klávesnice zľava doprava.
 
 ## 5. Emulátor
 
-Natívny Windows, MSVC, `build.bat`. Jadro je superzazu z80 doplnené
+Natívny Windows, mingw64 z msys2, `build.bat`. Jadro je superzazu z80 doplnené
 o inštrukcie Z180 (`IN0`, `OUT0`, `MLT`, `TST`, `TSTIO`, `OTIM`/`OTDM`,
 `SLP`).
 

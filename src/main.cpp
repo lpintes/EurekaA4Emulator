@@ -4,14 +4,10 @@
 
 #include <chrono>
 #include <filesystem>
-#include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
 #include <vector>
-
-#include <fcntl.h>
-#include <io.h>
 
 #include "audio_player.h"
 #include "machine.h"
@@ -21,16 +17,52 @@ namespace fs = std::filesystem;
 
 namespace {
 
-void Print(const std::wstring& text) {
-  HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
-  DWORD mode = 0;
-  if (output != INVALID_HANDLE_VALUE && GetConsoleMode(output, &mode)) {
+// Redirected output has no console to accept wide characters. The old fallback
+// was std::wcout, which narrows through the "C" locale, fails on the first
+// character it cannot represent and then swallows the rest -- the help text
+// used to break off mid-word at "Pou". UTF-8 bytes match the
+// SetConsoleOutputCP(CP_UTF8) in wmain and survive a pipe or a file unchanged.
+void WriteAllBytes(HANDLE output, const std::string& bytes) {
+  size_t offset = 0;
+  while (offset < bytes.size()) {
     DWORD written = 0;
-    WriteConsoleW(output, text.data(), static_cast<DWORD>(text.size()), &written,
-                  nullptr);
-  } else {
-    std::wcout << text;
+    if (!WriteFile(output, bytes.data() + offset,
+                   static_cast<DWORD>(bytes.size() - offset), &written,
+                   nullptr) ||
+        written == 0)
+      return;
+    offset += written;
   }
+}
+
+void Print(const std::wstring& text) {
+  if (text.empty()) return;
+  HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
+  if (output == nullptr || output == INVALID_HANDLE_VALUE) return;
+
+  DWORD mode = 0;
+  if (GetConsoleMode(output, &mode)) {
+    size_t offset = 0;
+    while (offset < text.size()) {
+      DWORD written = 0;
+      if (!WriteConsoleW(output, text.data() + offset,
+                         static_cast<DWORD>(text.size() - offset), &written,
+                         nullptr) ||
+          written == 0)
+        return;
+      offset += written;
+    }
+    return;
+  }
+
+  const int size = WideCharToMultiByte(CP_UTF8, 0, text.data(),
+                                       static_cast<int>(text.size()), nullptr,
+                                       0, nullptr, nullptr);
+  if (size <= 0) return;
+  std::string bytes(static_cast<size_t>(size), 0);
+  WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                      bytes.data(), size, nullptr, nullptr);
+  WriteAllBytes(output, bytes);
 }
 
 fs::path ExecutableDirectory() {

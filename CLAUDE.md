@@ -56,17 +56,26 @@ common area 1 s CBR=`0Bh` platí fyzická = logická + `B000h`.
 
 ## Zostavenie
 
-Emulátor: `build.bat` v „x64 Native Tools Command Prompt for VS 2022".
+Prekladá sa **mingw64 z msys2**, ktorý je na stroji v
+`C:\msys64\mingw64\bin`. Iný prefix sa dá podstrčiť premennou
+`MINGW64`. Visual Studio už netreba.
 
-Na rýchlu kontrolu prekladu a na sondu stačí mingw, ktorý je na stroji
-v `C:\msys64\mingw64\bin`. `z80.c` treba preložiť ako C, nie C++:
+Emulátor: `build.bat` z ľubovoľného príkazového riadka — cestu k mingw
+si predradí sám a na globálny PATH sa nespolieha. Hotové EXE ide do
+`bin\`, medzivýstupy do `build\`; oba sú v `.gitignore`.
 
-```
-gcc -std=c11 -O1 -Isrc -c src\z80.c -o z80.o
-g++ -std=c++20 -O1 -Isrc -municode -o diag_probe.exe ^
-    tests\diag_probe.cpp src\machine.cpp src\virtual_disk.cpp ^
-    src\diagnostics.cpp z80.o
-```
+Dve veci, bez ktorých sa emulátor nezlinkuje: `-municode`, lebo vstupný
+bod je `wmain`, a `-static -static-libgcc -static-libstdc++`, inak EXE
+pýta mingw DLL a mimo msys2 shellu sa nespustí.
+
+`z80.c` sa prekladá ako C, nie C++; `build.bat` to už rieši.
+
+Sonda a testy: `build-tests.bat`. Zostaví `bin\diag_probe.exe`,
+`bin\integration_test.exe` a `bin\codec_test.exe`, a linkuje ich proti
+objektom z `build\` — ak tam nie sú, zavolá si `build.bat` sám.
+
+Pozor: `codec_test` má obyčajný `main`, takže sa prekladá **bez**
+`-municode`; s ním linker spadne na chýbajúcom `wWinMain`.
 
 ## Diagnostická sonda
 

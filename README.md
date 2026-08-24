@@ -117,16 +117,22 @@ kde naozaj začína zapisovateľná RAM a čo visí na sériovom porte Z180.
 
 ## Zostavenie
 
-Vyžaduje Visual Studio 2022 s C++ workloadom. Otvorte „x64 Native Tools
-Command Prompt for VS 2022“ a spustite:
+Vyžaduje **mingw64 z msys2** (balík `mingw-w64-x86_64-gcc`). Predvolene sa
+hľadá v `C:\msys64\mingw64`; iné umiestnenie sa podstrčí premennou
+prostredia `MINGW64`. Z ľubovoľného príkazového riadka spustite:
 
 ```text
 build.bat
 ```
 
-Výsledok bude v `build\EurekaA4Emulator.exe`. ROM nie je súčasťou licencie
-zdrojového kódu; pozrite `ROM-NOTICE.txt`. Použité jadro Z80 má vlastné MIT
-oznámenie v `src\LICENSE.superzazu-z80.txt`.
+Výsledok bude v `bin\EurekaA4Emulator.exe`; `build\` obsahuje len
+medzivýstupy prekladu. Oba priečinky sú mimo verziovania. Spustiť sa dá
+aj cez `Spustit-Eureku.bat`, ktorý si EXE nájde v `bin\`.
+EXE je linkované staticky, takže beží aj mimo msys2 a nepotrebuje
+žiadne mingw DLL.
+
+ROM nie je súčasťou licencie zdrojového kódu; pozrite `ROM-NOTICE.txt`.
+Použité jadro Z80 má vlastné MIT oznámenie v `src\LICENSE.superzazu-z80.txt`.
 
 Technické referencie k procesoru: [Hitachi HD64180 User's Manual](https://www.bitsavers.org/components/hitachi/64180/HD64180_Users_Manual_Oct85.pdf),
 [Zilog Z180 User Manual](https://www.zilog.com/docs/z180/um0050.pdf) a

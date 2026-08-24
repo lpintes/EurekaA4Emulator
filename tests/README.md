@@ -1,5 +1,8 @@
 # Tests
 
+Build them with `build-tests.bat` (mingw64 from msys2, same toolchain as
+the emulator). The executables land in `bin\` next to the emulator.
+
 `codec_test.cpp` verifies Unicode ↔ Kamenicky conversion.
 
 `integration_test.cpp` boots the real ROM and has two modes:
