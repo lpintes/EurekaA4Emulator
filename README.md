@@ -83,18 +83,20 @@ neprepísal obsah pripojeného obrazu.
 ## Čo sa emuluje
 
 - inštrukčné jadro Z80/HD64180 a rozšírené opkódy Z180;
-- 20-bitový adresný priestor, ROM/RAM a MMU registre CBR/BBR/CBAR;
-- PRT0/PRT1, interné vektorované prerušenia a DMA0;
+- 19-bitový adresný priestor, ROM/RAM a MMU registre CBR/BBR/CBAR;
+- PRT0/PRT1, interné vektorované prerušenia a oba kanály DMA;
 - braillová maticová klávesnica a rozhranie klávesnice PC/XT;
 - WD1772 na úrovni sektorov a CP/M BIOS na úrovni 128-bajtových záznamov;
 - RTC, napäťové komparátory, napájacie a výstupné registre;
-- 8-bitový DAC, pôvodný syntetizátor, hudba a zvuky cez Windows `waveOut`;
+- 8-bitový DAC s rekonštrukčným filtrom, pôvodný syntetizátor, hudba
+  a zvuky cez Windows `waveOut`;
 - základné stavové registre ASCI a CSI/O potrebné na štart ROM.
 
 Externý modem, telefónna linka a fyzický sériový kábel zatiaľ nemajú most na
-zariadenia Windows; ich vstupy zostávajú v bezpečnom pokojovom stave. Formát
-stopy a exotické viacsektorové príkazy WD1772 sú modelované len v rozsahu,
-ktorý používa dodaná ROM. Táto verzia preto nie je náhradou meracieho
+zariadenia Windows; ich vstupy zostávajú v bezpečnom pokojovom stave. Formátovanie prebehne
+a stroj ho ohlási ako dokončené, ale obsah stopy sa zahadzuje: disk je
+hostiteľský priečinok a formát v ňom súbory nemaže. Exotické viacsektorové
+príkazy WD1772 sú modelované len v rozsahu, ktorý používa dodaná ROM. Táto verzia preto nie je náhradou meracieho
 emulátora na overovanie presného časovania externých periférií.
 
 ## Diagnostika

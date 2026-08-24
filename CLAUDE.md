@@ -7,6 +7,25 @@ doložené, čo je otvorené a v akom poradí pokračovať. Bez neho budeš
 znovu odvodzovať veci, ktoré sú už overené. Mapa hardvéru je
 v `hardware-map.md`.
 
+## Máme oficiálny manuál — pozri doň skôr, než začneš odvodzovať
+
+V `eurekatech/` je **Eureka A4 Technical Manual** od Robotronu aj
+s vývojárskou diskétou. Nie je to doplnok, je to **prameň**: príloha H
+(`TECHMAN1/IOPORT.H` a `IOPORT.LIB`) je úplná mapa externých I/O portov
+s názvami signálov a bitovými maskami, `DEVICES.10` má volania
+zariadení, `SYSRAM.A` pomenované premenné, `MEMMAP.E` mapy pamäte
+a `FILE-FMT.D` formáty súborov.
+
+Dvakrát sa už stalo, že odvodenie zo samotnej ROM vyzeralo doložene
+a bolo nesprávne — vždy tak, že si **susednosť pomýlilo s príčinnosťou**
+(prehliadnutý swap registrov, zápisy do DAC vedľa nesúvisiaceho bitu).
+Manuál to oba razy rozhodol za pár minút. Keď narazíš na port, bit alebo
+volanie, hľadaj najprv tam.
+
+Pozor: obsah `eurekatech/` je materiál tretích strán (Robotron
+a Borland) a MIT licencia projektu sa naň nevzťahuje. Viď
+`eurekatech/PUVOD.md`.
+
 ## O používateľovi
 
 Používateľ je **nevidiaci**, pracuje s čítačom obrazovky (NVDA), hovorí
@@ -57,12 +76,17 @@ a vypíše, čo model hardvéru neobsluhuje.
 ```
 diag_probe ROM DISK_FOLDER boot
 diag_probe ROM DISK_FOLDER sweep 4000000
-diag_probe ROM DISK_FOLDER seq 15000000 kD7 Y
-diag_probe ROM DISK_FOLDER trace 20000000 baterie
+diag_probe ROM DISK_FOLDER seq 15000000 kD7 Y Y
+diag_probe ROM DISK_FOLDER trace 20000000 formatovaci
 ```
 
 Pred hádaním, čo firmvér robí, ho radšej spusti a pozri sa. Takto sa
-našla chyba `BIT b,(HL)` v jadre aj chýbajúci INTRQ.
+našla chyba `BIT b,(HL)` v jadre aj to, kde presne viazlo formátovanie.
+
+Sondu si pokojne dopĺňaj o dočasnú inštrumentáciu (počítadlá, záznam
+udalostí, histogram PC) v kópii zdrojáka v scratchpade — repozitár tým
+nešpiň. Takto sa odhalilo, že firmvér povolí DMA skôr, než vydá príkaz
+radiču.
 
 ## Štýl kódu
 

@@ -9,8 +9,11 @@
   the program keeps producing emulated output/audio.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
-These firmware/application files are deliberately not licensed as part of the
-emulator source tree.
+A genuine `READ.COM` ships with the Technical Manual's development disk and is
+in the tree at `eurekatech/TECHMAN1/READ.COM`; copy it into the disk folder.
+It is third-party material and not covered by the emulator's MIT licence, so
+`.gitattributes` keeps it out of line-ending conversion -- the test depends on
+it being byte for byte what came off the original diskette.
 
 `diag_probe.cpp` boots the ROM with diagnostics enabled and prints the report.
 It needs no application files, only the ROM and any folder to act as a disk:
@@ -85,32 +88,50 @@ a firmware-composed status byte:
 Only bit 6 lines up with a WD177x status bit, so the byte is assembled by the
 firmware from more than the controller.
 
-Bit 0 is now solved. It is not a hardware line at all but a timeout: the poll
-loop at physical 19837h waits for INTRQ on port A8h bit 1 or for DRQ on the
-controller status, counts down, and returns 01h when neither arrives. The
-model never asserted INTRQ, so every disk command timed out. `fdcIntrq_` in
-`EurekaMachine` now provides it, with WD177x semantics: raised when a type I
-command or Force Interrupt completes and when a data transfer runs out,
-cleared by reading the status register or by writing a new command.
+All four bits are now solved, and the first reading of them was wrong in a way
+worth recording, because the probe is what exposed it.
+
+Bit 0 is a timeout: the poll loop at physical 19837h counts down and returns
+01h if nothing arrives. The first fix asserted the controller's INTRQ on port
+A8h bit 1, which did stop the timeout -- but for the wrong reason. Appendix H
+of the Technical Manual gives A8h bit 1 as `vm2_mask`, the battery comparator,
+and the loop treats a set bit as an *abort*: it returns 02h, which is bit 1,
+"slaba baterie". So the disk stopped timing out and started reporting a flat
+battery instead. INTRQ is not readable on any external port.
+
+What the loop actually waits for is INDEX in the controller's own status
+register on port 98h, which `TypeOneStatus()` now supplies.
+
+Bit 1 follows from the same appendix. The `OUT (88h),ADh` at 19A01h before
+every controller command sets the DAC as the comparator reference, and `OR 42h`
+on the output latch selects the drive and switches the comparators to the
+battery pair at the same time: the machine watches the battery for the whole
+disk operation. Nothing was wrong with the thresholds in `ReadInputBuffer`,
+which is why raising them to E0h changed nothing -- `fdcIntrq_` was overriding
+the result.
 
 Mode `trace` records every access to a chosen set of ports even when the model
 implements them, and stops the moment the ROM speaks a given phrase, so the
 ring buffer ends on the decision being investigated:
 
 ```text
-diag_probe A4ROM.DMP disk-folder trace 20000000 baterie
+diag_probe A4ROM.DMP disk-folder trace 20000000 formatovaci
 ```
 
-With INTRQ in place the disk sequence runs to completion -- motor on via A0
-bit 0, drive select via B0 bit 1, `IN (99h)`, `OUT (9Bh)`, Seek command 10h,
-INTRQ observed, status read, motor off. Formatting now stops one gate later,
-on "slaba baterie", which is bit 1 of the same status byte. That bit does not
-come from the DAC comparators in `ReadInputBuffer`: raising both thresholds to
-E0h changes nothing. Its source is still unknown, and it is what now stands
-between the probe and the first exercise of DMA channel 1 and Write Track.
+Note that `trace` answers the format prompt only once. The firmware now gets
+far enough to ask a second question ("already formatted, reformat?"), so the
+mode stops one gate short of the format itself; drive it with `seq` instead:
 
-One incidental find: the `OUT (88h),ADh` that this review flagged as
-unexplained is issued at 19A01h before every controller command. The routine
-called immediately after it (19A3Eh) turns out to be a BUSY check that issues
-Force Interrupt, so the ADh write is part of the pre-command sequence rather
-than anything to do with audio. What it actually drives is still open.
+```text
+diag_probe A4ROM.DMP disk-folder seq 15000000 kD7 Y Y
+```
+
+Formatting now runs to completion and the machine says "formatovani skonceno":
+162 track writes, 1620 verify reads, 81 steps. That was the first time DMA
+channel 1 and Write Track were ever executed, and getting there took four more
+model fixes -- DMA arming order and direction, BUSY on reads, and the type I
+step commands. `HANDOFF.md` section 5 lists them.
+
+The moral, and the reason this is written down: every wrong step above came
+from reading the ROM alone and mistaking adjacency for causation. The probe
+showed the machine misbehaving; only Appendix H said why.
