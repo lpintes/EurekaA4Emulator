@@ -99,9 +99,11 @@ void EurekaMachine::Reset() {
   audio_.clear();
   keys_.clear();
   firmwareKeys_.clear();
-  membraneKeys_.clear();
-  membraneKey_ = 0;
-  membraneScansRemaining_ = 0;
+  membraneFrames_.clear();
+  membraneState_ = MembraneFrame();
+  membraneUntil_ = 0;
+  membraneMinUntil_ = 0;
+  membraneHeldKey_ = 0;
   keyboardInitialized_ = false;
   biosWaiting_ = false;
   consoleOutput_.clear();
@@ -238,33 +240,128 @@ uint8_t EurekaMachine::ReadInputBuffer() const {
   return value;
 }
 
+namespace {
+// How long one emulated press lasts, in milliseconds of guest time.  It has to
+// outlive the debounce in KEYSCAN.MAC (two scans 20 ms apart) and stay well
+// under the typematic delay the ROM arms at 1D4D6 (4Bh heartbeats = one
+// second), or a single tap would repeat.
+constexpr uint32_t kPressMs = 120;
+// A modifier goes down before the key it modifies: pressed in the same scan,
+// D4B0 decodes the braille row first and the cursor key is thrown away.
+constexpr uint32_t kModifierMs = 80;
+// Every key ends with the rows back at zero for long enough that the ROM sees
+// the release; without it two keys in a row look like one held chord.
+constexpr uint32_t kReleaseMs = 80;
+// How much longer a key stays down each time the host repeats it.  Anything
+// above the host's repeat interval (about 33 ms) is enough to keep the key
+// continuously down for as long as the user holds it.
+constexpr uint32_t kHoldMs = 100;
+// Shortest press the ROM is guaranteed to notice: three ticks of the 75 Hz
+// heartbeat that drives the scan at 1D1AE.  A host that reports key releases
+// cuts a press back to this, so a tap answers without waiting out kPressMs.
+constexpr uint32_t kMinPressMs = 40;
+
+// Two codes are the same physical key if they differ only in their modifiers;
+// the host may well have let go of Shift before the key it modified.
+bool SameKey(uint8_t left, uint8_t right) {
+  return ((left ^ right) & 0xcf) == 0;
+}
+
+constexpr uint32_t MsToCycles(uint32_t ms) {
+  return EurekaMachine::kCpuHz / 1000 * ms;
+}
+}  // namespace
+
 uint8_t EurekaMachine::ReadMembraneKeyboard(uint8_t port) {
-  if (membraneKey_ == 0 && !membraneKeys_.empty()) {
-    membraneKey_ = membraneKeys_.front();
-    membraneKeys_.pop_front();
-    // A Windows key-down is represented as a short physical press.  The ROM
-    // observes three stable scans before accepting a chord and scans this path
-    // through its heartbeat scheduler, so keep it asserted for a little over
-    // 300 ms at the documented 75 Hz scan rate.
-    membraneScansRemaining_ = 25;
+  // The rows advance only on a read of the braille row.  Every full scan in
+  // this ROM reads it first (00642, 0AA03, 18042, 1D1AE) and the one that does
+  // not (1D208) reads it last, so no scan can see half of one key state and
+  // half of the next.  Counting scans instead of guest time cannot work: the
+  // tone generator's interrupt at 00642 scans the keyboard at the DAC rate,
+  // several thousand times a second, and used to eat a keypress in 3 ms.
+  if (port == 0x89 && cycles_ >= membraneUntil_ && !membraneFrames_.empty()) {
+    membraneState_ = membraneFrames_.front();
+    membraneFrames_.pop_front();
+    membraneUntil_ = cycles_ + membraneState_.cycles;
+    membraneMinUntil_ = cycles_ + MsToCycles(kMinPressMs);
+    if (membraneState_.row0 == 0 && membraneState_.row1 == 0 &&
+        membraneState_.row2 == 0)
+      membraneHeldKey_ = 0;
   }
-  uint8_t value = 0;
-  if (membraneKey_ != 0) {
-    const uint8_t kind = membraneKey_ & 0xc0;
-    const uint8_t number = membraneKey_ & 0x0f;
-    if (port == 0x8a && kind == 0xc0 && number < 8) value = 1u << number;
-    if (port == 0x89) {
-      if (kind == 0x80) value |= number & 0x0f;
-      // The production A4 ROM decodes the second modifier from row 2 bit 7.
-      if ((membraneKey_ & 0x20) != 0) value |= 0x80;
-      if (membraneScansRemaining_ > 0 && --membraneScansRemaining_ == 0)
-        membraneKey_ = 0;
+  switch (port) {
+    case 0x89: return membraneState_.row0;
+    case 0x8a: return membraneState_.row1;
+    case 0x8c: return membraneState_.row2;
+    default: return 0;
+  }
+}
+
+bool EurekaMachine::MembraneBusy() const {
+  return !membraneFrames_.empty() || membraneState_.row0 != 0 ||
+         membraneState_.row1 != 0 || membraneState_.row2 != 0;
+}
+
+// Turns one Eureka key code into the physical presses that produce it.  The
+// codes are KB.LIB's: bits 7-6 select the cursor keypad (10) or a function key
+// (11), bit 5 is ALT -- which is physically the space bar on the braille
+// keyboard -- bit 4 is shift, and the low nibble is the key itself.  For the
+// keypad that nibble is the set of arrow keys held down at once, which is why
+// Home is up plus left.
+void EurekaMachine::PressMembraneKey(uint8_t key) {
+  // Windows repeats a held key about thirty times a second, far faster than
+  // the machine's own typematic (1D4D6 waits 4Bh heartbeats, then 1D1E9
+  // repeats every ten).  Queueing a fresh tap per repeat would build a
+  // backlog that keeps scrolling long after the key came up, so a repeat of
+  // the key that is still down only keeps it down, and the ROM does the
+  // repeating exactly as it would on the real machine.
+  if (membraneHeldKey_ != 0 && SameKey(key, membraneHeldKey_)) {
+    if (membraneState_.key == membraneHeldKey_) {
+      const uint64_t until = cycles_ + MsToCycles(kHoldMs);
+      if (until > membraneUntil_) membraneUntil_ = until;
     }
-    // Despite an early manual's row labels, this ROM image derives K_SHIFT
-    // from row 0 bit 6 (the otherwise unused matrix position).
-    if (port == 0x8c && (membraneKey_ & 0x10) != 0) value |= 0x40;
+    return;
   }
-  return value;
+  const uint8_t kind = key & 0xc0;
+  const uint8_t number = key & 0x0f;
+  const bool alt = (key & 0x20) != 0;
+  const uint8_t shift = (key & 0x10) != 0 ? 0x40 : 0;
+  MembraneFrame frame;
+  if (kind == 0x80) {
+    frame.row0 = alt ? 0x80 : 0;
+    frame.row2 = static_cast<uint8_t>(number | shift);
+  } else if (kind == 0xc0 && number < 8) {
+    frame.row1 = static_cast<uint8_t>(1u << number);
+    frame.row2 = shift;
+  } else if (kind == 0xc0) {
+    // There are only eight function keys.  F9 and F10 are chords of the space
+    // bar and braille dots, decoded at 1D541; the shifted forms are chords of
+    // their own, so they carry no shift bit.
+    switch (key) {
+      // The row bits run in Perkins key order, left to right, so bit 0 is dot
+      // 3 and bit 2 is dot 1; the ROM indexes its braille tables (D7A0) with
+      // the row byte itself, and index 04h there is the letter "a".
+      case 0xc8: frame.row0 = 0x84; break;  // space + dot 1    = F9  (MODE)
+      case 0xc9: frame.row0 = 0x88; break;  // space + dot 4    = F10 (WHERE)
+      case 0xd8: frame.row0 = 0x86; break;  // space + dots 1,2 = Shift+F9
+      case 0xd9: frame.row0 = 0x98; break;  // space + dots 4,5 = Shift+F10
+      default: return;
+    }
+  } else {
+    return;
+  }
+  if (alt && kind == 0x80) {
+    MembraneFrame space;
+    space.row0 = 0x80;
+    space.cycles = MsToCycles(kModifierMs);
+    membraneFrames_.push_back(space);
+  }
+  frame.cycles = MsToCycles(kPressMs);
+  frame.key = key;
+  membraneFrames_.push_back(frame);
+  membraneHeldKey_ = key;
+  MembraneFrame release;
+  release.cycles = MsToCycles(kReleaseMs);
+  membraneFrames_.push_back(release);
 }
 
 void EurekaMachine::InjectFirmwareKey() {
@@ -752,10 +849,17 @@ bool EurekaMachine::InterceptBios() {
   const uint16_t bc = (static_cast<uint16_t>(cpu_.b) << 8) | cpu_.c;
   switch (function) {
     case 2:  // console status
+      // While a key is on its way through the keyboard ports the ROM's own
+      // queue is the one that knows about it, so let the ROM answer.
+      if (MembraneBusy()) return true;
       cpu_.a = keys_.empty() ? 0 : 0xff;
       ReturnFromCall();
       return true;
     case 3:  // console input
+      if (MembraneBusy()) {
+        biosWaiting_ = false;
+        return true;
+      }
       if (keys_.empty()) {
         biosWaiting_ = true;
         return false;
@@ -832,15 +936,18 @@ bool EurekaMachine::Step() {
 }
 
 void EurekaMachine::QueueKey(uint8_t key) {
-  if (biosWaiting_) {
+  // Eureka key codes with bit 7 set describe chords on the built-in 20-key
+  // keyboard, and the ROM does far more with them than hand them to the
+  // program: it decodes them in its heartbeat, and MODE, WHERE and the
+  // application keys act wherever they are pressed.  Handing them to a
+  // blocked BIOS console read instead made them dead inside BASIC and the
+  // music editor, so they always go on the real keyboard ports.
+  if (biosWaiting_ && (key & 0x80) == 0) {
     keys_.push_back(key);
     return;
   }
-  // Eureka key codes with bit 7 set describe function/cursor chords on the
-  // built-in 20-key keyboard.  Present them on the real keyboard ports so the
-  // ROM's 75 Hz scanner and debounce logic see exactly the original hardware.
   if ((key & 0x80) != 0) {
-    membraneKeys_.push_back(key);
+    PressMembraneKey(key);
   } else if (keyboardInitialized_) {
     // Printable keys from a Windows keyboard enter the same ROM-owned queue
     // as characters decoded from the optional IBM PC/XT keyboard interface.
@@ -848,6 +955,24 @@ void EurekaMachine::QueueKey(uint8_t key) {
   } else {
     keys_.push_back(key);
   }
+}
+
+void EurekaMachine::ReleaseKey(uint8_t key) {
+  if ((key & 0x80) == 0 || membraneHeldKey_ == 0 ||
+      !SameKey(key, membraneHeldKey_))
+    return;
+  if (membraneState_.key == membraneHeldKey_) {
+    // The press is on the ports now: let it stand until the ROM has certainly
+    // scanned it, then let the release frame follow.
+    const uint64_t earliest = std::max(cycles_, membraneMinUntil_);
+    if (earliest < membraneUntil_) membraneUntil_ = earliest;
+  } else {
+    // Released before the first scan even reached it, which happens with a
+    // fast tap; shorten the press instead of dropping it.
+    for (MembraneFrame& frame : membraneFrames_)
+      if (frame.key == membraneHeldKey_) frame.cycles = MsToCycles(kMinPressMs);
+  }
+  membraneHeldKey_ = 0;
 }
 
 void EurekaMachine::QueueText(const std::string& ascii) {

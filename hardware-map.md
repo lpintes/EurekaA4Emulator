@@ -40,7 +40,7 @@ Dekodér s výberom po 8 portoch: 80, 88, 90, 98, A0, A8, B0, B8.
 |---|---|---|---|
 | 80h | W | `modem_latch` — riadenie modemu AM7910, tieň C439h | doložené |
 | 88h | W | `dac_port` — 8-bit DAC (reč, zvuk, DTMF, referencia komparátorov) | doložené |
-| 89h, 8Ah, 8Ch | R | `bkb_row2`, `bkb_row1`, `bkb_row0` — braillova klávesnica | doložené |
+| 89h, 8Ah, 8Ch | R | `bkb_row0`, `bkb_row1`, `bkb_row2` — braillova klávesnica | doložené |
 | 90h–97h | R/W | hodiny reálneho času, sedem registrov + deň v týždni | doložené |
 | 190h–197h | R/W | `rtc_ram_*` — čas a dátum najbližšieho budíka | doložené |
 | 290h | R/W | `rtc_status` (čítanie) / `rtc_mask` (zápis) | doložené |
@@ -248,6 +248,82 @@ swap prehliadne, dostane hodiny prehodené so sekundami a mesiac s dňom.
 
 Zapisovacia rutina (0DF5A, 0DF7C) používa oproti čítacej zrkadlené
 poradie bufferu, čo tú istú pascu kladie druhýkrát.
+
+## Braillova klávesnica
+
+Dvadsať klávesov v troch riadkoch, každý riadok jeden port len na
+čítanie, pravdivá logika (nastavený bit = stlačený kláves).
+
+| port | riadok | obsah |
+|---|---|---|
+| 89h | `bkb_row0` | bity 0–5 šesť bodových klávesov, bit 7 **medzerník** |
+| 8Ah | `bkb_row1` | bity 0–7 funkčné klávesy F1–F8 |
+| 8Ch | `bkb_row2` | bity 0–3 kurzorové klávesy hore/dolu/vľavo/vpravo, bit 6 **shift** |
+
+**Pozor: text manuálu si riadky 0 a 2 prehodil.** Príloha H tvrdí, že
+braillove body sú na `8Ch` a kurzory na `89h`; ekvivalenty v
+`IOPORT.LIB` (`bkb_row0 equ keyboard or 001b`) hovoria opak a rozhoduje
+ROM: na 1D41F maskuje `89h` hodnotou `3Fh`, aby dostala šesť bodov, a
+na 1D206 maskuje `8Ch` hodnotou `0Fh`, aby *ignorovala shift* — presne
+to, čo o riadku 2 píše `KEYSCAN.MAC`.
+
+Kód klávesu skladá dekodér na 1D4F3 a ukladá ho na C638h:
+
+- bity 7–6: `10` kurzorová plocha, `11` funkčný kláves
+- bit 5 (`k_alt`): medzerník, teda `89h` bit 7
+- bit 4 (`k_shift`): `8Ch` bit 6
+- dolné štyri bity: číslo funkčného klávesu, alebo **maska naraz
+  stlačených kurzorových klávesov** — preto je Home hore+vľavo (`85h`)
+  a Delete vľavo+vpravo (`8Ch`)
+
+Funkčné klávesy sú len štyri páry, teda osem. **F9 a F10 vlastný kláves
+nemajú**: sú to akordy medzerníka a braillových bodov, ktoré rozhoduje
+tabuľka na 1D541.
+
+| akord | `89h` | kód | význam |
+|---|---|---|---|
+| medzerník + bod 1 | `84h` | `C8h` | F9 = MODE |
+| medzerník + bod 4 | `88h` | `C9h` | F10 = WHERE |
+| medzerník + body 1,2 | `86h` | `D8h` | Shift+F9 = stav batérie |
+| medzerník + body 4,5 | `98h` | `D9h` | Shift+F10 = sebekontrola |
+| medzerník + body 1,4,5 | `9Ch` | `CAh` | (nepoužité) |
+
+### Poradie bitov v braillovom riadku
+
+Bity idú v poradí klávesov zľava doprava, nie podľa čísel bodov:
+**bit 0 = bod 3, bit 1 = bod 2, bit 2 = bod 1, bit 3 = bod 4,
+bit 4 = bod 5, bit 5 = bod 6.** Preto je `04h` bod 1, nie bod 3.
+
+Doložené tým, že ROM tým bajtom **priamo indexuje** prekladovú tabuľku
+(`1D79C`: `ADD HL,BC` s `B=0`). Na indexe `04h` je `a`, na `06h` `b`,
+na `0Ch` `c`, na `1Ch` `d` — učebnicový braill.
+
+Tabuľky sú tri, nie dve, a vyberá medzi nimi rutina na 1D784 podľa
+`C835h` a `C668h`:
+
+| adresa | obsah |
+|---|---|
+| `1D7A0` | počítačový braill, plná ASCII sada |
+| `1D7E0` | literárna sada s diakritikou |
+| `1D820` | číselný režim (`a`–`j` sú `1`–`0`) |
+
+Cesta od stlačenia ku kódu má tri kroky a každý má vlastné časovanie:
+
+1. **Sken.** Obsluha heartbeatu na 1D1AE porovná tri riadky s tieňmi
+   C62E–C630. Klávesnicu skenuje aj generátor tónov (00642) — ten beží
+   rýchlosťou DAC, teda tisíckrát za sekundu.
+2. **Záchyt.** Pri zmene sa na 1D1FA uloží nový stav do C631–C633
+   a `C61E` sa nastaví na 3.
+3. **Dekódovanie.** `C61E` sa každý tik znižuje a pri nule sa naplánuje
+   dekodér (1D1D5 → D41C → D4B0). Každá ďalšia zmena riadka počítadlo
+   znovu naplní, takže **všetko, čo sa stlačí do troch tikov (asi
+   40 ms), je jeden akord**.
+
+Z bodu 3 plynie nepríjemnosť pre modifikátor ALT: medzerník stlačený
+súčasne s kurzorom sa dekóduje ako braillov znak a kurzor sa zahodí
+(D4B0 sa pozerá najprv na braillov riadok). Aby vznikol `A1h` a spol.,
+musí medzerník ísť dole **skôr než o tri tiky**. Shift takú podmienku
+nemá — zmeny `8Ch` nad bitom 3 sa do porovnania vôbec nepočítajú.
 
 ## Klávesnica IBM PC na CSI/O
 

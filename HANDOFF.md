@@ -106,12 +106,18 @@ v `audio/` (štyri vzorkovacie frekvencie, lebo presná nie je známa).
 
 ## 4. Braillove tabuľky
 
-Dve 64-bajtové tabuľky na `0x1D7A0` (počítačový braill s číslicami
-v spodnej časti bunky) a `0x1D7E0` (česká literárna sada s diakritikou).
+**Tri** 64-bajtové tabuľky, nie dve: `0x1D7A0` (počítačový braill
+s číslicami v spodnej časti bunky), `0x1D7E0` (česká literárna sada
+s diakritikou) a `0x1D820` (číselný režim, `a`–`j` sú `1`–`0`). Vyberá
+medzi nimi rutina na `0x1D784` podľa `C835h` a `C668h`.
 
 Poradie bitov indexu: **bit0 = bod 3, bit1 = bod 2, bit2 = bod 1,
 bit3 = bod 4, bit4 = bod 5, bit5 = bod 6** — teda poradie klávesov
 perkinsovej klávesnice zľava doprava.
+
+To isté poradie má aj **port `89h`**: ROM tým bajtom tabuľku priamo
+indexuje (`1D79C`). Kto by chcel simulovať braillovu klávesnicu, nemusí
+prekladať nič — stačí vydať bity na port a ROM si znak nájde sama.
 
 ---
 
@@ -131,12 +137,19 @@ Mapa funkčných klávesov:
 | kláves | aplikácia | kláves | aplikácia |
 |---|---|---|---|
 | F1 | záznamník | Shift+F1 | textový procesor |
+| F2 | hodiny a kalendár | Shift+F2 | (mlčí) |
 | F3 | kalkulátor | Shift+F3 | teplomer |
 | F4 | komunikácia | Shift+F4 | voltmeter |
 | F5 | telefónny zoznam | Shift+F5 | databáza |
 | F6 | BASIC | Shift+F6 | diskové funkcie |
 | F7 | hudobný editor | Shift+F7 | spustiť program z disku |
 | F8 | adresár disku | Shift+F8 | formátovať disk |
+| F9 | režim | Shift+F9 | stav batérie |
+| F10 | kde som | Shift+F10 | sebekontrola |
+
+F2 sa pri otvorení neohlási — že to sú hodiny a kalendár, povie až F10.
+F9 a F10 nie sú klávesy, ale akordy medzerníka a braillových bodov; viď
+`hardware-map.md`.
 
 Prompt „ano nebo ne?" odpovedá na **`Y`**, nie na `a` — na `0x19FD1` je
 `CP 59h` dvakrát po sebe, zjavne pozostatok z anglickej verzie.
@@ -199,6 +212,46 @@ Zmerané po oprave: 162 zápisov stopy, 1620 overovacích čítaní, 81 krokov,
   takže dávkové čítanie nepreskočí sekundu. Poradie registrov zostalo —
   bolo správne, viď `hardware-map.md`.
 - **Adresný priestor zúžený na 19 bitov** (`kPhysicalMask = 0x7ffff`).
+
+### Klávesnica prepísaná
+
+Funkčné klávesy nerobili v BASICu ani v hudobnom editore nič a šípka
+v adresári disku hlásila „opouštím adresář disku". Boli to štyri
+nezávislé chyby a každá z nich sama stačila na nezmysel:
+
+1. **Kurzorové klávesy sa vydávali na porte `89h`.** Tam sú braillove
+   body, kurzory sú na `8Ch`. Šípka vľavo tak bola bod 3 a stroj
+   poslušne vykonal, čo braillov znak v tej aplikácii znamená. Text
+   prílohy H si riadky 0 a 2 prehodil; rozhodla ROM, viď
+   `hardware-map.md`.
+2. **Stlačenie trvalo 25 skenov, nie čas.** Skeny počítala aj obsluha
+   generátora tónov (00642), ktorá beží rýchlosťou DAC — kláves stlačený
+   počas tónu tak zhasol za tri milisekundy a heartbeat na 75 Hz ho
+   nikdy nevidel. Preto nefungoval hudobný editor. Stlačenie teraz trvá
+   **120 ms hosťovského času** a pustenie 80 ms, aby ROM videla aj to.
+3. **Klávesy s bitom 7 sa pri čakaní BIOS-u podstrčili priamo do
+   `keys_`.** Lenže ROM s nimi robí oveľa viac, než že ich podá
+   programu: dekóduje ich vo svojom heartbeate a MODE, WHERE aj
+   prepínanie aplikácií platia všade. Skratka ich v BASICu umŕtvila.
+   Teraz idú vždy cez porty klávesnice a `InterceptBios` na čas ich
+   priechodu prepúšťa konzolový vstup ROM-ke.
+4. **F9 a F10 nevydávali vôbec nič** — hľadali sa medzi ôsmimi
+   funkčnými klávesmi, kde nie sú. Sú to akordy medzerníka a bodov
+   (1D541).
+
+Naviac: ALT je medzerník, a keďže dekodér zlučuje všetko stlačené do
+troch tikov do jedného akordu, medzerník musí ísť dole o skúsenosť
+skôr. Emulátor preto ALT-akord stláča na dvakrát (80 ms + 120 ms).
+Držaný kláves sa nepremieňa na sériu ťuknutí, ale predlžuje stlačenie,
+takže opakovanie robí typematic ROM (1 s, potom 7,5-krát za sekundu),
+nie Windows. Ak hostiteľ hlási aj pustenie klávesu — konzola áno —
+`ReleaseKey` stlačenie skráti na 40 ms, aby ťuknutie neodpovedalo
+oneskorene.
+
+Overuje to `integration_test ROM DISK kbd`: prejde 38 kódov, ktoré
+vie hostiteľská klávesnica vyrobiť, a porovná ich s tým, čo dekodér ROM
+zapísal na C638h. Bez neho sa prehodený riadok nijako neprejaví — nič
+nezahlási chybu, len sa deje niečo iné.
 
 ### Diagnostika
 
@@ -374,7 +427,19 @@ Test to nechytil, lebo kontroloval `console.size() >= 40`, a zdvojený
 výstup ten limit spĺňal ľahšie než správny. `integration_test` teraz
 kontroluje obsah (`hotovo`, `RUN`, `Read which file?`), nie dĺžku.
 
-### 6.9 Uzavreté otázky
+### 6.9 Ktorý akord je Insert a ktorý Delete
+
+Kurzorové klávesy sú štyri a kód je maska naraz stlačených, takže Home,
+End, PgUp a PgDn sú jednoznačné — sedia v `KB.H` aj `KB.LIB`. Insert
+a Delete nie: `KB.H` ich má ako `UDR` (`8Bh`) a `LR` (`8Ch`), `KB.LIB`
+ako `ULR` (`8Dh`) a `DLR` (`8Eh`). Emulátor drží variant z `KB.H`.
+
+Skúšané v textovom procesore: `8Ch` prečíta riadok, `8Eh` povie „konec
+textu", ani jeden nič nezmaže. Rozhodne to len niekto, kto vie, čo
+česká verzia týmito akordmi naozaj robí — je to vec aplikácie, nie
+dekodéra, ten všetkých pätnásť akordov vydá správne.
+
+### 6.10 Uzavreté otázky
 
 | bývalá otázka | výsledok |
 |---|---|

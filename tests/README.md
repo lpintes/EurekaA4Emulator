@@ -5,11 +5,17 @@ the emulator). The executables land in `bin\` next to the emulator.
 
 `codec_test.cpp` verifies Unicode ↔ Kamenicky conversion.
 
-`integration_test.cpp` boots the real ROM and has two modes:
+`integration_test.cpp` boots the real ROM and has three modes:
 
 - `com` starts `READ.COM` through Shift+F7 and verifies its prompt;
 - `bas` opens Eureka BASIC, loads `BEEP.BAS`, issues `RUN`, and verifies that
-  the program keeps producing emulated output/audio.
+  the program keeps producing emulated output/audio;
+- `kbd` presses all 38 key codes a host keyboard can produce, one at a time,
+  and checks each against what the ROM's own decoder wrote to C638h.  Nothing
+  on the machine's ports carries a key code -- it scans a twenty-key braille
+  keyboard and works the code out at D4B0 -- so a row taken from the wrong
+  port silently turns a cursor key into a braille letter, and the application
+  then does whatever that letter means.  Needs no files on the disk.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
 A genuine `READ.COM` ships with the Technical Manual's development disk and is
@@ -39,12 +45,19 @@ exercised in isolation. The function keys map as follows:
 | key | application | key | application |
 |---|---|---|---|
 | F1 | zaznamnik | Shift+F1 | textovy procesor |
+| F2 | hodiny a kalendar | Shift+F2 | (silent) |
 | F3 | kalkulator | Shift+F3 | teplomer (TIC/TIF) |
 | F4 | komunikace | Shift+F4 | voltmeter (DVM) |
 | F5 | telefonni seznam | Shift+F5 | databaze |
 | F6 | prekladac bejsiku | Shift+F6 | diskove funkce |
 | F7 | hudebni editor | Shift+F7 | spustit program z disku |
 | F8 | adresar disku | Shift+F8 | formatovat disk |
+| F9 | rezim | Shift+F9 | stav baterie |
+| F10 | kde jsem | Shift+F10 | sebekontrola |
+
+F2 announces nothing on entry; F10 is what says where you are.  F9 and F10 are
+not keys of their own but chords of the space bar and braille dots -- see the
+keyboard section of `hardware-map.md`.
 
 Results of the current sweep:
 

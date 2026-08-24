@@ -202,8 +202,14 @@ bool PumpKeyboard(EurekaMachine& machine, bool& reset, bool& dump) {
     INPUT_RECORD record{};
     DWORD read = 0;
     if (!ReadConsoleInputW(input, &record, 1, &read) || !read) break;
-    if (record.EventType != KEY_EVENT || !record.Event.KeyEvent.bKeyDown) continue;
+    if (record.EventType != KEY_EVENT) continue;
     const KEY_EVENT_RECORD& key = record.Event.KeyEvent;
+    if (!key.bKeyDown) {
+      // Only the twenty-key keyboard has a released state worth reporting;
+      // text goes into a queue and has nothing to let go of.
+      if (const uint8_t special = SpecialKey(key)) machine.ReleaseKey(special);
+      continue;
+    }
     const bool ctrl = (key.dwControlKeyState &
                        (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
     const bool shift = (key.dwControlKeyState & SHIFT_PRESSED) != 0;
@@ -358,6 +364,8 @@ int wmain(int argc, wchar_t** argv) {
   Print(L"Eureka A4 je zapnutá. Disk: " + diskDescription + L"\r\n"
         L"Klávesy Windows sa posielajú do Eureky; F1-F10 a kurzory fungujú "
         L"vrátane Shift/Alt.\r\n"
+        L"F9 je režim, F10 povie, kde ste; Shift+F9 stav batérie, "
+        L"Shift+F10 sebekontrolu.\r\n"
         L"Shift+F7 spustí program z disku. Ctrl+Shift+R resetuje, "
         L"Ctrl+Shift+Q uloží disk a skončí.\r\n\r\n");
 

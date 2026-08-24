@@ -13,12 +13,50 @@ bool Contains(const std::vector<uint8_t>& data, const std::string& needle) {
          data.end();
 }
 
+// Every key code the host keyboard can produce, pressed one at a time and
+// checked against what the ROM made of it.  Nothing on the machine's ports
+// carries a key code: it scans a twenty-key braille keyboard and works the
+// code out at D4B0, so a row read from the wrong port or a press too short for
+// the 75 Hz scan turns a cursor key into a braille letter with no error
+// anywhere.  C638 is where the decoder leaves its answer (1D513).
+bool CheckKeyboard(EurekaMachine& machine) {
+  static const uint8_t kCodes[] = {
+      0x81, 0x82, 0x84, 0x88,  // the four cursor keys
+      0x85, 0x86, 0x89, 0x8a,  // home, end, page up, page down
+      0x8b, 0x8c,              // insert, delete
+      0x91, 0x92, 0x94, 0x98,  // the same with shift
+      0xa1, 0xa2, 0xa4, 0xa8,  // with ALT, which is the space bar
+      0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7,
+      0xc8, 0xc9,              // F9 and F10, chords of space and braille dots
+      0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9,
+  };
+  bool ok = true;
+  for (uint8_t code : kCodes) {
+    machine.Reset();
+    for (int step = 0; step < 8'000'000; ++step)
+      if (!machine.Step()) break;
+    machine.QueueKey(code);
+    uint8_t seen = 0;
+    for (int step = 0; step < 6'000'000 && seen != code; ++step) {
+      if (!machine.Step() && machine.queued_keys() == 0) break;
+      seen = machine.debug_peek(0xc638);
+    }
+    if (seen == code) continue;
+    std::cout << "  klaves " << std::hex << static_cast<unsigned>(code)
+              << " dekodovany ako " << static_cast<unsigned>(seen) << std::dec
+              << "\n";
+    ok = false;
+  }
+  return ok;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
-  if (argc != 4 || (std::wstring(argv[3]) != L"com" &&
-                    std::wstring(argv[3]) != L"bas")) {
-    std::wcerr << L"usage: integration_test ROM DISK_FOLDER com|bas\n";
+  if (argc != 4 ||
+      (std::wstring(argv[3]) != L"com" && std::wstring(argv[3]) != L"bas" &&
+       std::wstring(argv[3]) != L"kbd")) {
+    std::wcerr << L"usage: integration_test ROM DISK_FOLDER com|bas|kbd\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -29,6 +67,13 @@ int wmain(int argc, wchar_t** argv) {
     return 2;
   }
   machine->Reset();
+
+  if (std::wstring(argv[3]) == L"kbd") {
+    const bool passed = CheckKeyboard(*machine);
+    std::cout << (passed ? "PASS" : "FAIL")
+              << " mode=KBD instructions=" << machine->instructions() << "\n";
+    return passed ? 0 : 1;
+  }
 
   unsigned prompts = 0;
   uint64_t runStarted = 0;

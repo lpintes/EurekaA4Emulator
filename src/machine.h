@@ -49,6 +49,9 @@ class EurekaMachine {
   // Returns false only while BIOS console input is waiting for a host key.
   bool Step();
   void QueueKey(uint8_t key);
+  // Optional counterpart of QueueKey for hosts that see key releases: it ends
+  // the emulated press early.  Without it a key still comes up on its own.
+  void ReleaseKey(uint8_t key);
   void QueueText(const std::string& ascii);
   std::vector<uint8_t> TakeConsoleOutput();
   std::vector<uint8_t> TakeSpeechInput();
@@ -64,7 +67,9 @@ class EurekaMachine {
   uint16_t sp() const { return cpu_.sp; }
   uint8_t a() const { return cpu_.a; }
   bool zero_flag() const { return cpu_.zf; }
-  std::size_t queued_keys() const { return keys_.size() + firmwareKeys_.size(); }
+  std::size_t queued_keys() const {
+    return keys_.size() + firmwareKeys_.size() + membraneFrames_.size();
+  }
   uint8_t debug_peek(uint16_t address) const { return Peek(address); }
   uint8_t debug_io(uint8_t port) const { return io_[port]; }
   uint64_t debug_bios_reads() const { return biosReads_; }
@@ -106,6 +111,8 @@ class EurekaMachine {
   void SampleRtc() const;
   uint8_t ReadInputBuffer() const;
   uint8_t ReadMembraneKeyboard(uint8_t port);
+  void PressMembraneKey(uint8_t key);
+  bool MembraneBusy() const;
   void InjectFirmwareKey();
 
   z80 cpu_{};
@@ -137,9 +144,23 @@ class EurekaMachine {
 
   std::deque<uint8_t> keys_;
   std::deque<uint8_t> firmwareKeys_;
-  std::deque<uint8_t> membraneKeys_;
-  uint8_t membraneKey_ = 0;
-  unsigned membraneScansRemaining_ = 0;
+  // One scanned state of the 20-key braille keyboard.  The rows are the three
+  // read-only ports of Appendix H; the ROM decides which is which, and it
+  // disagrees with the manual's prose: 1D41F masks 89h with 3Fh to get the six
+  // braille dots and 1D206 masks 8Ch with 0Fh to ignore the shift key, which
+  // is the row order KEYSCAN.MAC and the IOPORT.LIB equates describe.
+  struct MembraneFrame {
+    uint8_t row0 = 0;  // 89h: braille dots 1-6, bit 7 = space bar (ALT)
+    uint8_t row1 = 0;  // 8Ah: function keys 1-8
+    uint8_t row2 = 0;  // 8Ch: the four cursor keys, bit 6 = shift
+    uint32_t cycles = 0;
+    uint8_t key = 0;  // the Eureka code this frame presses; 0 = release
+  };
+  std::deque<MembraneFrame> membraneFrames_;
+  MembraneFrame membraneState_;
+  uint64_t membraneUntil_ = 0;
+  uint64_t membraneMinUntil_ = 0;
+  uint8_t membraneHeldKey_ = 0;
   bool keyboardInitialized_ = false;
   bool biosWaiting_ = false;
   std::vector<uint8_t> consoleOutput_;
