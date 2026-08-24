@@ -15,7 +15,12 @@ ako v Eureke.
 4. Klávesnica Windows teraz ovláda emulovaný počítač.
 
 Ukončenie a bezpečné uloženie disku: `Ctrl+Shift+Q`. Reset:
-`Ctrl+Shift+R`.
+`Ctrl+Shift+R`. Nápoveda k prepínačom: `--help`.
+
+Keď emulátor spustíte zo správcu súborov, dostane vlastné okno konzoly,
+ktoré by s ním na konci zaniklo. Preto pred skončením počká na kláves,
+aby sa dala prečítať posledná hláška — pri chybe aj pri normálnom
+ukončení. Spustený z už otvoreného príkazového riadka nečaká na nič.
 
 Program sa dá spustiť aj z príkazového riadka:
 
@@ -33,8 +38,9 @@ Disketa je nepovinná:
 - `--no-disk` spustí Eureku bez diskety a bez pýtania. Diskové funkcie
   ohlásia chybu disku, všetko ostatné funguje.
 - `--ram-disk` vloží prázdnu naformátovanú disketu, ktorá existuje len
-  v pamäti. Pri ukončení sa emulátor spýta, či jej obsah uložiť do
-  priečinka; ak odmietnete alebo výber zrušíte, obsah zanikne.
+  v pamäti. Ak na nej pri ukončení nejaké súbory sú, emulátor sa spýta,
+  či ich uložiť do priečinka; ak odmietnete alebo výber zrušíte, obsah
+  zanikne.
 
 ## Spúšťanie súborov
 

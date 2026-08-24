@@ -166,8 +166,9 @@ Track — kód, ktorý bol napísaný, ale nikdy nespustený. Vyžiadalo si to
    Zrušené; INTRQ sa na `A8h` nedá čítať.
 2. **Type I príkazy nehlásili INDEX.** Slučka na 19828 pýta po seeku bit 1
    *stavového registra radiča* (98h), nie portu `A8h`. Doplnené
-   `TypeOneStatus()`: INDEX vždy (priečinok je vždy vložený a točiaci sa
-   disk), TRACK 00 podľa stopy.
+   `TypeOneStatus()`: INDEX pri vloženom médiu (pripojený priečinok aj
+   disketa v RAM sú vždy vložený a točiaci sa disk), TRACK 00 podľa
+   stopy. Bez média INDEX nepríde — viď 6.6.
 3. **DMA sa spúšťala pri zápise do DSTAT.** Firmvér ale povolí DMA
    (19ED1) **skôr**, než vydá Write Track (19EE8), takže celá stopa
    odtiekla do radiča, ktorý ešte neprenášal, a BUSY nikdy nezhaslo.

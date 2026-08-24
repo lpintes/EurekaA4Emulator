@@ -72,7 +72,10 @@ pýta mingw DLL a mimo msys2 shellu sa nespustí.
 
 Sonda a testy: `build-tests.bat`. Zostaví `bin\diag_probe.exe`,
 `bin\integration_test.exe` a `bin\codec_test.exe`, a linkuje ich proti
-objektom z `build\` — ak tam nie sú, zavolá si `build.bat` sám.
+objektom z `build\`. `build.bat` si volá **vždy**, takže objekty nikdy
+nie sú staršie než zdrojáky. Kým tam bola podmienka na ich existenciu,
+testy sa dali zlinkovať proti kódu, ktorý sa nepreložil, a meranie
+ukazovalo správanie, ktoré už v zdrojáku nebolo.
 
 Pozor: `codec_test` má obyčajný `main`, takže sa prekladá **bez**
 `-municode`; s ním linker spadne na chýbajúcom `wWinMain`.
