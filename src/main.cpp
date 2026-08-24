@@ -196,10 +196,13 @@ uint8_t SpecialKey(const KEY_EVENT_RECORD& key) {
   return code;
 }
 
-// How the host keyboard is presented to the machine.  The Eureka had two of
-// them and the emulator can be either.
+// How the host keyboard is presented to the machine.  The Eureka itself had
+// two keyboards, the braille one built in and the PC one on the serial port,
+// and the emulator can be either.  The third is not a keyboard at all: it is
+// the convenience the emulator adds on top, and it is deliberately not called
+// "the Eureka keyboard", because that name belongs to the braille one.
 enum class InputMode {
-  kEureka,   // the twenty keys, with text handed to the ROM's own queue
+  kDefault,  // the twenty keys, with text handed straight to the ROM's queue
   kBraille,  // the six dot keys, chorded
   kPc,       // the optional IBM PC keyboard on the serial port
 };
@@ -209,7 +212,7 @@ enum class InputMode {
 // does that itself from the pattern on its row 0, in whichever of its three
 // tables is currently selected, so this only presses keys.
 struct HostKeyboard {
-  InputMode mode = InputMode::kEureka;
+  InputMode mode = InputMode::kDefault;
   uint8_t held = 0;   // dot keys physically down at this moment
   uint8_t chord = 0;  // every dot pressed since the current chord began
 };
@@ -306,19 +309,19 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
       const InputMode wanted = key.wVirtualKeyCode == 'B' ? InputMode::kBraille
                                                           : InputMode::kPc;
       if (host.mode == InputMode::kPc) ReleaseModifiers(machine);
-      host.mode = host.mode == wanted ? InputMode::kEureka : wanted;
+      host.mode = host.mode == wanted ? InputMode::kDefault : wanted;
       host.held = host.chord = 0;
       switch (host.mode) {
         case InputMode::kBraille:
-          Print(L"\r\n[Braille zapnutý: F D S sú body 1 2 3, J K L body 4 5 6, "
-                L"medzerník je medzerník]\r\n");
+          Print(L"\r\n[Braillovská klávesnica: F D S sú body 1 2 3, "
+                L"J K L body 4 5 6, medzerník je medzerník]\r\n");
           break;
         case InputMode::kPc:
-          Print(L"\r\n[Klávesnica PC: píše sa po českej klávesnici, ako keby "
-                L"bola pripojená k Eureke]\r\n");
+          Print(L"\r\n[Externá klávesnica PC: píše sa po českej klávesnici, "
+                L"ako keby bola pripojená k Eureke]\r\n");
           break;
-        case InputMode::kEureka:
-          Print(L"\r\n[Späť na klávesnicu Eureky]\r\n");
+        case InputMode::kDefault:
+          Print(L"\r\n[Späť na default]\r\n");
           break;
       }
       continue;
@@ -480,8 +483,10 @@ int wmain(int argc, wchar_t** argv) {
         L"vrátane Shift/Alt.\r\n"
         L"F9 je režim, F10 povie, kde ste; Shift+F9 stav batérie, "
         L"Shift+F10 sebekontrolu.\r\n"
-        L"Ctrl+Shift+B prepne na braillovu klávesnicu (F D S J K L), "
-        L"Ctrl+Shift+E na klávesnicu PC.\r\n"
+        L"Píše sa v režime default. Ctrl+Shift+B prepne na braillovskú "
+        L"klávesnicu (F D S J K L),\r\n"
+        L"Ctrl+Shift+E na externú klávesnicu PC; tou istou skratkou späť na "
+        L"default.\r\n"
         L"Shift+F7 spustí program z disku. Ctrl+Shift+R resetuje, "
         L"Ctrl+Shift+Q uloží disk a skončí.\r\n\r\n");
 

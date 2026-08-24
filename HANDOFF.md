@@ -253,7 +253,21 @@ vie hostiteľská klávesnica vyrobiť, a porovná ich s tým, čo dekodér ROM
 zapísal na C638h. Bez neho sa prehodený riadok nijako neprejaví — nič
 nezahlási chybu, len sa deje niečo iné.
 
-### Braillovský režim
+### Tri režimy písania
+
+Emulátor sa prepína medzi troma a nazývajú sa takto — pozor na to, že
+„klávesnica Eureky" nie je názov žiadneho z nich, lebo tou je práve tá
+braillovská:
+
+| režim | prepína | čo je pod rukami |
+|---|---|---|
+| **default** | (štartový) | dvadsať klávesov verne, text skratkou do fronty ROM |
+| **braillovská klávesnica** | `Ctrl+Shift+B` | default plus body na `F D S J K L` a medzerníku |
+| **externá klávesnica PC** | `Ctrl+Shift+E` | úplne všetko ide scancodmi po sériovom porte |
+
+Tou istou skratkou sa ide späť na default.
+
+### Braillovská klávesnica
 
 `Ctrl+Shift+B` prepne písanie na šesť bodových klávesov: `F D S` sú
 body 1, 2, 3 a `J K L` body 4, 5, 6, medzerník zostáva medzerníkom.
@@ -301,10 +315,14 @@ Dve veci, na ktorých to stálo:
   — inak sa prerušenie nemá kedy vyvolať. Preto `HardwareInputBusy()`:
   kým je vstup na ceste cez skutočný hardvér, parkovanie sa vypína.
 
-Zostáva jediná skratka: text v základnom režime ide priamo do fronty
-ROM na `C67B`. Je to zámerné — mapuje ľubovoľný znak, ktorý hostiteľské
-rozloženie vie vyrobiť, kým cesta cez scancody vie len to, čo je
-v tabuľkách ROM. Vernejší je režim PC, použiteľnejší je základný.
+Zostáva jediná skratka: text v režime **default** ide priamo do fronty
+ROM na `C67B`. Je to zámerné a má to jeden konkrétny dôvod — je to
+**jediný spôsob, ako napísať `ľ ĺ ŕ ô ä Ľ`**. Overené: v tabuľkách
+klávesnice PC (`DF05`, `DF5E`, `DF98`) ani v braillových (`D7A0`,
+`D7E0`, `D820`) tie znaky nie sú, sú tam len české `é č ě ž ů ý á í ú
+ň š ř`. Je to česká ROM, takže skutočná Eureka slovensky písať
+nevedela; default je teda jediné miesto, kde emulátor stroj zámerne
+prevyšuje.
 
 ### Diagnostika
 
