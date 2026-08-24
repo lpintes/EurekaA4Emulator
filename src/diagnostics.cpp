@@ -30,9 +30,9 @@ std::wstring Dec(uint64_t value) {
 // reader back to the hardware map.
 const wchar_t* LatchName(uint8_t port) {
   switch (port) {
-    case 0x80: return L"80h (zvuk, strobe, sériové parametre; tieň C439h)";
-    case 0xa0: return L"A0h (motor diskety, výstup, reč; tieň C43Ah)";
-    case 0xb0: return L"B0h (disk, CSI/O linky, RTS; tieň C438h)";
+    case 0x80: return L"80h modem_latch (telefónna slučka, DTR, režim AM7910; tieň C439h)";
+    case 0xa0: return L"A0h power_latch (napájanie disku, modemu, relé, zvuku; tieň C43Ah)";
+    case 0xb0: return L"B0h output_latch (strana a výber disku, klávesnica IBM, filter, DTMF, vmsel, RTS; tieň C438h)";
     default: return L"neznámy latch";
   }
 }

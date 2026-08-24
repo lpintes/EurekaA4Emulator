@@ -120,16 +120,42 @@ zároveň prepnú komparátory na **stráženie batérie** počas diskovej
 operácie. A bity 2 a 3 nepatria neznámej periférii, ale klávesnici
 IBM PC.
 
-### Port 80h (tieň C439h) — 14 odkazov
+### Port 80h `modem_latch` (tieň C439h) — 14 odkazov
 
-| bit | význam | istota |
+Celý tento latch ovláda modemový čip AM7910. So zvukom **nemá nič
+spoločné**.
+
+| bit | názov | význam |
 |---|---|---|
-| 7 | povolenie zvuku; nulované pri výkyve DAC na 40h, obnovené pri návrate na 80h | vysoká |
-| 6 | nastavovaný pri každom zápise dát; späť sa doň skladá stav z A8h bit 5 | stredná |
-| 5–1 | dátové bity pre latch sériových parametrov (tabuľka na 18F5C, 4 B na položku) | stredná |
-| 0 | strobe; rutina 18FDE zapíše hodnotu s bitom 0 nastaveným, počká, potom bez neho | vysoká |
+| 7 | `loop_mask` | aktívne vo vysokej; obsadenie telefónnej linky. Pulzná voľba sa robí kývaním tohto bitu |
+| 6 | `mantx_mask` | ručné vysielanie; linka sa logicky násobí s vysielacím výstupom UART (ten je vo vysokej, keď sa UART nepoužíva). Takto Eureka vysiela 75 baudov, čo UART nevie nastaviť. Skladá sa na 18F1F a 1D081 |
+| 5–1 | `mdm_mode_mask` | riadiace bity režimu AM7910; tabuľka na 18F5C, 4 B na položku |
+| 0 | `dtr_mask` | DTR, aktívne vo vysokej. Rutina 18FDE zapíše hodnotu s ním, počká, potom bez neho |
 
-Pokojový stav je C0h.
+### Prečo sa bit 7 javil ako „povolenie zvuku"
+
+Na 190D9 je vytáčacia slučka:
+
+```
+190CD  CP 3Ah / SUB 30h       ; ASCII číslica na počet impulzov
+190D9  LD A,(C439h) / AND 7Fh / OUT (80h),A    ; rozpoj slučku
+190E3  LD A,40h / OUT (88h),A
+190E7  LD B,3Ch / CALL E2ECh                    ; pauza 60 (break)
+190EC  LD A,(C439h) / OR 80h  / OUT (80h),A    ; spoj slučku
+190F6  LD A,80h / OUT (88h),A
+190FA  LD B,28h / CALL E2ECh                    ; pauza 40 (make)
+```
+
+Je to **pulzná voľba** v pomere 60/40 ms. Zápisy `40h` a `80h` do DAC
+sú vedľajšie — parkujú prevodník, aby impulzy neklikali do reproduktora.
+Kto si ich spojí s tým bitom, dostane „povolenie zvuku". Nie je.
+
+Pokojový stav C0h (bity 7 a 6) je stav **počas hovoru**: slučka spojená,
+ručné vysielanie vo vysokej. Nie je to stav zavesenej linky.
+
+**Zvuk sa nepovoľuje nikde na porte 80h.** Napájanie zvukového obvodu je
+`pol_voice`, teda `A0h` bit 3, a manuál k nemu píše, že býva trvalo
+zapnutý, lebo po zapnutí treba čakať asi pol sekundy, než je reč možná.
 
 ### Port A0h `power_latch` (tieň C43Ah) — 28 odkazov
 
