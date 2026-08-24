@@ -52,6 +52,10 @@ class EurekaMachine {
   // Optional counterpart of QueueKey for hosts that see key releases: it ends
   // the emulated press early.  Without it a key still comes up on its own.
   void ReleaseKey(uint8_t key);
+  // Presses a braille chord on the dot keys: bit 0 is dot 3, bit 1 dot 2,
+  // bit 2 dot 1, bit 3 dot 4, bit 4 dot 5, bit 5 dot 6, bit 7 the space bar.
+  // The machine turns the pattern into a character itself.
+  void PressBraille(uint8_t dots);
   void QueueText(const std::string& ascii);
   std::vector<uint8_t> TakeConsoleOutput();
   std::vector<uint8_t> TakeSpeechInput();

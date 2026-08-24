@@ -253,6 +253,33 @@ vie hostiteľská klávesnica vyrobiť, a porovná ich s tým, čo dekodér ROM
 zapísal na C638h. Bez neho sa prehodený riadok nijako neprejaví — nič
 nezahlási chybu, len sa deje niečo iné.
 
+### Braillovský režim
+
+`Ctrl+Shift+B` prepne písanie na šesť bodových klávesov: `F D S` sú
+body 1, 2, 3 a `J K L` body 4, 5, 6, medzerník zostáva medzerníkom.
+Akord sa zbiera, kým sú prsty dole, a vydá sa naraz pri pustení
+posledného — to je perkinsovské správanie a `ReleaseKey` ho umožňuje.
+
+Emulátor **neprekladá nič**. Pošle šesť bitov na riadok `89h`
+a znak si nájde ROM sama (`1D79C`), takže fungujú všetky tri tabuľky
+vrátane číselného režimu aj akordy s medzerníkom, o ktorých nevieme.
+Doložené: štyri akordy napíšu v textovom procesore „ahoj" a `Home` to
+prečíta späť — presne to robí `integration_test … kbd`.
+
+Zostávajú tri vstupné cesty a jedna z nich je stále skratka:
+
+| cesta | čo modeluje |
+|---|---|
+| braillova matica (`89h`/`8Ah`/`8Ch`) | verne, vrátane bodov |
+| text z Windows → fronta ROM na `C67B` | **skratka**, obchádza obe klávesnice |
+| IBM PC na CSI/O | len privítanie (`FFh` → `AAh`), scancody netečú |
+
+Tá skratka existuje preto, že externá klávesnica nie je odemulovaná.
+Keď bude, zmizne. Obsluha scancodov je v ROM na `1DD2E` a je to
+obyčajná **XT sada 1**: make pod `80h`, break s bitom 7, prefix `E0h`
+pre rozšírené klávesy (tabuľka na `DFD6`). ROM si preklad robí sama,
+takže práca je doručiť bajty cez `TRDR` so správnym handshakom.
+
 ### Diagnostika
 
 `--diag` zapne záznam: zahodené zápisy pod `kRamBase`, externé porty bez
@@ -479,6 +506,11 @@ python tools\strings_kam.py 8 0xd000 0xe000
 
 Poradie podľa pomeru prínos/námaha:
 
+0. **Externá klávesnica IBM PC.** Zmaže poslednú skratku vo vstupe —
+   text sa dnes zapisuje priamo do fronty ROM na `C67B`. Obsluha
+   scancodov je na `1DD2E`, XT sada 1, tabuľka rozšírených klávesov na
+   `DFD6`; treba doručiť bajty cez `TRDR` so správnym handshakom
+   (reset je na `18801`, prijatie `AAh` na `18858`).
 1. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
 2. **Latencia zvuku** až 240 ms v `audio_player.cpp` (6.1). Rekonštrukčný

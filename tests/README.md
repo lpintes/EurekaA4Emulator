@@ -15,7 +15,10 @@ the emulator). The executables land in `bin\` next to the emulator.
   on the machine's ports carries a key code -- it scans a twenty-key braille
   keyboard and works the code out at D4B0 -- so a row taken from the wrong
   port silently turns a cursor key into a braille letter, and the application
-  then does whatever that letter means.  Needs no files on the disk.
+  then does whatever that letter means.  It then types "ahoj" on the six dot
+  keys in the word processor and has the machine read the line back, which is
+  the only way to catch a wrong bit order: the row bits run in key order, so
+  bit 0 is dot 3 and bit 2 is dot 1.  Needs no files on the disk.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
 A genuine `READ.COM` ships with the Technical Manual's development disk and is

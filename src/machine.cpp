@@ -364,6 +364,27 @@ void EurekaMachine::PressMembraneKey(uint8_t key) {
   membraneFrames_.push_back(release);
 }
 
+// Presses the six dot keys, and the space bar in bit 7, as one chord.  The
+// bits are in the order the keys sit under the fingers, left to right, so
+// bit 0 is dot 3 and bit 2 is dot 1: the ROM indexes its translation tables
+// with this byte directly (1D79C), which is why nothing here converts dots to
+// characters -- that is the machine's job and it does all three tables,
+// literary, computer and numeric, on its own.
+//
+// Unlike PressMembraneKey this keeps no held-key state.  A chord is one
+// deliberate act: the host collects the dots while the fingers are down and
+// calls once, when they come up, so there is no host repeat to swallow.
+void EurekaMachine::PressBraille(uint8_t dots) {
+  if (dots == 0) return;
+  MembraneFrame frame;
+  frame.row0 = dots;
+  frame.cycles = MsToCycles(kPressMs);
+  membraneFrames_.push_back(frame);
+  MembraneFrame release;
+  release.cycles = MsToCycles(kReleaseMs);
+  membraneFrames_.push_back(release);
+}
+
 void EurekaMachine::InjectFirmwareKey() {
   if (!keyboardInitialized_ || firmwareKeys_.empty() || Peek(0xc100) != 0xc3) return;
   const uint8_t readIndex = Peek(0xc679) & 0x1f;

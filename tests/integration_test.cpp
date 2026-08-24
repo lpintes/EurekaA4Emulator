@@ -50,6 +50,43 @@ bool CheckKeyboard(EurekaMachine& machine) {
   return ok;
 }
 
+// Types a word on the braille dot keys and has the machine read it back.  The
+// emulator sends only the six bits; the ROM does the translation (1D79C
+// indexes table D7A0 with the row byte), so this checks the one thing the host
+// can get wrong: the bit order, which runs in key order and not in dot number
+// order.  Reading the line back afterwards is what proves the letters arrived
+// as letters and in the right sequence.
+bool CheckBraille(EurekaMachine& machine) {
+  static const uint8_t kAhoj[] = {
+      0x04,  // dot 1       -> a
+      0x16,  // dots 1,2,5  -> h
+      0x15,  // dots 1,3,5  -> o
+      0x1a,  // dots 2,4,5  -> j
+  };
+  machine.Reset();
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step()) break;
+  machine.QueueKey(0xd0);  // Shift+F1, the word processor
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  for (uint8_t dots : kAhoj) {
+    machine.PressBraille(dots);
+    for (int step = 0; step < 8'000'000; ++step)
+      if (!machine.Step() && machine.queued_keys() == 0) break;
+  }
+  machine.TakeSpeechInput();
+  machine.QueueKey(0x85);  // Home, which speaks the line
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  const auto spoken = machine.TakeSpeechInput();
+  if (Contains(spoken, "ahoj")) return true;
+  std::cout << "  braillovske akordy precitane ako \"";
+  for (uint8_t byte : spoken)
+    std::cout << (byte >= 0x20 && byte < 0x7f ? static_cast<char>(byte) : '.');
+  std::cout << "\"\n";
+  return false;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -69,9 +106,12 @@ int wmain(int argc, wchar_t** argv) {
   machine->Reset();
 
   if (std::wstring(argv[3]) == L"kbd") {
-    const bool passed = CheckKeyboard(*machine);
-    std::cout << (passed ? "PASS" : "FAIL")
-              << " mode=KBD instructions=" << machine->instructions() << "\n";
+    const bool keys = CheckKeyboard(*machine);
+    const bool braille = CheckBraille(*machine);
+    const bool passed = keys && braille;
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=KBD"
+              << " klavesy=" << (keys ? "ok" : "chyba")
+              << " braille=" << (braille ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 

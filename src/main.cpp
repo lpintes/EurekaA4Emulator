@@ -193,7 +193,34 @@ uint8_t SpecialKey(const KEY_EVENT_RECORD& key) {
   return code;
 }
 
-bool PumpKeyboard(EurekaMachine& machine, bool& reset, bool& dump) {
+// Perkins entry on a QWERTY keyboard: the six dot keys under the fingers,
+// pressed as a chord.  Nothing here turns dots into letters -- the machine
+// does that itself from the pattern on its row 0, in whichever of its three
+// tables is currently selected, so this only presses keys.
+struct BrailleKeyboard {
+  bool active = false;
+  uint8_t held = 0;   // dot keys physically down at this moment
+  uint8_t chord = 0;  // every dot pressed since the current chord began
+};
+
+// The row bits run in Perkins key order, left to right, not in dot number
+// order: bit 0 is dot 3 and bit 2 is dot 1.  Under the hands that is exactly
+// the natural layout, F D S going outwards on the left and J K L on the right.
+uint8_t BrailleBit(WORD virtualKey) {
+  switch (virtualKey) {
+    case 'F': return 0x04;       // dot 1
+    case 'D': return 0x02;       // dot 2
+    case 'S': return 0x01;       // dot 3
+    case 'J': return 0x08;       // dot 4
+    case 'K': return 0x10;       // dot 5
+    case 'L': return 0x20;       // dot 6
+    case VK_SPACE: return 0x80;  // the space bar, which is also the ALT key
+    default: return 0;
+  }
+}
+
+bool PumpKeyboard(EurekaMachine& machine, BrailleKeyboard& braille, bool& reset,
+                  bool& dump) {
   HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
   DWORD available = 0;
   if (input == INVALID_HANDLE_VALUE || !GetNumberOfConsoleInputEvents(input, &available))
@@ -205,6 +232,17 @@ bool PumpKeyboard(EurekaMachine& machine, bool& reset, bool& dump) {
     if (record.EventType != KEY_EVENT) continue;
     const KEY_EVENT_RECORD& key = record.Event.KeyEvent;
     if (!key.bKeyDown) {
+      // A braille chord is finished by letting go, not by pressing: the dots
+      // go down one at a time and only the whole pattern means anything, so
+      // it is sent when the last finger comes up.
+      if (const uint8_t dot = braille.active ? BrailleBit(key.wVirtualKeyCode) : 0) {
+        braille.held &= static_cast<uint8_t>(~dot);
+        if (braille.held == 0 && braille.chord != 0) {
+          machine.PressBraille(braille.chord);
+          braille.chord = 0;
+        }
+        continue;
+      }
       // Only the twenty-key keyboard has a released state worth reporting;
       // text goes into a queue and has nothing to let go of.
       if (const uint8_t special = SpecialKey(key)) machine.ReleaseKey(special);
@@ -220,6 +258,24 @@ bool PumpKeyboard(EurekaMachine& machine, bool& reset, bool& dump) {
     }
     if (ctrl && shift && key.wVirtualKeyCode == 'D') {
       dump = true;
+      continue;
+    }
+    if (ctrl && shift && key.wVirtualKeyCode == 'B') {
+      braille.active = !braille.active;
+      braille.held = braille.chord = 0;
+      Print(braille.active
+                ? L"\r\n[Braille zapnutý: F D S sú body 1 2 3, J K L body 4 5 6, "
+                  L"medzerník je medzerník]\r\n"
+                : L"\r\n[Braille vypnutý, píše sa zase po klávesoch]\r\n");
+      continue;
+    }
+    // Auto-repeat resends key-down without a key-up, so a dot already in the
+    // chord must not count as a second finger.
+    if (const uint8_t dot = braille.active && !ctrl
+                                ? BrailleBit(key.wVirtualKeyCode)
+                                : 0) {
+      braille.held |= dot;
+      braille.chord |= dot;
       continue;
     }
     if (const uint8_t special = SpecialKey(key)) {
@@ -366,6 +422,7 @@ int wmain(int argc, wchar_t** argv) {
         L"vrátane Shift/Alt.\r\n"
         L"F9 je režim, F10 povie, kde ste; Shift+F9 stav batérie, "
         L"Shift+F10 sebekontrolu.\r\n"
+        L"Ctrl+Shift+B prepne písanie na braillovu klávesnicu (F D S J K L).\r\n"
         L"Shift+F7 spustí program z disku. Ctrl+Shift+R resetuje, "
         L"Ctrl+Shift+Q uloží disk a skončí.\r\n\r\n");
 
@@ -373,10 +430,11 @@ int wmain(int argc, wchar_t** argv) {
   auto epoch = Clock::now();
   uint64_t epochCycles = machine->cycles();
   bool running = true;
+  BrailleKeyboard braille;
   while (running) {
     bool reset = false;
     bool dump = false;
-    running = PumpKeyboard(*machine, reset, dump);
+    running = PumpKeyboard(*machine, braille, reset, dump);
     if (!running) break;
     if (dump) {
       Print(diagnostics
@@ -386,6 +444,9 @@ int wmain(int argc, wchar_t** argv) {
     }
     if (reset) {
       machine->Reset();
+      // The chosen writing mode is the user's, not the machine's, so it
+      // survives; a chord caught half-pressed does not.
+      braille.held = braille.chord = 0;
       audio.Close();
       audio.Open(EurekaMachine::kAudioHz);
       epoch = Clock::now();
