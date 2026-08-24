@@ -357,7 +357,23 @@ zapisuje, až keď je disk špinavý, radič nie je uprostred prenosu
 a od posledného zápisu ubehla sekunda hosťovho času
 (`EurekaMachine::DiskSettled`).
 
-### 6.8 Uzavreté otázky
+### 6.8 Konzola zdvojovala každý znak
+
+BASIC hlásil „hhoottoovvoo". Príčina: BIOS sa zachytáva na dvoch
+miestach — skoková tabuľka na `C100` a stuby na `C03A` — a každá
+položka `C100` je `JP` do príslušného stubu na `C03A`. Volanie cez
+tabuľku teda prejde oboma bodmi. Funkciám, ktoré vybavíme cez
+`ReturnFromCall`, to nevadí, lebo sa k stubu nikdy nedostanú. Výstup na
+konzolu je jediná funkcia, ktorú **zachytíme a necháme bežať ďalej**,
+takže sa započítala dvakrát. Zachytáva sa už len na úrovni stubu.
+
+Reč postihnutá nebola — tá má vlastný hook na `0x0103`.
+
+Test to nechytil, lebo kontroloval `console.size() >= 40`, a zdvojený
+výstup ten limit spĺňal ľahšie než správny. `integration_test` teraz
+kontroluje obsah (`hotovo`, `RUN`, `Read which file?`), nie dĺžku.
+
+### 6.9 Uzavreté otázky
 
 | bývalá otázka | výsledok |
 |---|---|

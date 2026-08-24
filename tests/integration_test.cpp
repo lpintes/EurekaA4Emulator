@@ -54,11 +54,15 @@ int wmain(int argc, wchar_t** argv) {
   const auto speech = machine->TakeSpeechInput();
   const auto console = machine->TakeConsoleOutput();
   const auto audio = machine->TakeAudio();
+  // The console is checked by content, not by length.  A byte count passed
+  // happily while every character was being emitted twice ("hhoottoovvoo").
   const bool passed = basic
       ? prompts >= 3 && machine->debug_bios_reads() >= 60 &&
-            Contains(speech, "hotovo") && runStarted != 0 && audio.size() > 200000
+            Contains(speech, "hotovo") && Contains(console, "hotovo") &&
+            Contains(console, "RUN") && runStarted != 0 && audio.size() > 200000
       : prompts >= 3 && machine->debug_bios_reads() >= 150 &&
-            Contains(speech, "Read which file?") && console.size() >= 40;
+            Contains(speech, "Read which file?") &&
+            Contains(console, "Read which file?");
   std::cout << (passed ? "PASS" : "FAIL")
             << " mode=" << (basic ? "BAS" : "COM")
             << " instructions=" << machine->instructions()

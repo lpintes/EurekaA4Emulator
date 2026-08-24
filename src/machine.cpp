@@ -734,9 +734,14 @@ bool EurekaMachine::InterceptBios() {
   constexpr uint16_t base = 0xc100;
   if (Peek(base) != 0xc3) return true;
   unsigned function = 0;
+  // Every C100 entry is a JP into the matching C03A stub, so a call that comes
+  // through the table passes both points.  Functions answered with
+  // ReturnFromCall never reach the stub, but one that lets the ROM run does.
+  bool viaJumpTable = false;
   if (cpu_.pc >= base && cpu_.pc < static_cast<uint16_t>(base + 23 * 3) &&
       (cpu_.pc - base) % 3 == 0) {
     function = (cpu_.pc - base) / 3;
+    viaJumpTable = true;
   } else {
     // ROM applications also call the first-level BIOS stubs directly.
     constexpr uint16_t targets = 0xc03a;
@@ -765,7 +770,9 @@ bool EurekaMachine::InterceptBios() {
       ReturnFromCall();
       return true;
     case 4:  // console output: capture, then let the ROM feed screen and speech.
-      consoleOutput_.push_back(cpu_.c);
+      // Captured at the stub only.  Taking it here as well doubled every
+      // character on the host console -- "hotovo" arrived as "hhoottoovvoo".
+      if (!viaJumpTable) consoleOutput_.push_back(cpu_.c);
       return true;
     case 8:
       biosTrack_ = 0;
