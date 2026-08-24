@@ -357,7 +357,7 @@ Treba `sweep`, prípadne `seq kC7`.
 
 Pôvodných päť otázok manuál a následné meranie uzavreli. Zostáva iné.
 
-### 6.1 Zvuk — rekonštrukčný filter hotový, latencia otvorená
+### 6.1 Zvuk — rekonštrukčný filter aj latencia hotové
 
 **Hotové.** `RenderAudio()` bol zero-order hold bez filtrácie, takže
 všetko nad polovicou vzorkovacej frekvencie DAC sa zrkadlilo ako
@@ -423,13 +423,93 @@ Pozor na dve pasce, na ktoré sa dá naletieť:
 2. Filter sa nedá vierohodne napodobniť offline v Pythone, lebo firmvér
    ho prepína za behu. Statický model sedel len na 19 dB.
 
+#### Latencia — zmeraná, opravená, a nebola to tá, čo tu stála napísaná
+
+Predchádzajúca verzia tohto dokumentu tvrdila **„latencia až 240 ms"**.
+Bolo to **nesprávne**. Tých 240 ms bol teoretický strop starého throttlu
+(12 blokov po 20 ms) a meranie ukázalo, že sa nikdy nedosiahol — v
+ustálenom stave boli v zariadení štyri bloky. Skutočná latencia počas
+reči bola **22,6 ms**. Číslo v dokumente vzniklo prečítaním konštanty v
+zdrojáku namiesto merania.
+
+Čo meranie našlo namiesto toho, boli tri iné veci — a najhoršia z nich
+nebola zvuková:
+
+1. **Hlavná slučka bežala 63 Hz, nie 500 Hz.** `std::this_thread::
+   sleep_for(2ms)` na mingw počká vždy celý 15,6 ms systémový tik, nech
+   ho žiadaš o čokoľvek, a `timeBeginPeriod(1)` na tom **nič nezmení** —
+   opraví len `::Sleep()`. Klávesnica sa teda snímala každých 16 ms a
+   procesor bežal v 16 ms dávkach. Náprava je časovač s vlajkou
+   `CREATE_WAITABLE_TIMER_HIGH_RESOLUTION`, ktorý spí presne a nedvíha
+   rozlíšenie časovača celému systému.
+2. **Nikto nikdy nevyprázdnil štartový prechodový jav.** Producent aj
+   spotrebiteľ bežia presne reálnym časom, takže hĺbka fronty zostane
+   navždy tam, kam ju odložil rozbeh zvukového zariadenia.
+3. **Zaparkovaný procesor neprodukoval nič**, takže prúd medzi vetami
+   vysychal. Zmerané: rozbeh vyschnutého prúdu stojí **19 ms**, kým
+   udržiavaný odpovie za 2–9 ms.
+
+Ku každej z nich pozor — **samostatne dve z nich latenciu zhoršia**.
+Zmerané na skutočnom stroji, priemer počas reči:
+
+| konfigurácia | slučka | priemer | najhorší prípad |
+|---|---|---|---|
+| pôvodná | 63 Hz | 22,6 ms | 13,4 ms |
+| len presný časovač | 352 Hz | 36,7 ms | 19,0 ms |
+| len renderovanie pri parkovaní | 63 Hz | 41,2 ms | 19,3 ms |
+| **všetky tri spolu** | **352 Hz** | **23,0 ms** | **16,4 ms** |
+
+Rýchlejšia slučka totiž podáva bloky častejšie, takže fronta narastie;
+a udržiavaný prúd nemá kedy zabudnúť na prechodový jav. Až regulátor
+robí obe bezpečnými.
+
+#### Čo to teda robí teraz
+
+- Emulovaný takt sa **prispôsobuje hĺbke fronty** (`kTargetLatencyMs`
+  v `main.cpp`), najviac o 2 %. Je to správna páka: výstup DAC zostáva
+  súvislý, na rozdiel od zahadzovania či opakovania vzoriek, a 2 %
+  zo 6,144 MHz je tretina poltónu.
+- Cieľ je **22 ms**, vybraný meraním: je to najnižšia hodnota, ktorú
+  regulátor ešte drží s odchýlkou 2 ms. Pod 20 ms je dnom vlastné
+  bufferovanie ovládača, regulátor doň tlačí a namiesto priblíženia
+  prestreľuje — rozptyl nameraný 10 až 48 ms.
+- Bloky sú **5 ms** namiesto 20 a strop fronty je **v milisekundách,
+  nie v blokoch**. V blokoch to potichu znamenalo 240 ms pri 20 ms
+  bloku a tlčenie na 30 ms, keby sa bloky niekedy zmenšili.
+- Pri prekročení stropu sa prebytok **zahodí**, nevyčká. Pôvodný
+  `Sleep(1)` v cykle zmrazil celú hlavnú slučku aj s klávesnicou.
+- `EurekaMachine::RenderIdle()` dorenderuje cykly, ktoré zaparkovaný
+  procesor neodbehol. Nie je to trik: skutočná Eureka tam len točí
+  čakaciu slučku, DAC drží poslednú hodnotu a filter za ním beží ďalej.
+  Overené, že tá držaná hodnota je stred stupnice — jedna sekunda
+  nečinnosti má priemer 0,0 a rozsah 0 až 29, takže sa do výstupu
+  netlačí jednosmerná zložka a nástup reči neluplne.
+
+Čo z toho plynie pre ďalšieho: **latencia sa prakticky nezmenila**
+(22,6 → 23,0 ms). Získalo sa, že je odteraz **zvolená a stabilná**
+namiesto náhodnej, že prúd sa nerozbieha nanovo pred každou vetou,
+a že slučka beží 5,6-krát rýchlejšie. Ak niekto hľadá zdroj problémov
+v emulátore, **vo veľkosti zvukového buffera nie je** — počas reči sa
+ani stará verzia nikdy nepriblížila k vyschnutiu bližšie než na 13 ms.
+Podozrivejšia je tá 63 Hz slučka, lebo kvantovala časovanie klávesnice
+zo sekcie 5 (stlačenie 120 ms, pustenie 80 ms, ALT-akord 80+120 ms) po
+16 ms krokoch.
+
+Merané sondou, ktorá poháňa skutočný `EurekaMachine` cez skutočný
+`AudioPlayer` tou istou slučkou ako `main.cpp`, len s vynulovanými
+vzorkami; hĺbka fronty sa pýta `waveOutGetPosition`, nie účtovníctva
+blokov, lebo len tá vidí aj bufferovanie ovládača.
+
 #### Čo zostáva
 
-- **Latencia až 240 ms** v `audio_player.cpp`. Netýka sa renderovania.
 - **WAV-y v `audio/`** sú stále v štyroch hádaných frekvenciách;
   prerenderovať podľa známych ~7,5 kHz.
 - `pol_voice` (`A0h` bit 3) sa nemodeluje. Manuál píše, že býva trvalo
   zapnutý, takže hradenie zvuku naň by len riskovalo trvalé ticho.
+- Pod ~20 ms sa s `waveOut` ísť nedá. Ak by to niekedy bolo treba,
+  cesta je WASAPI v zdieľanom režime riadený udalosťou, prípadne
+  `IAudioClient3`. Je to podstatne väčší zásah a dnešných 23 ms ho
+  nezdôvodňuje.
 
 ### 6.2 Zahodené zápisy na 1C1FA–1C1FC
 
@@ -553,14 +633,12 @@ Poradie podľa pomeru prínos/námaha:
 
 1. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-2. **Latencia zvuku** až 240 ms v `audio_player.cpp` (6.1). Rekonštrukčný
-   filter je hotový, toto je zvyšok.
-3. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+2. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-4. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+3. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-5. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+4. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
    rozhodne otázku 6.3.
 
 ### Čím sa dá testovať

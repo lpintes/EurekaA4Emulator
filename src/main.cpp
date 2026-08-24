@@ -7,7 +7,6 @@
 #include <filesystem>
 #include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "audio_player.h"
@@ -17,6 +16,55 @@
 namespace fs = std::filesystem;
 
 namespace {
+
+// std::this_thread::sleep_for is no use for pacing this loop: on MinGW it
+// always waits a whole 15.6 ms system tick whatever it is asked for, and
+// timeBeginPeriod does not change that (it only fixes ::Sleep).  Measured, the
+// two millisecond sleep below ran the main loop at 63 Hz, not 500 -- which set
+// the keyboard poll rate and left the audio queue sitting at 55 ms.  A high
+// resolution waitable timer honours the request without raising the timer
+// resolution for every other process on the machine.
+class PreciseTimer {
+ public:
+  PreciseTimer() {
+    handle_ = CreateWaitableTimerExW(nullptr, nullptr,
+                                     CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+                                     TIMER_ALL_ACCESS);
+    // Before Windows 10 1803 the flag is rejected; a plain timer then rounds
+    // to the tick exactly as ::Sleep would, which is the old behaviour.
+    if (!handle_)
+      handle_ = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
+  }
+  ~PreciseTimer() { if (handle_) CloseHandle(handle_); }
+  PreciseTimer(const PreciseTimer&) = delete;
+  PreciseTimer& operator=(const PreciseTimer&) = delete;
+
+  void Wait(double milliseconds) const {
+    if (!handle_) {
+      ::Sleep(static_cast<DWORD>(milliseconds));
+      return;
+    }
+    LARGE_INTEGER due;
+    due.QuadPart = -static_cast<LONGLONG>(milliseconds * 10000.0);
+    if (!SetWaitableTimer(handle_, &due, 0, nullptr, nullptr, FALSE)) {
+      ::Sleep(static_cast<DWORD>(milliseconds));
+      return;
+    }
+    WaitForSingleObject(handle_, INFINITE);
+  }
+
+ private:
+  HANDLE handle_ = nullptr;
+};
+
+// Sound is this machine's whole user interface, so the emulated clock is
+// steered by the audio buffer rather than left at whatever depth the device
+// happened to start with.  Twenty two is the lowest target the loop still
+// tracks to within about two milliseconds; below twenty the driver's own
+// buffering becomes the floor, the controller pushes against it and
+// overshoots instead, and the spread measured 10-48 ms.  Measured here at 22:
+// 24 ms average while speaking, never closer than 16 ms to running dry.
+constexpr double kTargetLatencyMs = 22.0;
 
 // Redirected output has no console to accept wide characters. The old fallback
 // was std::wcout, which narrows through the "C" locale, fails on the first
@@ -537,8 +585,14 @@ int wmain(int argc, wchar_t** argv) {
         L"Ctrl+Shift+Q uloží disk a skončí.\r\n\r\n");
 
   using Clock = std::chrono::steady_clock;
-  auto epoch = Clock::now();
-  uint64_t epochCycles = machine->cycles();
+  PreciseTimer timer;
+  auto lastTick = Clock::now();
+  // Guest cycles the wall clock has earned so far.  Fractional because the
+  // rate is nudged by a couple of percent to steer the audio buffer.
+  long double guestClock = 0.0L;
+  // Cycles rendered while the CPU was parked.  They are guest time as far as
+  // the DAC is concerned even though no instruction ran.
+  uint64_t idleCycles = 0;
   bool running = true;
   while (running) {
     bool reset = false;
@@ -560,29 +614,57 @@ int wmain(int argc, wchar_t** argv) {
       host.held = host.chord = 0;
       audio.Close();
       audio.Open(EurekaMachine::kAudioHz);
-      epoch = Clock::now();
-      epochCycles = 0;
+      lastTick = Clock::now();
+      guestClock = 0.0L;
+      idleCycles = 0;
       Print(L"\r\n[Eureka bola resetovaná]\r\n");
     }
 
     const auto now = Clock::now();
-    const long double seconds = std::chrono::duration<long double>(now - epoch).count();
-    const uint64_t target = epochCycles + static_cast<uint64_t>(
-        seconds * static_cast<long double>(EurekaMachine::kCpuHz));
+    double delta = std::chrono::duration<double>(now - lastTick).count();
+    lastTick = now;
+    // A scheduling stall is the host's problem, not the guest's; letting one
+    // through unclamped would turn into a sprint through the speech engine.
+    if (delta > 0.25) delta = 0.25;
+
+    // Slewing the emulated clock by at most two percent is how the audio
+    // buffer is held at kTargetLatencyMs.  It is the right knob rather than
+    // dropping or repeating samples: the DAC output stays coherent, and two
+    // percent of 6.144 MHz is a third of a semitone nobody can hear.  Without
+    // it nothing ever drains the queue the device started out with, because
+    // producer and consumer both run at exactly real time.
+    double rate = static_cast<double>(EurekaMachine::kCpuHz);
+    if (audio.Ready()) {
+      const double error = audio.QueuedMs() - kTargetLatencyMs;
+      rate *= 1.0 - std::clamp(error * 0.002, -0.02, 0.02);
+    }
+    guestClock += static_cast<long double>(rate) * delta;
+
+    const uint64_t target = static_cast<uint64_t>(guestClock);
     unsigned steps = 0;
     bool blocked = false;
-    while (machine->cycles() < target && steps++ < 200000) {
+    while (machine->cycles() + idleCycles < target && steps++ < 200000) {
       if (!machine->Step()) {
         blocked = true;
         break;
       }
     }
-    // A real Eureka's CPU waits at console input. Do not accumulate a wall
-    // clock debt that would make the emulation race after the next keypress.
-    if (blocked) {
-      epoch = now;
-      epochCycles = machine->cycles();
+    // A real Eureka's CPU waits at console input, but it waits by spinning:
+    // the DAC keeps holding its last value and the filter behind it keeps
+    // running.  Rendering those cycles is what keeps the stream alive between
+    // utterances -- see EurekaMachine::RenderIdle.
+    if (blocked && target > machine->cycles() + idleCycles) {
+      const uint64_t shortfall = target - (machine->cycles() + idleCycles);
+      machine->RenderIdle(static_cast<uint32_t>(shortfall));
+      idleCycles += shortfall;
     }
+    // If the host could not keep up after all, forgive the debt rather than
+    // carry it: catching up faster than real time would garble the speech.
+    const uint64_t done = machine->cycles() + idleCycles;
+    const long double ceiling =
+        static_cast<long double>(done) +
+        static_cast<long double>(EurekaMachine::kCpuHz) / 4.0L;
+    if (guestClock > ceiling) guestClock = ceiling;
 
     auto output = machine->TakeConsoleOutput();
     if (!output.empty()) Print(DecodeKamenicky(output.data(), output.size()));
@@ -594,7 +676,7 @@ int wmain(int argc, wchar_t** argv) {
       Print(L"\r\nChyba pri ukladaní disku: " + error + L"\r\n");
       running = false;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    timer.Wait(2.0);
   }
 
   if (!machine->FlushDisk(error))

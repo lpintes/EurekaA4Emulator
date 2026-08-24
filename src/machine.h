@@ -65,6 +65,13 @@ class EurekaMachine {
   std::vector<uint8_t> TakeConsoleOutput();
   std::vector<uint8_t> TakeSpeechInput();
   std::vector<int16_t> TakeAudio();
+  // Renders the cycles a parked CPU did not run.  Step() returns false while
+  // the BIOS waits for a key, which is most of the machine's life, but the
+  // real Eureka is only spinning there: the DAC still holds its last value
+  // and the filter behind it still runs.  Without this the audio stream dries
+  // up between utterances, and starting it again costs about 19 ms measured
+  // at the device -- paid at the front of every single thing the machine says.
+  void RenderIdle(uint32_t cpuCycles) { RenderAudio(cpuCycles); }
 
   uint64_t cycles() const { return cycles_; }
   uint64_t instructions() const { return instructions_; }
