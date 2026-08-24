@@ -327,7 +327,37 @@ virtuálny disk je hostiteľský priečinok a mazať používateľove súbory
 preto, že emulovaný stroj formátoval, nie je rozhodnutie tohto modelu.
 Ak by sa to niekedy malo zmeniť, musí to byť vedomé a s potvrdením.
 
-### 6.6 Uzavreté otázky
+### 6.6 Disketa je nepovinná
+
+`VirtualDisk` má tri stavy: žiadne médium, hostiteľský priečinok
+a disketa žijúca len v pamäti (`--ram-disk`). Bez média nedáva Type I
+príkaz impulz INDEX (bit 1 na porte `98h`), lebo ten pochádza z diery
+v médiu; TRACK 00 zostáva, je to snímač mechaniky. Čítania a zápisy
+sektorov končia na Record Not Found a hneď zdvihnú INTRQ, inak by
+firmvér čakal na prerušenie, ktoré nepríde.
+
+Overené sondou: bez diskety stroj nabootuje normálne, `F8` (adresár)
+aj `Shift+F6` (diskové funkcie) ohlásia **„vadný disk"** a vrátia sa do
+menu. Manuál (`DEVICES.10`, `fdc_ctl_chkdsk`) pozná aj presnejšie
+„disk není založen", ale tá hláška vychádza z vlastnej kontroly INDEX
+v ROM, ktorou tieto dve cesty neprechádzajú — rovno čítajú. Na skutočnom
+stroji by prázdna mechanika dala tiež RNF, takže hlásenie sedí.
+
+Skúšané a zavrhnuté: nechať bez diskety bežať pôvodný ovládač v ROM
+namiesto obídenia BIOS-u (`InterceptBios`, prípady 13 a 14). Hláška
+vyšla rovnaká, len o ~20 000 inštrukcií drahšie.
+
+### 6.7 Zápis späť je viazaný na kľud disku, nie na hodiny
+
+Pôvodne sa `Flush` volal každé dve sekundy. To je nezávislé od hosťa,
+takže export mohol trafiť rozpísanú úpravu adresára. Najhoršie na tom
+bolo mazanie: položka zmazaná na ceste k prepísaniu vyzerá ako zmazaný
+súbor a hostiteľský súbor putoval do `.eureka-trash`. Teraz sa
+zapisuje, až keď je disk špinavý, radič nie je uprostred prenosu
+a od posledného zápisu ubehla sekunda hosťovho času
+(`EurekaMachine::DiskSettled`).
+
+### 6.8 Uzavreté otázky
 
 | bývalá otázka | výsledok |
 |---|---|

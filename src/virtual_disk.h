@@ -16,8 +16,14 @@ class VirtualDisk {
   static constexpr unsigned kRecordsPerTrack = 40;
   static constexpr unsigned kRecordSize = 128;
 
+  // A machine may run with no diskette at all; the firmware has its own path
+  // for that (19828 seeks, polls INDEX, reports "neni disk" at 19848).
+  enum class Media { kNone, kFolder, kRam };
+
   bool Mount(const std::filesystem::path& folder, std::wstring& error);
+  void CreateRamDisk();
   bool Flush(std::wstring& error);
+  bool ExportTo(const std::filesystem::path& folder, std::wstring& error);
 
   bool ReadRecord(unsigned track, unsigned record, uint8_t* destination) const;
   bool WriteRecord(unsigned track, unsigned record, const uint8_t* source);
@@ -28,7 +34,10 @@ class VirtualDisk {
 
   const std::filesystem::path& folder() const { return folder_; }
   bool dirty() const { return dirty_; }
+  bool present() const { return media_ != Media::kNone; }
+  Media media() const { return media_; }
   std::size_t imported_files() const { return imported_.size(); }
+  std::size_t StoredFiles() const;
 
  private:
   struct ImportedFile {
@@ -57,11 +66,16 @@ class VirtualDisk {
   static std::wstring DecodeCpmName(const std::string& cpmName);
 
   bool BuildImage(std::wstring& error);
-  bool ExportImage(std::wstring& error);
+  // writeBack distinguishes the two directions: updating the mounted folder in
+  // place (host paths and deletions honoured, unchanged files left alone) from
+  // copying the whole image out to a folder that knows nothing about it.
+  bool ExportImage(const std::filesystem::path& destination, bool writeBack,
+                   std::wstring& error);
 
   std::filesystem::path folder_;
   std::array<uint8_t, kSize> image_{};
   std::unordered_map<std::string, ImportedFile> imported_;
+  Media media_ = Media::kNone;
   bool dirty_ = false;
 };
 

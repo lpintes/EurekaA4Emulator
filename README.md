@@ -8,7 +8,9 @@ ako v Eureke.
 ## Rýchly štart
 
 1. Spustite `EurekaA4Emulator.exe`.
-2. Vyberte priečinok, ktorý sa má správať ako 800 KiB disk Eureky.
+2. Vyberte priečinok, ktorý sa má správať ako 800 KiB disk Eureky. Výber
+   sa dá zrušiť — Eureka potom beží bez diskety, tak ako skutočný stroj
+   s prázdnou mechanikou.
 3. Počkajte na úvodnú vetu „inicializace eureky“.
 4. Klávesnica Windows teraz ovláda emulovaný počítač.
 
@@ -23,6 +25,14 @@ EurekaA4Emulator.exe --rom A4ROM.DMP --disk D:\MOJ_EUREKA_DISK
 
 Ak sa `--rom` neuvedie, ROM sa hľadá vedľa EXE. Ak sa neuvedie `--disk`,
 program zobrazí systémový výber priečinka.
+
+Disketa je nepovinná:
+
+- `--no-disk` spustí Eureku bez diskety a bez pýtania. Diskové funkcie
+  ohlásia chybu disku, všetko ostatné funguje.
+- `--ram-disk` vloží prázdnu naformátovanú disketu, ktorá existuje len
+  v pamäti. Pri ukončení sa emulátor spýta, či jej obsah uložiť do
+  priečinka; ak odmietnete alebo výber zrušíte, obsah zanikne.
 
 ## Spúšťanie súborov
 
@@ -72,7 +82,9 @@ doplnku; tu je prioritou verná činnosť ROM.
 - Horná úroveň vybraného priečinka sa pri štarte prevedie na disk CP/M.
 - Názvy sa prevedú na veľké 8.3; diakritika v názve sa zloží a kolízie dostanú
   príponu `~1`, `~2` atď.
-- Zápisy Eureky sa priebežne ukladajú späť do priečinka.
+- Zápisy Eureky sa ukladajú späť do priečinka vždy, keď sa disk na sekundu
+  utíši. Nie na pevný takt — obraz zapísaný uprostred úpravy adresára by
+  bol roztrhnutý a súbor práve prepisovaný by vyzeral ako zmazaný.
 - Súbor zmazaný v Eureke sa kvôli obnove presunie do `.eureka-trash`, nemaže
   sa nevratne.
 - Podpriečinky sa do jednej diskety nezahŕňajú.

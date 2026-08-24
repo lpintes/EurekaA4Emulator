@@ -98,6 +98,30 @@ fs::path PickDiskFolder() {
   return result;
 }
 
+// Asked only when the machine is already stopped, so a blocking read is safe.
+// Returns false without waiting when there is no console to ask on.
+bool AskYesNo(const std::wstring& question) {
+  HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+  DWORD mode = 0;
+  if (input == INVALID_HANDLE_VALUE || !GetConsoleMode(input, &mode)) return false;
+  Print(question);
+  for (;;) {
+    INPUT_RECORD record{};
+    DWORD read = 0;
+    if (!ReadConsoleInputW(input, &record, 1, &read) || !read) return false;
+    if (record.EventType != KEY_EVENT || !record.Event.KeyEvent.bKeyDown) continue;
+    const wchar_t ch = record.Event.KeyEvent.uChar.UnicodeChar;
+    if (ch == L'a' || ch == L'A' || ch == L'y' || ch == L'Y') {
+      Print(L"ano\r\n");
+      return true;
+    }
+    if (ch == L'n' || ch == L'N' || ch == 0x1b) {
+      Print(L"nie\r\n");
+      return false;
+    }
+  }
+}
+
 uint8_t SpecialKey(const KEY_EVENT_RECORD& key) {
   const bool shift = (key.dwControlKeyState & SHIFT_PRESSED) != 0;
   const bool alt = (key.dwControlKeyState & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) != 0;
@@ -173,8 +197,12 @@ bool PumpKeyboard(EurekaMachine& machine, bool& reset, bool& dump) {
 void PrintUsage() {
   Print(L"Eureka A4 Emulator\r\n\r\n"
         L"Použitie: EurekaA4Emulator.exe [--rom A4ROM.DMP] [--disk PRIECINOK]\r\n"
-        L"                              [--diag]\r\n"
-        L"Ak --disk vynecháte, zobrazí sa výber priečinka.\r\n"
+        L"                              [--ram-disk] [--no-disk] [--diag]\r\n"
+        L"Ak --disk vynecháte, zobrazí sa výber priečinka; jeho zrušením sa\r\n"
+        L"Eureka spustí bez diskety.\r\n"
+        L"--ram-disk dá prázdnu disketu, ktorá žije len v pamäti; pri ukončení\r\n"
+        L"sa emulátor spýta, či ju uložiť do priečinka.\r\n"
+        L"--no-disk spustí Eureku bez diskety a bez pýtania.\r\n"
         L"--diag zapne záznam zahodených zápisov, portov bez modelu a zmien\r\n"
         L"riadiacich latchov. Výpis: Ctrl+Shift+D, aj pri ukončení.\r\n");
 }
@@ -188,6 +216,8 @@ int wmain(int argc, wchar_t** argv) {
 
   fs::path rom = ExecutableDirectory() / L"A4ROM.DMP";
   fs::path disk;
+  bool ramDisk = false;
+  bool noDisk = false;
   bool diagnostics = false;
   for (int index = 1; index < argc; ++index) {
     const std::wstring argument = argv[index];
@@ -198,6 +228,14 @@ int wmain(int argc, wchar_t** argv) {
     }
     if (argument == L"--diag") {
       diagnostics = true;
+      continue;
+    }
+    if (argument == L"--ram-disk") {
+      ramDisk = true;
+      continue;
+    }
+    if (argument == L"--no-disk") {
+      noDisk = true;
       continue;
     }
     if ((argument == L"--rom" || argument == L"--disk") && index + 1 < argc) {
@@ -211,19 +249,28 @@ int wmain(int argc, wchar_t** argv) {
     CoUninitialize();
     return 2;
   }
-  if (disk.empty()) disk = PickDiskFolder();
-  if (disk.empty()) {
-    Print(L"Výber disku bol zrušený.\r\n");
-    CoUninitialize();
-    return 1;
-  }
+  // Cancelling the picker is a choice, not an error: a real A4 runs perfectly
+  // well with an empty drive and says so when a disk function is asked for.
+  if (disk.empty() && !ramDisk && !noDisk) disk = PickDiskFolder();
 
   auto machine = std::make_unique<EurekaMachine>();
   std::wstring error;
-  if (!machine->LoadRom(rom, error) || !machine->MountDisk(disk, error)) {
+  if (!machine->LoadRom(rom, error)) {
     Print(L"Chyba: " + error + L"\r\n");
     CoUninitialize();
     return 1;
+  }
+  std::wstring diskDescription = L"žiadna, mechanika je prázdna";
+  if (ramDisk) {
+    machine->CreateRamDisk();
+    diskDescription = L"prázdna disketa v pamäti";
+  } else if (!disk.empty()) {
+    if (!machine->MountDisk(disk, error)) {
+      Print(L"Chyba: " + error + L"\r\n");
+      CoUninitialize();
+      return 1;
+    }
+    diskDescription = disk.wstring();
   }
   machine->diagnostics().set_enabled(diagnostics);
   machine->Reset();
@@ -240,7 +287,7 @@ int wmain(int argc, wchar_t** argv) {
   if (!audio.Open(EurekaMachine::kAudioHz))
     Print(L"Upozornenie: zvukové zariadenie sa nepodarilo otvoriť.\r\n");
 
-  Print(L"Eureka A4 je zapnutá. Disk: " + disk.wstring() + L"\r\n"
+  Print(L"Eureka A4 je zapnutá. Disk: " + diskDescription + L"\r\n"
         L"Klávesy Windows sa posielajú do Eureky; F1-F10 a kurzory fungujú "
         L"vrátane Shift/Alt.\r\n"
         L"Shift+F7 spustí program z disku. Ctrl+Shift+R resetuje, "
@@ -249,7 +296,6 @@ int wmain(int argc, wchar_t** argv) {
   using Clock = std::chrono::steady_clock;
   auto epoch = Clock::now();
   uint64_t epochCycles = machine->cycles();
-  auto lastFlush = epoch;
   bool running = true;
   while (running) {
     bool reset = false;
@@ -294,21 +340,36 @@ int wmain(int argc, wchar_t** argv) {
     if (!output.empty()) Print(DecodeKamenicky(output.data(), output.size()));
     audio.Submit(machine->TakeAudio());
 
-    if (now - lastFlush >= std::chrono::seconds(2)) {
-      if (!machine->FlushDisk(error)) {
-        Print(L"\r\nChyba pri ukladaní disku: " + error + L"\r\n");
-        running = false;
-      }
-      lastFlush = now;
+    // Written back once the guest has finished with the disk, not on a clock:
+    // an export taken mid-update would see a half-written directory.
+    if (machine->DiskSettled() && !machine->FlushDisk(error)) {
+      Print(L"\r\nChyba pri ukladaní disku: " + error + L"\r\n");
+      running = false;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
 
   if (!machine->FlushDisk(error))
     Print(L"\r\nChyba pri ukladaní disku: " + error + L"\r\n");
-  if (diagnostics) Print(machine->diagnostics().Report());
   audio.Close();
   if (input != INVALID_HANDLE_VALUE && oldMode) SetConsoleMode(input, oldMode);
+
+  if (ramDisk && machine->disk().StoredFiles() > 0) {
+    const std::size_t stored = machine->disk().StoredFiles();
+    if (AskYesNo(L"\r\nNa diskete v pamäti " +
+                 (stored == 1 ? std::wstring(L"je 1 súbor")
+                              : L"sú súbory (" + std::to_wstring(stored) + L")") +
+                 L". Chcete ich uložiť do priečinka? (A/N) ")) {
+      const fs::path target = PickDiskFolder();
+      if (target.empty())
+        Print(L"Ukladanie zrušené, obsah diskety sa stratí.\r\n");
+      else if (!machine->ExportDisk(target, error))
+        Print(L"Chyba pri ukladaní: " + error + L"\r\n");
+      else
+        Print(L"Uložené do " + target.wstring() + L"\r\n");
+    }
+  }
+  if (diagnostics) Print(machine->diagnostics().Report());
   Print(L"\r\nEureka A4 bola vypnutá.\r\n");
   CoUninitialize();
   return 0;

@@ -70,6 +70,14 @@ bool EurekaMachine::MountDisk(const fs::path& folder, std::wstring& error) {
   return disk_.Mount(folder, error);
 }
 
+bool EurekaMachine::DiskSettled() const {
+  if (!disk_.dirty()) return false;
+  if (fdcWriting_) return false;  // a sector or track is still being fed in
+  // One second of guest time with no write.  CP/M finishes a directory update
+  // in far less; a host-visible export in the middle of one would be torn.
+  return cycles_ - lastDiskWrite_ >= kCpuHz;
+}
+
 void EurekaMachine::Reset() {
   if (!romLoaded_) return;
   std::fill(memory_.begin() + kRomSize, memory_.end(), 0);
@@ -114,6 +122,7 @@ void EurekaMachine::Reset() {
   fdcStepDirection_ = 1;
   fdcFormattedCylinder_ = -1;
   fdcFormattedSide_ = -1;
+  lastDiskWrite_ = 0;
   csioReady_ = false;
   rtcLatched_ = false;
 
@@ -484,12 +493,14 @@ uint8_t EurekaMachine::TypeOneStatus() const {
   // After a Type I command the firmware waits for the index pulse to decide
   // whether a disk is actually in the drive: 19828 issues a seek, then polls
   // 98h with TST 02h and reports "neni disk" if it never arrives (19848).
-  // A mounted folder is always a present, spinning, unprotected disk here, so
-  // the pulse is held asserted rather than timed to a 200ms revolution -- the
-  // firmware only ever asks whether it appears, never how often.
-  uint8_t status = 0x02;               // INDEX
-  if (fdcTrack_ == 0) status |= 0x04;  // TRACK 00
-  return status;                       // bit 6 (write protect) stays clear
+  // A mounted disk is always present, spinning and unprotected here, so the
+  // pulse is held asserted rather than timed to a 200ms revolution -- the
+  // firmware only ever asks whether it appears, never how often.  With no
+  // disk it never appears, which is how the machine says "neni disk".
+  uint8_t status = 0;
+  if (disk_.present()) status |= 0x02;  // INDEX comes from the hole in the medium
+  if (fdcTrack_ == 0) status |= 0x04;   // TRACK 00 is a sensor on the mechanism
+  return status;                        // bit 6 (write protect) stays clear
 }
 
 void EurekaMachine::StartFdcCommand(uint8_t command) {
@@ -537,12 +548,21 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
       std::fill(fdcBuffer_.begin(), fdcBuffer_.end(), 0xe5);
       fdcStatus_ = 0x02;
     } else {
+      // Record Not Found.  The buffer has to go with it: a DMA channel armed
+      // for this read would otherwise drain 512 bytes of nothing into RAM.
+      fdcBuffer_.clear();
       fdcStatus_ = 0x10;
+      fdcIntrq_ = true;
     }
   } else if ((command & 0xe0) == 0xa0) {
-    fdcBuffer_.assign(512, 0);
-    fdcWriting_ = true;
-    fdcStatus_ = 0x03;
+    if (!disk_.present()) {
+      fdcStatus_ = 0x10;
+      fdcIntrq_ = true;
+    } else {
+      fdcBuffer_.assign(512, 0);
+      fdcWriting_ = true;
+      fdcStatus_ = 0x03;
+    }
   } else if (type == 0xc0) {
     fdcBuffer_ = {fdcTrack_, static_cast<uint8_t>(outputLatch_ & 1),
                   fdcSector_, 2, 0, 0};
@@ -550,6 +570,11 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   } else if (type == 0xd0) {
     fdcStatus_ = 0;
   } else if (type == 0xe0) {
+    if (!disk_.present()) {
+      fdcStatus_ = 0x10;
+      fdcIntrq_ = true;
+      return;
+    }
     fdcBuffer_.resize(5120);
     for (unsigned sector = 1; sector <= 10; ++sector) {
       disk_.ReadPhysicalSector(fdcTrack_, outputLatch_ & 1, sector,
@@ -557,6 +582,11 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     }
     fdcStatus_ = 0x02;  // Read Track completes on its own, as above.
   } else if (type == 0xf0) {
+    if (!disk_.present()) {
+      fdcStatus_ = 0x10;
+      fdcIntrq_ = true;
+      return;
+    }
     fdcBuffer_.assign(6250, 0);
     fdcWriting_ = true;
     fdcFormattedCylinder_ = fdcTrack_;
@@ -600,6 +630,7 @@ void EurekaMachine::WriteFdcData(uint8_t value) {
     if ((fdcCommand_ & 0xe0) == 0xa0) {
       disk_.WritePhysicalSector(fdcTrack_, outputLatch_ & 1, fdcSector_,
                                 fdcBuffer_.data());
+      lastDiskWrite_ = cycles_;
     }
     fdcStatus_ = 0;
     fdcWriting_ = false;
@@ -765,6 +796,7 @@ bool EurekaMachine::InterceptBios() {
       std::array<uint8_t, VirtualDisk::kRecordSize> record{};
       for (unsigned i = 0; i < record.size(); ++i) record[i] = Peek(biosDma_ + i);
       cpu_.a = disk_.WriteRecord(biosTrack_, biosSector_, record.data()) ? 0 : 1;
+      lastDiskWrite_ = cycles_;
       ReturnFromCall();
       return true;
     }

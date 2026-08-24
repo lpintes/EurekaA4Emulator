@@ -34,7 +34,16 @@ class EurekaMachine {
 
   bool LoadRom(const std::filesystem::path& path, std::wstring& error);
   bool MountDisk(const std::filesystem::path& folder, std::wstring& error);
+  void CreateRamDisk() { disk_.CreateRamDisk(); }
   bool FlushDisk(std::wstring& error) { return disk_.Flush(error); }
+  bool ExportDisk(const std::filesystem::path& folder, std::wstring& error) {
+    return disk_.ExportTo(folder, error);
+  }
+  // True once the guest has written and then left the disk alone long enough
+  // that the image is a consistent filesystem again.  Writing it back on a
+  // fixed timer instead would catch CP/M mid-update, and a directory entry
+  // erased on the way to being rewritten reads as a deleted file.
+  bool DiskSettled() const;
   void Reset();
 
   // Returns false only while BIOS console input is waiting for a host key.
@@ -107,6 +116,7 @@ class EurekaMachine {
   mutable std::array<uint8_t, 8> rtcRegisters_{};
   mutable bool rtcLatched_ = false;
   VirtualDisk disk_;
+  uint64_t lastDiskWrite_ = 0;
   Diagnostics diag_;
 
   uint8_t cbar_ = 0xf0;

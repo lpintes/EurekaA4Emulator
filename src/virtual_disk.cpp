@@ -77,7 +77,34 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
     return false;
   }
   folder_ = absolute;
-  return BuildImage(error);
+  media_ = Media::kFolder;
+  if (BuildImage(error)) return true;
+  media_ = Media::kNone;
+  folder_.clear();
+  return false;
+}
+
+// A scratch diskette that exists only for this session: 0E5h everywhere is
+// exactly what a freshly formatted CP/M disk looks like, so the firmware sees
+// an empty directory without any host folder behind it.
+void VirtualDisk::CreateRamDisk() {
+  image_.fill(0xe5);
+  imported_.clear();
+  folder_.clear();
+  media_ = Media::kRam;
+  dirty_ = false;
+}
+
+std::size_t VirtualDisk::StoredFiles() const {
+  if (media_ == Media::kNone) return 0;
+  std::map<std::string, bool> names;
+  for (unsigned index = 0; index < kDirectoryEntries; ++index) {
+    const uint8_t* entry = image_.data() + index * 32;
+    if (entry[0] > 0x1f) continue;
+    const std::string name = DirectoryName(entry);
+    if (!name.empty()) names[name] = true;
+  }
+  return names.size();
 }
 
 std::string VirtualDisk::MakeCpmName(const fs::path& path) {
@@ -204,7 +231,8 @@ std::wstring VirtualDisk::DecodeCpmName(const std::string& cpmName) {
   return std::wstring(cpmName.begin(), cpmName.end());
 }
 
-bool VirtualDisk::ExportImage(std::wstring& error) {
+bool VirtualDisk::ExportImage(const fs::path& destination, bool writeBack,
+                              std::wstring& error) {
   std::map<std::string, ExportedFile> files;
   for (unsigned index = 0; index < kDirectoryEntries; ++index) {
     const uint8_t* entry = image_.data() + index * 32;
@@ -238,9 +266,9 @@ bool VirtualDisk::ExportImage(std::wstring& error) {
     }
 
     auto imported = imported_.find(name);
-    fs::path output = imported == imported_.end()
-                          ? folder_ / DecodeCpmName(name)
-                          : imported->second.path;
+    const bool known = writeBack && imported != imported_.end();
+    fs::path output = known ? imported->second.path
+                            : destination / DecodeCpmName(name);
     std::size_t length = data.size();
     if (imported != imported_.end() && imported->second.exact_size <= data.size()) {
       bool paddingOnly = true;
@@ -253,7 +281,9 @@ bool VirtualDisk::ExportImage(std::wstring& error) {
       length = static_cast<std::size_t>(end - data.begin());
     }
 
-    if (imported != imported_.end() && length == imported->second.exact_size &&
+    // Only when updating in place: an untouched file needs no rewrite.  An
+    // export to a fresh folder has to produce every file, changed or not.
+    if (known && length == imported->second.exact_size &&
         Hash(data.data(), length) == imported->second.hash) {
       continue;
     }
@@ -266,9 +296,11 @@ bool VirtualDisk::ExportImage(std::wstring& error) {
                  static_cast<std::streamsize>(length));
   }
 
+  if (!writeBack) return true;
+
   // Deletions are made recoverable by moving the original host file into a
   // private trash folder rather than erasing it.
-  fs::path trash = folder_ / L".eureka-trash";
+  fs::path trash = destination / L".eureka-trash";
   for (const auto& [name, imported] : imported_) {
     if (files.contains(name)) continue;
     std::error_code ec;
@@ -289,8 +321,25 @@ bool VirtualDisk::ExportImage(std::wstring& error) {
 }
 
 bool VirtualDisk::Flush(std::wstring& error) {
-  if (!dirty_) return true;
-  if (!ExportImage(error)) return false;
+  // A RAM diskette has no host folder to write back to; main() offers to
+  // export it once, when the machine is switched off.
+  if (media_ != Media::kFolder || !dirty_) return true;
+  if (!ExportImage(folder_, true, error)) return false;
+  dirty_ = false;
+  return true;
+}
+
+bool VirtualDisk::ExportTo(const fs::path& target, std::wstring& error) {
+  if (media_ == Media::kNone) return true;
+  std::error_code ec;
+  fs::create_directories(target, ec);
+  if (!fs::is_directory(target, ec)) {
+    error = L"Cieľový priečinok neexistuje a nedá sa vytvoriť.";
+    return false;
+  }
+  fs::path absolute = fs::weakly_canonical(target, ec);
+  if (ec) absolute = target;
+  if (!ExportImage(absolute, false, error)) return false;
   dirty_ = false;
   return true;
 }
@@ -298,14 +347,14 @@ bool VirtualDisk::Flush(std::wstring& error) {
 bool VirtualDisk::ReadRecord(unsigned track, unsigned record, uint8_t* destination) const {
   // CP/M BIOS logical sectors are numbered 0..SPT-1. Physical WD177x
   // sectors remain 1-based and are handled separately below.
-  if (track >= kTracks || record >= kRecordsPerTrack) return false;
+  if (!present() || track >= kTracks || record >= kRecordsPerTrack) return false;
   const std::size_t offset = (track * kRecordsPerTrack + record) * kRecordSize;
   std::copy_n(image_.data() + offset, kRecordSize, destination);
   return true;
 }
 
 bool VirtualDisk::WriteRecord(unsigned track, unsigned record, const uint8_t* source) {
-  if (track >= kTracks || record >= kRecordsPerTrack) return false;
+  if (!present() || track >= kTracks || record >= kRecordsPerTrack) return false;
   const std::size_t offset = (track * kRecordsPerTrack + record) * kRecordSize;
   std::copy_n(source, kRecordSize, image_.data() + offset);
   dirty_ = true;
@@ -314,7 +363,8 @@ bool VirtualDisk::WriteRecord(unsigned track, unsigned record, const uint8_t* so
 
 bool VirtualDisk::ReadPhysicalSector(unsigned cylinder, unsigned side, unsigned sector,
                                      uint8_t* destination) const {
-  if (cylinder >= 80 || side > 1 || sector == 0 || sector > 10) return false;
+  if (!present() || cylinder >= 80 || side > 1 || sector == 0 || sector > 10)
+    return false;
   const std::size_t offset = ((cylinder * 2 + side) * 10 + sector - 1) * 512;
   std::copy_n(image_.data() + offset, 512, destination);
   return true;
@@ -322,7 +372,8 @@ bool VirtualDisk::ReadPhysicalSector(unsigned cylinder, unsigned side, unsigned 
 
 bool VirtualDisk::WritePhysicalSector(unsigned cylinder, unsigned side, unsigned sector,
                                       const uint8_t* source) {
-  if (cylinder >= 80 || side > 1 || sector == 0 || sector > 10) return false;
+  if (!present() || cylinder >= 80 || side > 1 || sector == 0 || sector > 10)
+    return false;
   const std::size_t offset = ((cylinder * 2 + side) * 10 + sector - 1) * 512;
   std::copy_n(source, 512, image_.data() + offset);
   dirty_ = true;
