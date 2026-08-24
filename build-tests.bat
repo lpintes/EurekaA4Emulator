@@ -5,8 +5,12 @@ cd /d "%~dp0"
 if "%MINGW64%"=="" set "MINGW64=C:\msys64\mingw64"
 set "PATH=%MINGW64%\bin;%PATH%"
 
-rem Testy sa linkuju proti tym istym objektom ako emulator.
-if not exist build\machine.o call "%~dp0build.bat" || exit /b 1
+rem Testy sa linkuju proti tym istym objektom ako emulator, preto sa
+rem build.bat vola vzdy. Kedysi tu bola podmienka na existenciu
+rem build\machine.o a bola to pasca: pri zmenenom zdrojaku nechala
+rem stare .o, takze testy merali kod, ktory sa vobec neprelozil.
+rem build.bat preklada vsetko nanovo, zastaraly objekt tak nevznikne.
+call "%~dp0build.bat" || exit /b 1
 if not exist bin mkdir bin
 
 set "CXXFLAGS=-std=c++20 -O2 -Wall -Wextra -Wno-unused-parameter -Isrc"
