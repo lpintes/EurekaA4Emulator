@@ -1,0 +1,4 @@
+# Obsah eurekatech/ sú dobové súbory z roku 1992 vrátane CP/M binárok.
+# Konverzia koncov riadkov by ich poškodila a integračný test závisí na
+# tom, že READ.COM je bajt na bajt taký, aký prišiel z diskety.
+eurekatech/** -text

@@ -1,3 +1,11 @@
 A4ROM.DMP is firmware supplied by the owner of the original Eureka A4 dump.
 It is data consumed by the emulator and is not covered by LICENSE.txt.
 Do not redistribute the ROM unless you have the necessary rights.
+
+Embedding the dump in the executable does not change this. Compiling the
+firmware into the binary is still distribution of the firmware, only less
+visible. If the emulator is ever published, the ROM must stay a separate
+file that the user supplies from their own machine.
+
+The same applies to eurekatech/, which holds third-party documentation and
+software from two different rights holders. See eurekatech/PUVOD.md.
