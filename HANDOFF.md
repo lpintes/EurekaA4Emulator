@@ -291,6 +291,18 @@ Cesta v ROM: prerušenie CSI/O → vektor `C18C` → `CD62` naplánuje úlohu
 `D409` → `DD2E`. Tam sa scancode preloží tabuľkami `DF05` (základná),
 `DF5E` (shift) a `DF98` (pravý Alt), rozšírené kódy tabuľkou `DFD6`.
 
+Dve pasce, ktoré zlyhávajú **potichu** a stáli celý večer; podrobne
+v `hardware-map.md`:
+
+1. **Prijatie bajtu zhodí `RE`** — je to vlastnosť 64180, preto ROM
+   prijímač po každom bajte znovu zapína (`1E012`). Bez toho zožerie
+   zahadzovacie čítanie `TRDR` na `1DFFE` druhý bajt sekvencie `E0h`:
+   písmená chodia, šípky nie.
+2. **Reset (`FFh`) musí vyprázdniť frontu.** Inak stačí kláves pustený
+   pred prvou inštrukciou stroja — Enter, ktorým sa emulátor spustil —
+   a ROM si namiesto `AAh` vytiahne break kód, usúdi, že klávesnica nie
+   je pripojená, a prijímač vypne natrvalo.
+
 Čo z toho plynie a je prekvapivé: **ROM očakáva českú QWERTZ
 klávesnicu.** Na `15h` je `z` a na `2Ch` `y`, nezhiftovaná číselná rada
 dáva `ěščřžýáíé` a číslice sú až so shiftom. Pravý Alt je modifikátor
