@@ -158,6 +158,33 @@ bool VirtualDisk::BuildImage(std::wstring& error) {
     return left.path().filename().wstring() < right.path().filename().wstring();
   });
 
+  // Checked up front so the message can name the real limit.  A folder can sit
+  // well under 800 KiB and still not fit: CP/M hands out 2 KiB blocks, so 258
+  // melodies of a few hundred bytes each claim 258 blocks between them.
+  unsigned neededBlocks = 0;
+  unsigned neededEntries = 0;
+  for (const auto& entry : files) {
+    const std::uintmax_t size = entry.file_size(ec);
+    if (ec) { ec.clear(); continue; }
+    const unsigned records = static_cast<unsigned>((size + 127) / 128);
+    neededBlocks += static_cast<unsigned>((size + kBlockSize - 1) / kBlockSize);
+    neededEntries += std::max(1u, (records + 127) / 128);
+  }
+  const unsigned availableBlocks = kLastBlock + 1 - kFirstDataBlock;
+  if (neededBlocks > availableBlocks || neededEntries > kDirectoryEntries) {
+    error = L"Obsah priečinka sa nezmestí na disk Eureky. " +
+            std::to_wstring(files.size()) + L" súborov potrebuje " +
+            std::to_wstring(neededBlocks) + L" blokov po 2 KiB (k dispozícii " +
+            std::to_wstring(availableBlocks) + L") a " +
+            std::to_wstring(neededEntries) +
+            L" položiek adresára (k dispozícii " +
+            std::to_wstring(kDirectoryEntries) +
+            L"). Aj malý súbor zaberá celý 2 KiB blok, preto sa priečinok "
+            L"nezmestí, hoci má menej ako 800 KiB. Rozdeľte ho na viac "
+            L"priečinkov a striedajte ich ako diskety.";
+    return false;
+  }
+
   for (const auto& entry : files) {
     std::ifstream input(entry.path(), std::ios::binary);
     if (!input) continue;

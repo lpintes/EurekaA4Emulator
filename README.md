@@ -23,8 +23,10 @@ Program sa dá spustiť aj z príkazového riadka:
 EurekaA4Emulator.exe --rom A4ROM.DMP --disk D:\MOJ_EUREKA_DISK
 ```
 
-Ak sa `--rom` neuvedie, ROM sa hľadá vedľa EXE. Ak sa neuvedie `--disk`,
-program zobrazí systémový výber priečinka.
+Ak sa `--rom` neuvedie, ROM sa hľadá postupne v premennej prostredia
+`A4ROM`, vedľa EXE, o úroveň vyššie a v aktuálnom priečinku. Keď ju
+nenájde, vypíše, kde všade hľadal. Ak sa neuvedie `--disk`, program
+zobrazí systémový výber priečinka.
 
 Disketa je nepovinná:
 
@@ -88,6 +90,10 @@ doplnku; tu je prioritou verná činnosť ROM.
 - Súbor zmazaný v Eureke sa kvôli obnove presunie do `.eureka-trash`, nemaže
   sa nevratne.
 - Podpriečinky sa do jednej diskety nezahŕňajú.
+- Nezmestí sa toľko, koľko by veľkosť priečinka naznačovala: CP/M prideľuje
+  miesto po blokoch 2 KiB, takže aj 300-bajtový súbor zaberie celý blok.
+  Na disk sa vojde 396 blokov a 256 položiek adresára. Keď sa priečinok
+  nezmestí, emulátor povie koľko blokov a položiek by bolo treba.
 
 Pred priamou úpravou súborov vo vybranom priečinku emulátor ukončite, aby sa
 neprepísal obsah pripojeného obrazu.

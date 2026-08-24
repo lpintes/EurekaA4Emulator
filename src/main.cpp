@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <shobjidl.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <memory>
@@ -71,6 +72,50 @@ fs::path ExecutableDirectory() {
                                           static_cast<DWORD>(buffer.size()));
   buffer.resize(length);
   return fs::path(buffer).parent_path();
+}
+
+// The ROM lives outside the repository, so it is rarely next to the EXE.
+// A4ROM is the variable the project's tools already use.
+std::vector<fs::path> RomCandidates() {
+  std::vector<fs::path> candidates;
+  const auto add = [&candidates](const fs::path& candidate) {
+    if (std::find(candidates.begin(), candidates.end(), candidate) == candidates.end())
+      candidates.push_back(candidate);
+  };
+  wchar_t buffer[32768];
+  const DWORD length = GetEnvironmentVariableW(L"A4ROM", buffer, 32768);
+  if (length > 0 && length < 32768) add(fs::path(std::wstring(buffer, length)));
+  add(ExecutableDirectory() / L"A4ROM.DMP");
+  add(ExecutableDirectory().parent_path() / L"A4ROM.DMP");
+  std::error_code ec;
+  const fs::path working = fs::current_path(ec);
+  if (!ec) add(working / L"A4ROM.DMP");
+  return candidates;
+}
+
+// Launched from a file manager, this process owns its console window, and the
+// window dies with it -- taking any error message with it.  A blind user gets
+// no chance at all to read what went wrong, so hold the window until a key.
+bool OwnsConsole() {
+  DWORD pids[4]{};
+  return GetConsoleProcessList(pids, 4) == 1;
+}
+
+void HoldConsole() {
+  if (!OwnsConsole()) return;
+  HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+  DWORD mode = 0;
+  if (input == INVALID_HANDLE_VALUE || !GetConsoleMode(input, &mode)) return;
+  Print(L"\r\nStlačte ľubovoľný kláves...\r\n");
+  SetConsoleMode(input, mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+  FlushConsoleInputBuffer(input);
+  for (;;) {
+    INPUT_RECORD record{};
+    DWORD read = 0;
+    if (!ReadConsoleInputW(input, &record, 1, &read) || !read) break;
+    if (record.EventType == KEY_EVENT && record.Event.KeyEvent.bKeyDown) break;
+  }
+  SetConsoleMode(input, mode);
 }
 
 fs::path PickDiskFolder() {
@@ -203,6 +248,8 @@ void PrintUsage() {
         L"--ram-disk dá prázdnu disketu, ktorá žije len v pamäti; pri ukončení\r\n"
         L"sa emulátor spýta, či ju uložiť do priečinka.\r\n"
         L"--no-disk spustí Eureku bez diskety a bez pýtania.\r\n"
+        L"ROM sa hľadá v premennej A4ROM, vedľa EXE, o úroveň vyššie a\r\n"
+        L"v aktuálnom priečinku.\r\n"
         L"--diag zapne záznam zahodených zápisov, portov bez modelu a zmien\r\n"
         L"riadiacich latchov. Výpis: Ctrl+Shift+D, aj pri ukončení.\r\n");
 }
@@ -214,7 +261,7 @@ int wmain(int argc, wchar_t** argv) {
   SetConsoleTitleW(L"Eureka A4 Emulator");
   SetConsoleOutputCP(CP_UTF8);
 
-  fs::path rom = ExecutableDirectory() / L"A4ROM.DMP";
+  fs::path rom;
   fs::path disk;
   bool ramDisk = false;
   bool noDisk = false;
@@ -223,6 +270,7 @@ int wmain(int argc, wchar_t** argv) {
     const std::wstring argument = argv[index];
     if ((argument == L"--help" || argument == L"-h")) {
       PrintUsage();
+      HoldConsole();
       CoUninitialize();
       return 0;
     }
@@ -246,6 +294,7 @@ int wmain(int argc, wchar_t** argv) {
     }
     Print(L"Neznámy parameter: " + argument + L"\r\n");
     PrintUsage();
+    HoldConsole();
     CoUninitialize();
     return 2;
   }
@@ -253,10 +302,28 @@ int wmain(int argc, wchar_t** argv) {
   // well with an empty drive and says so when a disk function is asked for.
   if (disk.empty() && !ramDisk && !noDisk) disk = PickDiskFolder();
 
+  std::vector<fs::path> tried;
+  if (rom.empty()) {
+    std::error_code ec;
+    for (const fs::path& candidate : RomCandidates()) {
+      tried.push_back(candidate);
+      if (fs::is_regular_file(candidate, ec)) {
+        rom = candidate;
+        break;
+      }
+    }
+  }
+
   auto machine = std::make_unique<EurekaMachine>();
   std::wstring error;
-  if (!machine->LoadRom(rom, error)) {
+  if (rom.empty() || !machine->LoadRom(rom, error)) {
+    if (rom.empty()) {
+      error = L"Nenašiel som ROM. Hľadal som tu:\r\n";
+      for (const fs::path& candidate : tried) error += L"  " + candidate.wstring() + L"\r\n";
+      error += L"Zadajte ju cez --rom CESTA alebo nastavte premennú A4ROM.";
+    }
     Print(L"Chyba: " + error + L"\r\n");
+    HoldConsole();
     CoUninitialize();
     return 1;
   }
@@ -267,6 +334,7 @@ int wmain(int argc, wchar_t** argv) {
   } else if (!disk.empty()) {
     if (!machine->MountDisk(disk, error)) {
       Print(L"Chyba: " + error + L"\r\n");
+      HoldConsole();
       CoUninitialize();
       return 1;
     }
@@ -371,6 +439,7 @@ int wmain(int argc, wchar_t** argv) {
   }
   if (diagnostics) Print(machine->diagnostics().Report());
   Print(L"\r\nEureka A4 bola vypnutá.\r\n");
+  HoldConsole();
   CoUninitialize();
   return 0;
 }
