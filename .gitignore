@@ -11,3 +11,6 @@ build/
 *.obj
 *.exe
 __pycache__/
+
+# Medzivýstup mingw pri rýchlej kontrole prekladu
+*.o

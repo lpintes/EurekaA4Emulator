@@ -20,13 +20,16 @@ class EurekaMachine {
  public:
   static constexpr uint32_t kCpuHz = 6144000;
   static constexpr uint32_t kAudioHz = 48000;
-  static constexpr std::size_t kPhysicalSize = 1u << 20;
+  // The HD64180 drives 19 address lines, so physical addresses wrap at 80000h.
+  // Every memory map in the Technical Manual (Appendix E) fits inside that
+  // window, and the highest bank value this ROM ever loads is 70h.
+  static constexpr uint32_t kPhysicalMask = 0x7ffff;
+  static constexpr std::size_t kPhysicalSize = kPhysicalMask + 1;
   static constexpr std::size_t kRomSize = 0x40000;
-  // Lowest physical address the machine treats as writable RAM.  This is a
-  // working assumption: the ROM only ever loads immediate bank values up to
-  // 70h, which is consistent with RAM sitting at the top of the address
-  // space, but the firmware also programs CBR/BBR from variables.  Run with
-  // --diag and watch the dropped-write report to confirm or move it.
+  // Lowest physical address the machine treats as writable RAM.  Every memory
+  // map in Appendix E puts RAM at 50000h, but this Czech image is its own
+  // layout: it loads bank values up to 70h and --diag reports no dropped
+  // writes with RAM here, so RAM occupies the top 64K of the 19-bit space.
   static constexpr uint32_t kRamBase = 0x70000;
 
   bool LoadRom(const std::filesystem::path& path, std::wstring& error);
@@ -83,11 +86,15 @@ class EurekaMachine {
   void WriteTimerData(unsigned channel, bool high, uint8_t value);
   void RunDma0();
   void RunDma1();
+  bool FdcWantsDma() const;
+  void MaybeRunDma1();
 
   void StartFdcCommand(uint8_t command);
+  uint8_t TypeOneStatus() const;
   uint8_t ReadFdcData();
   void WriteFdcData(uint8_t value);
   uint8_t ReadRtc(uint16_t port) const;
+  void SampleRtc() const;
   uint8_t ReadInputBuffer() const;
   uint8_t ReadMembraneKeyboard(uint8_t port);
   void InjectFirmwareKey();
@@ -96,6 +103,9 @@ class EurekaMachine {
   std::array<uint8_t, kPhysicalSize> memory_{};
   std::array<uint8_t, 256> io_{};
   std::array<uint8_t, 8> rtcRam_{};
+  // Snapshot of the clock taken when the firmware reads rtc_100th; see ReadRtc.
+  mutable std::array<uint8_t, 8> rtcRegisters_{};
+  mutable bool rtcLatched_ = false;
   VirtualDisk disk_;
   Diagnostics diag_;
 
@@ -136,10 +146,20 @@ class EurekaMachine {
   std::vector<uint8_t> fdcBuffer_;
   std::size_t fdcPosition_ = 0;
   bool fdcWriting_ = false;
-  // The controller's INTRQ line, reported on port A8h bit 1.  The ROM
-  // waits on it after every command (19837h) and calls the timeout
-  // "v jednotce neni disk", so without it no disk command can finish.
+  // The controller's INTRQ line.  It is tracked but deliberately not
+  // readable anywhere: no external port carries it (Appendix H), and A8h
+  // bit 1 in particular is the battery comparator, where reporting INTRQ
+  // made every disk command fail as "slaba baterie".  Kept because it
+  // records when the controller would actually raise the line, which is
+  // what a future wiring to the Z180 interrupt inputs would need.
   bool fdcIntrq_ = false;
+  // DE1 was set while the controller had no data to move; see MaybeRunDma1.
+  bool dma1Armed_ = false;
+  // Last direction a Type I step moved the head; a bare Step repeats it.
+  int fdcStepDirection_ = 1;
+  // Position of the last Write Track, so a verify read of it always succeeds.
+  int fdcFormattedCylinder_ = -1;
+  int fdcFormattedSide_ = -1;
   bool csioReady_ = false;
 };
 

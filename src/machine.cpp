@@ -82,7 +82,12 @@ void EurekaMachine::Reset() {
   fdcPosition_ = 0;
   fdcWriting_ = false;
   fdcIntrq_ = false;
+  dma1Armed_ = false;
+  fdcStepDirection_ = 1;
+  fdcFormattedCylinder_ = -1;
+  fdcFormattedSide_ = -1;
   csioReady_ = false;
+  rtcLatched_ = false;
 
   // Hardware reset values used by the ROM while probing serial devices.
   io_[0x04] = 0x02;
@@ -105,7 +110,7 @@ uint32_t EurekaMachine::PhysicalAddress(uint16_t logical) const {
   if (logical < bankStart) physical = logical;
   else if (logical < common1Start) physical = logical + (static_cast<uint32_t>(bbr_) << 12);
   else physical = logical + (static_cast<uint32_t>(cbr_) << 12);
-  return physical & 0xfffff;
+  return physical & kPhysicalMask;
 }
 
 uint8_t EurekaMachine::ReadMemory(void* context, uint16_t logical) {
@@ -142,38 +147,57 @@ uint16_t EurekaMachine::PeekWord(uint16_t logical) const {
   return Peek(logical) | (static_cast<uint16_t>(Peek(logical + 1)) << 8);
 }
 
-uint8_t EurekaMachine::ReadRtc(uint16_t port) const {
+void EurekaMachine::SampleRtc() const {
   std::time_t now = std::time(nullptr);
   std::tm local{};
   localtime_s(&local, &now);
+  const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  // Port order is fixed by the hardware, not by the firmware's own layout:
+  // 90h hundredths, 91h hour, 92h minute, 93h second, 94h month, 95h date,
+  // 96h year, 97h day of week (IOPORT.LIB, Appendix H).  Reading the ROM
+  // alone suggests hour and second are exchanged, because the read loop at
+  // 0DFA4 stores the ports into a descending buffer and then swaps 91h with
+  // 93h and 94h with 95h at 0DFBB, so its internal buffer runs year, month,
+  // date, hour, minute, second, hundredths.  Do not "fix" this order.
+  rtcRegisters_[0] = BcdOrBinary(static_cast<int>((millis / 10) % 100));
+  rtcRegisters_[1] = BcdOrBinary(local.tm_hour);
+  rtcRegisters_[2] = BcdOrBinary(local.tm_min);
+  rtcRegisters_[3] = BcdOrBinary(local.tm_sec);
+  rtcRegisters_[4] = BcdOrBinary(local.tm_mon + 1);
+  rtcRegisters_[5] = BcdOrBinary(local.tm_mday);
+  rtcRegisters_[6] = BcdOrBinary(local.tm_year % 100);
+  rtcRegisters_[7] = BcdOrBinary(local.tm_wday);
+  rtcLatched_ = true;
+}
+
+uint8_t EurekaMachine::ReadRtc(uint16_t port) const {
   const unsigned index = port & 7;
-  switch (index) {
-    case 0: {
-      const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch()).count();
-      return BcdOrBinary(static_cast<int>((millis / 10) % 100));
-    }
-    case 1: return BcdOrBinary(local.tm_hour);
-    case 2: return BcdOrBinary(local.tm_min);
-    case 3: return BcdOrBinary(local.tm_sec);
-    case 4: return BcdOrBinary(local.tm_mon + 1);
-    case 5: return BcdOrBinary(local.tm_mday);
-    case 6: return BcdOrBinary(local.tm_year % 100);
-    case 7: return BcdOrBinary(local.tm_wday);
-    default: return 0;
-  }
+  // Reading rtc_100th latches all the other registers at that instant, which
+  // is what stops a batch read from straddling a tick (Appendix H, "Real Time
+  // Clock").  The ROM depends on it: 0DFA4 sweeps 90h..96h in one pass, and
+  // without latching the seconds could advance halfway through the sweep.
+  if (index == 0 || !rtcLatched_) SampleRtc();
+  return rtcRegisters_[index];
 }
 
 uint8_t EurekaMachine::ReadInputBuffer() const {
-  // The two analogue comparators are successively approximated by firmware
-  // driving the shared DAC. Bit 6 of the output latch selects the X/Y pair.
-  const bool yPair = (outputLatch_ & 0x40) != 0;
-  const uint8_t vm1Threshold = yPair ? 0x80 : 0x64;  // speech-rate / thermometer
-  const uint8_t vm2Threshold = yPair ? 0xdc : 0x80;  // battery / external meter
-  uint8_t value = 0x2c;  // CTS available, no ring and no modem carrier.
+  // Bits 0 and 1 are the two analogue comparators, each reporting the DAC
+  // output against one measured input; the firmware binary-searches the DAC to
+  // read a value.  Bit 6 of the output latch picks the pair: clear selects the
+  // internal thermometer and the external voltmeter, set selects the speech
+  // rate pot and the battery (Appendix H, vmsel_mask).
+  const bool batteryPair = (outputLatch_ & 0x40) != 0;
+  const uint8_t vm1Threshold = batteryPair ? 0x80 : 0x64;  // rate pot / thermometer
+  const uint8_t vm2Threshold = batteryPair ? 0xdc : 0x80;  // battery / ext meter
+  // A set comparator bit means the DAC has risen above the measured input, so
+  // for the battery it means "below the reference" -- the disk path writes ADh
+  // to the DAC at 19A01 and treats bit 1 as low battery at 19839 and 19A18.
+  // Nothing else lives on bit 1: the FDC's INTRQ is not readable here, and
+  // reporting it on this bit made every disk command fail as "slaba baterie".
+  uint8_t value = 0x2c;  // CTS not asserted, no ring voltage, no modem carrier.
   if (dac_ >= vm1Threshold) value |= 0x01;
   if (dac_ >= vm2Threshold) value |= 0x02;
-  if (fdcIntrq_) value |= 0x02;  // floppy controller interrupt request
   return value;
 }
 
@@ -323,7 +347,7 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
       status = static_cast<uint8_t>((status & 0xc0) | (value & 0x0d));
       machine->io_[0x30] = status;
       if ((status & 0x40) != 0) machine->RunDma0();
-      if ((status & 0x80) != 0) machine->RunDma1();
+      if ((status & 0x80) != 0) machine->MaybeRunDma1();
       break;
     }
     case 0x38: machine->cbr_ = value; break;
@@ -362,11 +386,34 @@ void EurekaMachine::RunDma0() {
   for (uint32_t index = 0; index < count; ++index) {
     // Routed through the guarded write so a stray descriptor cannot corrupt
     // the ROM image, which Reset() does not restore.
-    WritePhysical((destination + index) & 0xfffff,
-                  memory_[(source + index) & 0xfffff], cpu_.pc);
+    WritePhysical((destination + index) & kPhysicalMask,
+                  memory_[(source + index) & kPhysicalMask], cpu_.pc);
   }
   io_[0x26] = io_[0x27] = 0;
   io_[0x30] &= ~0x40;
+}
+
+bool EurekaMachine::FdcWantsDma() const {
+  if (fdcBuffer_.empty() || fdcPosition_ >= fdcBuffer_.size()) return false;
+  // Direction has to match, or a read buffer the firmware never drained (it
+  // verifies a formatted track by status alone) would look like a controller
+  // asking to be fed, and the next Write Track would lose its data.
+  const bool toMemory = (io_[0x32] & 0x02) != 0;
+  return toMemory != fdcWriting_;
+}
+
+void EurekaMachine::MaybeRunDma1() {
+  // On real hardware channel 1 is paced by the controller's DRQ, so enabling
+  // DE1 before the command has been issued simply parks the channel.  The ROM
+  // relies on exactly that order when formatting: 19ED1 enables DMA, 19EE8
+  // writes the Write Track command, and 19EF3 then spins on BUSY.  Running the
+  // burst at the DSTAT write would push the whole track into a controller that
+  // is not yet transferring, and BUSY would never clear.
+  if (FdcWantsDma()) {
+    RunDma1();
+    return;
+  }
+  dma1Armed_ = true;
 }
 
 void EurekaMachine::RunDma1() {
@@ -391,17 +438,30 @@ void EurekaMachine::RunDma1() {
   // this ROM observes the intermediate state.
   for (uint32_t index = 0; index < count; ++index) {
     if (toMemory)
-      WritePhysical(address & 0xfffff, ReadPort(&cpu_, port), cpu_.pc);
+      WritePhysical(address & kPhysicalMask, ReadPort(&cpu_, port), cpu_.pc);
     else
-      WritePort(&cpu_, port, memory_[address & 0xfffff]);
-    address = static_cast<uint32_t>(address + step) & 0xfffff;
+      WritePort(&cpu_, port, memory_[address & kPhysicalMask]);
+    address = static_cast<uint32_t>(address + step) & kPhysicalMask;
   }
 
   io_[0x28] = static_cast<uint8_t>(address);
   io_[0x29] = static_cast<uint8_t>(address >> 8);
   io_[0x2a] = static_cast<uint8_t>((io_[0x2a] & 0xf0) | ((address >> 16) & 0x0f));
   io_[0x2e] = io_[0x2f] = 0;
+  dma1Armed_ = false;
   io_[0x30] = static_cast<uint8_t>(io_[0x30] & ~0x80);  // DE1 clears at BCR1 = 0
+}
+
+uint8_t EurekaMachine::TypeOneStatus() const {
+  // After a Type I command the firmware waits for the index pulse to decide
+  // whether a disk is actually in the drive: 19828 issues a seek, then polls
+  // 98h with TST 02h and reports "neni disk" if it never arrives (19848).
+  // A mounted folder is always a present, spinning, unprotected disk here, so
+  // the pulse is held asserted rather than timed to a 200ms revolution -- the
+  // firmware only ever asks whether it appears, never how often.
+  uint8_t status = 0x02;               // INDEX
+  if (fdcTrack_ == 0) status |= 0x04;  // TRACK 00
+  return status;                       // bit 6 (write protect) stays clear
 }
 
 void EurekaMachine::StartFdcCommand(uint8_t command) {
@@ -413,17 +473,44 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   const uint8_t type = command & 0xf0;
   if (type == 0x00) {
     fdcTrack_ = 0;
-    fdcStatus_ = 0;
+    fdcStepDirection_ = -1;
+    fdcStatus_ = TypeOneStatus();
   } else if (type == 0x10) {
-    fdcTrack_ = io_[0x9b];
-    fdcStatus_ = 0;
+    const uint8_t target = io_[0x9b];
+    fdcStepDirection_ = target >= fdcTrack_ ? 1 : -1;
+    fdcTrack_ = target;
+    fdcStatus_ = TypeOneStatus();
+  } else if (type >= 0x20 && type <= 0x70) {
+    // Step, Step In and Step Out.  The format routine walks the disk with
+    // Step In (50h at 19EE8) rather than seeking, so without the update flag
+    // being honoured every track is written on top of track 0.
+    if (type == 0x40 || type == 0x50) fdcStepDirection_ = 1;
+    else if (type == 0x60 || type == 0x70) fdcStepDirection_ = -1;
+    if ((command & 0x10) != 0) {  // U: update the track register
+      const int stepped = static_cast<int>(fdcTrack_) + fdcStepDirection_;
+      fdcTrack_ = static_cast<uint8_t>(std::clamp(stepped, 0, 255));
+    }
+    fdcStatus_ = TypeOneStatus();
   } else if ((command & 0xe0) == 0x80) {
     fdcBuffer_.resize(512);
     const unsigned side = outputLatch_ & 1;
-    if (disk_.ReadPhysicalSector(fdcTrack_, side, fdcSector_, fdcBuffer_.data()))
-      fdcStatus_ = 0x03;
-    else
+    // A read finishes on its own: the controller walks the whole sector and
+    // drops BUSY even when nobody services DRQ, merely flagging lost data.
+    // Holding BUSY until the buffer drains hangs the verify read the format
+    // routine issues at 19EF0 with no DMA armed, which spins on BUSY at 19EF3.
+    if (disk_.ReadPhysicalSector(fdcTrack_, side, fdcSector_, fdcBuffer_.data())) {
+      fdcStatus_ = 0x02;
+    } else if (static_cast<int>(fdcTrack_) == fdcFormattedCylinder_ &&
+               static_cast<int>(side) == fdcFormattedSide_) {
+      // The format routine writes 161 logical tracks, one past the 800K image,
+      // and verifies each one it wrote.  A real mechanism steps to cylinder 80
+      // and reads back the track it has just laid down, so a read of wherever
+      // Write Track last ran has to succeed even outside the image.
+      std::fill(fdcBuffer_.begin(), fdcBuffer_.end(), 0xe5);
+      fdcStatus_ = 0x02;
+    } else {
       fdcStatus_ = 0x10;
+    }
   } else if ((command & 0xe0) == 0xa0) {
     fdcBuffer_.assign(512, 0);
     fdcWriting_ = true;
@@ -431,7 +518,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   } else if (type == 0xc0) {
     fdcBuffer_ = {fdcTrack_, static_cast<uint8_t>(outputLatch_ & 1),
                   fdcSector_, 2, 0, 0};
-    fdcStatus_ = 0x03;
+    fdcStatus_ = 0x02;  // Read Address completes on its own, as above.
   } else if (type == 0xd0) {
     fdcStatus_ = 0;
   } else if (type == 0xe0) {
@@ -440,10 +527,15 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
       disk_.ReadPhysicalSector(fdcTrack_, outputLatch_ & 1, sector,
                                fdcBuffer_.data() + (sector - 1) * 512);
     }
-    fdcStatus_ = 0x03;
+    fdcStatus_ = 0x02;  // Read Track completes on its own, as above.
   } else if (type == 0xf0) {
     fdcBuffer_.assign(6250, 0);
     fdcWriting_ = true;
+    fdcFormattedCylinder_ = fdcTrack_;
+    fdcFormattedSide_ = static_cast<int>(outputLatch_ & 1);
+    // The track image itself is discarded: the disk is a host folder, and
+    // erasing the user's files because the emulated machine formatted is not
+    // this model's call to make.  The operation still has to report success.
     fdcStatus_ = 0x03;
   } else {
     fdcStatus_ = 0;
@@ -452,6 +544,11 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   // raise INTRQ straight away.  Type II and III commands raise it when their
   // data transfer runs out, in ReadFdcData and WriteFdcData below.
   if ((command & 0x80) == 0 || type == 0xd0) fdcIntrq_ = true;
+  // A channel parked by an earlier DE1 write starts moving now.
+  if (dma1Armed_ && FdcWantsDma()) {
+    dma1Armed_ = false;
+    RunDma1();
+  }
 }
 
 uint8_t EurekaMachine::ReadFdcData() {
