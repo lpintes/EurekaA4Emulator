@@ -18,7 +18,10 @@ the emulator). The executables land in `bin\` next to the emulator.
   then does whatever that letter means.  It then types "ahoj" on the six dot
   keys in the word processor and has the machine read the line back, which is
   the only way to catch a wrong bit order: the row bits run in key order, so
-  bit 0 is dot 3 and bit 2 is dot 1.  Needs no files on the disk.
+  bit 0 is dot 3 and bit 2 is dot 1.  Last it types the same word again as IBM
+  PC scan codes down the serial port, which exercises the reset handshake, the
+  CSI/O interrupt and the ROM's own Czech QWERTZ tables.  Needs no files on
+  the disk.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
 A genuine `READ.COM` ships with the Technical Manual's development disk and is

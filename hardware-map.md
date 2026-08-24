@@ -385,6 +385,33 @@ príkaz Reset a `AAh` je odpoveď *Basic Assurance Test passed*.
 Meracia periféria to nie je. Voltmeter a teplomer (`DVM`, `TIC`, `TIF`)
 sa čítajú komparátormi na porte A8h proti DAC, nie cez CSI/O.
 
+### Príjem scancodov
+
+Po úspešnom privítaní nastaví ROM `CNTR` na `6Fh`, teda RE aj EIE.
+Bajt potom príde prerušením: vektor `C18C` (tabuľka na `C180`, `I`=`C1`,
+`IL`=`80`) → `CD62`, ktorý naplánuje úlohu `D409` → `DD2E`.
+
+Bity `CNTR`: bit 7 EF (bajt čaká v `TRDR`), bit 6 EIE, bit 5 RE,
+bit 4 TE. Čítanie `TRDR` EF zhodí.
+
+Je to **XT sada 1**: make pod `80h`, break s bitom 7, `E0h` pred
+rozšírenými. Preklad robia štyri tabuľky:
+
+| tabuľka | kedy |
+|---|---|
+| `DF05` | základná; od `3Bh` aj funkčné klávesy a kurzory → kódy Eureky |
+| `DF5E` | so shiftom (`C670h` bity 0–1) |
+| `DF98` | s pravým Altom (`C670h` bit 4) |
+| `DFD6` | dvojice pre kódy s prefixom `E0h` |
+
+Rozloženie je **česká QWERTZ**: `15h` je `z`, `2Ch` je `y`,
+nezhiftovaná číselná rada dáva `ěščřžýáíé` a číslice sú až so shiftom.
+Pravý Alt dáva `@ # $ ~ ^ & * { } [ ] ' \``.
+
+Tabuľka `DF05` od `3Bh` je zároveň jediné doložené slovo o tom, ktoré
+kurzorové akordy sú Insert a Delete: scancode `52h` → `8Dh`,
+`53h` → `8Eh`. `KB.H` tvrdí `8Bh`/`8Ch` a mýli sa.
+
 ## Poznámky pre emulátor
 
 - Všetky tri latche sú v hardvéri len na zápis, ale firmvér ich zrkadlí

@@ -87,6 +87,44 @@ bool CheckBraille(EurekaMachine& machine) {
   return false;
 }
 
+// Types the same word on the optional IBM PC keyboard.  The emulator sends
+// nothing but XT scan codes down the serial port; the ROM's own tables (DF05
+// and its shifted and AltGr siblings) decide what letters they are, and its
+// own table maps the PC's function keys and arrows onto Eureka key codes.  So
+// this checks the wire and the interrupt path -- CNTR, TRDR, vector C18C ->
+// CD62 -> DD2E -- not a translation of ours.
+bool CheckPcKeyboard(EurekaMachine& machine) {
+  // The layout the ROM expects is Czech QWERTZ, so these are the positions of
+  // a, h, o, j on it; 47h is Home, which speaks the line back.
+  static const uint8_t kAhoj[] = {0x1e, 0x23, 0x18, 0x24};
+  machine.Reset();
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step()) break;
+  machine.QueueKey(0xd0);  // Shift+F1, the word processor
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  for (uint8_t code : kAhoj) {
+    machine.QueueScanCode(code);
+    for (int step = 0; step < 4'000'000; ++step)
+      if (!machine.Step() && machine.queued_keys() == 0) break;
+    machine.QueueScanCode(static_cast<uint8_t>(code | 0x80));
+    for (int step = 0; step < 4'000'000; ++step)
+      if (!machine.Step() && machine.queued_keys() == 0) break;
+  }
+  machine.TakeSpeechInput();
+  machine.QueueScanCode(0x47);
+  machine.QueueScanCode(0xc7);
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  const auto spoken = machine.TakeSpeechInput();
+  if (Contains(spoken, "ahoj")) return true;
+  std::cout << "  scan kody precitane ako \"";
+  for (uint8_t byte : spoken)
+    std::cout << (byte >= 0x20 && byte < 0x7f ? static_cast<char>(byte) : '.');
+  std::cout << "\"\n";
+  return false;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -108,10 +146,12 @@ int wmain(int argc, wchar_t** argv) {
   if (std::wstring(argv[3]) == L"kbd") {
     const bool keys = CheckKeyboard(*machine);
     const bool braille = CheckBraille(*machine);
-    const bool passed = keys && braille;
+    const bool pc = CheckPcKeyboard(*machine);
+    const bool passed = keys && braille && pc;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=KBD"
               << " klavesy=" << (keys ? "ok" : "chyba")
-              << " braille=" << (braille ? "ok" : "chyba") << "\n";
+              << " braille=" << (braille ? "ok" : "chyba")
+              << " pc=" << (pc ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 

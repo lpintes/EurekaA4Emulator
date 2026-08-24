@@ -266,19 +266,45 @@ vrátane číselného režimu aj akordy s medzerníkom, o ktorých nevieme.
 Doložené: štyri akordy napíšu v textovom procesore „ahoj" a `Home` to
 prečíta späť — presne to robí `integration_test … kbd`.
 
-Zostávajú tri vstupné cesty a jedna z nich je stále skratka:
+### Klávesnica IBM PC na sériovom porte
 
-| cesta | čo modeluje |
-|---|---|
-| braillova matica (`89h`/`8Ah`/`8Ch`) | verne, vrátane bodov |
-| text z Windows → fronta ROM na `C67B` | **skratka**, obchádza obe klávesnice |
-| IBM PC na CSI/O | len privítanie (`FFh` → `AAh`), scancody netečú |
+`Ctrl+Shift+E` prepne hostiteľskú klávesnicu na tú, ktorá sa k Eureke
+pripájala zvonku. Emulátor **neprekladá zase nič**: Windows dáva
+v `wVirtualScanCode` rovno scancode XT sady 1 a príznak `ENHANCED_KEY`
+je na drôte prefix `E0h`, takže je to vodič, nie tabuľka.
 
-Tá skratka existuje preto, že externá klávesnica nie je odemulovaná.
-Keď bude, zmizne. Obsluha scancodov je v ROM na `1DD2E` a je to
-obyčajná **XT sada 1**: make pod `80h`, break s bitom 7, prefix `E0h`
-pre rozšírené klávesy (tabuľka na `DFD6`). ROM si preklad robí sama,
-takže práca je doručiť bajty cez `TRDR` so správnym handshakom.
+Cesta v ROM: prerušenie CSI/O → vektor `C18C` → `CD62` naplánuje úlohu
+`D409` → `DD2E`. Tam sa scancode preloží tabuľkami `DF05` (základná),
+`DF5E` (shift) a `DF98` (pravý Alt), rozšírené kódy tabuľkou `DFD6`.
+
+Čo z toho plynie a je prekvapivé: **ROM očakáva českú QWERTZ
+klávesnicu.** Na `15h` je `z` a na `2Ch` `y`, nezhiftovaná číselná rada
+dáva `ěščřžýáíé` a číslice sú až so shiftom. Pravý Alt je modifikátor
+pre `@ # $ ~ ^ & * { } [ ] ' \``. A ROM si sama mapuje aj funkčné
+klávesy a kurzory na kódy Eureky (`DF05` od `3Bh`: F1–F10 → `C0h`–`C9h`,
+šípky, Home, End, PgUp, PgDn, Insert, Delete).
+
+Model v emulátore je malý, lebo hardvér je malý: `CNTR` bit 7 je EF,
+bit 6 EIE, bit 5 RE, bit 4 TE. Bajt sa doručí, keď je RE zapnuté
+a predchádzajúci je vyzdvihnutý; čítanie `TRDR` EF zhodí; pri EIE sa
+vyvolá prerušenie s vektorom `0Ch`.
+
+Dve veci, na ktorých to stálo:
+
+- **Odpoveď `AAh` musí meškať.** ROM po vydaní `FFh` (Reset) zapne
+  prijímač a urobí *zahadzovacie* čítanie `TRDR` (18841). Odpoveď
+  doručená okamžite by v ňom zmizla a stroj by usúdil, že klávesnica
+  nie je. Emulátor ju dá o 30 ms, čo je hlboko pod timeoutom asi 180 ms
+  na 18847.
+- **Stroj nesmie byť zaparkovaný.** `InterceptBios` zastavuje CPU, keď
+  aplikácia čaká na kláves. Scancode ale potrebuje, aby procesor bežal
+  — inak sa prerušenie nemá kedy vyvolať. Preto `HardwareInputBusy()`:
+  kým je vstup na ceste cez skutočný hardvér, parkovanie sa vypína.
+
+Zostáva jediná skratka: text v základnom režime ide priamo do fronty
+ROM na `C67B`. Je to zámerné — mapuje ľubovoľný znak, ktorý hostiteľské
+rozloženie vie vyrobiť, kým cesta cez scancody vie len to, čo je
+v tabuľkách ROM. Vernejší je režim PC, použiteľnejší je základný.
 
 ### Diagnostika
 
@@ -454,19 +480,7 @@ Test to nechytil, lebo kontroloval `console.size() >= 40`, a zdvojený
 výstup ten limit spĺňal ľahšie než správny. `integration_test` teraz
 kontroluje obsah (`hotovo`, `RUN`, `Read which file?`), nie dĺžku.
 
-### 6.9 Ktorý akord je Insert a ktorý Delete
-
-Kurzorové klávesy sú štyri a kód je maska naraz stlačených, takže Home,
-End, PgUp a PgDn sú jednoznačné — sedia v `KB.H` aj `KB.LIB`. Insert
-a Delete nie: `KB.H` ich má ako `UDR` (`8Bh`) a `LR` (`8Ch`), `KB.LIB`
-ako `ULR` (`8Dh`) a `DLR` (`8Eh`). Emulátor drží variant z `KB.H`.
-
-Skúšané v textovom procesore: `8Ch` prečíta riadok, `8Eh` povie „konec
-textu", ani jeden nič nezmaže. Rozhodne to len niekto, kto vie, čo
-česká verzia týmito akordmi naozaj robí — je to vec aplikácie, nie
-dekodéra, ten všetkých pätnásť akordov vydá správne.
-
-### 6.10 Uzavreté otázky
+### 6.9 Uzavreté otázky
 
 | bývalá otázka | výsledok |
 |---|---|
@@ -476,6 +490,7 @@ dekodéra, ten všetkých pätnásť akordov vydá správne.
 | zápis `ADh` na port `88h` | prah komparátora pre stráženie batérie počas diskovej operácie |
 | RTC — mapovanie registrov | emulátor bol **správne**; navrhovaná oprava by hodiny rozbila |
 | adresný priestor | maska zmenená na `0x7ffff`, 19 bitov HD64180 |
+| ktorý akord je Insert a ktorý Delete | `KB.LIB` mal pravdu: `8Dh` a `8Eh`. Rozhodla vlastná tabuľka ROM pre klávesnicu PC (`DF05`, scancode `52h` → `8Dh`, `53h` → `8Eh`). Emulátor držal variant z `KB.H` a bol opravený. |
 
 ## 7. Nástroje
 
@@ -506,11 +521,6 @@ python tools\strings_kam.py 8 0xd000 0xe000
 
 Poradie podľa pomeru prínos/námaha:
 
-0. **Externá klávesnica IBM PC.** Zmaže poslednú skratku vo vstupe —
-   text sa dnes zapisuje priamo do fronty ROM na `C67B`. Obsluha
-   scancodov je na `1DD2E`, XT sada 1, tabuľka rozšírených klávesov na
-   `DFD6`; treba doručiť bajty cez `TRDR` so správnym handshakom
-   (reset je na `18801`, prijatie `AAh` na `18858`).
 1. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
 2. **Latencia zvuku** až 240 ms v `audio_player.cpp` (6.1). Rekonštrukčný

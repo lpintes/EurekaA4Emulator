@@ -56,6 +56,11 @@ class EurekaMachine {
   // bit 2 dot 1, bit 3 dot 4, bit 4 dot 5, bit 5 dot 6, bit 7 the space bar.
   // The machine turns the pattern into a character itself.
   void PressBraille(uint8_t dots);
+  // Hands one IBM PC scan code to the optional QWERTY keyboard on the clocked
+  // serial port: XT set 1, so a make code is below 80h, a break code is the
+  // make code with bit 7 set, and E0h prefixes the grey keys.  The ROM does
+  // the whole translation itself, layout and modifiers included.
+  void QueueScanCode(uint8_t code);
   void QueueText(const std::string& ascii);
   std::vector<uint8_t> TakeConsoleOutput();
   std::vector<uint8_t> TakeSpeechInput();
@@ -72,7 +77,8 @@ class EurekaMachine {
   uint8_t a() const { return cpu_.a; }
   bool zero_flag() const { return cpu_.zf; }
   std::size_t queued_keys() const {
-    return keys_.size() + firmwareKeys_.size() + membraneFrames_.size();
+    return keys_.size() + firmwareKeys_.size() + membraneFrames_.size() +
+           csioRx_.size();
   }
   uint8_t debug_peek(uint16_t address) const { return Peek(address); }
   uint8_t debug_io(uint8_t port) const { return io_[port]; }
@@ -114,9 +120,14 @@ class EurekaMachine {
   uint8_t ReadRtc(uint16_t port) const;
   void SampleRtc() const;
   uint8_t ReadInputBuffer() const;
+  void PumpCsio();
   uint8_t ReadMembraneKeyboard(uint8_t port);
   void PressMembraneKey(uint8_t key);
   bool MembraneBusy() const;
+  // True while a keypress is still on its way in through real hardware -- the
+  // keyboard rows or the serial port.  The machine has to keep running for it
+  // to arrive, so the BIOS console read must not park the CPU meanwhile.
+  bool HardwareInputBusy() const;
   void InjectFirmwareKey();
 
   z80 cpu_{};
@@ -195,7 +206,13 @@ class EurekaMachine {
   // Position of the last Write Track, so a verify read of it always succeeds.
   int fdcFormattedCylinder_ = -1;
   int fdcFormattedSide_ = -1;
-  bool csioReady_ = false;
+  // The clocked serial port, which is where the optional IBM PC keyboard
+  // hangs.  CNTR bit 7 is EF (a byte has arrived and waits in TRDR), bit 6
+  // EIE, bit 5 RE, bit 4 TE.
+  std::deque<uint8_t> csioRx_;
+  uint8_t csioData_ = 0;
+  bool csioPending_ = false;
+  uint64_t csioReadyAt_ = 0;
   // Reconstruction filter state; see RenderAudio.
   double audioState_[2] = {};
 };

@@ -13,6 +13,10 @@ namespace fs = std::filesystem;
 namespace {
 constexpr uint8_t kTimer0Vector = 0x04;
 constexpr uint8_t kTimer1Vector = 0x06;
+// The HD64180 lists its internal sources in a fixed order and the ROM's own
+// table at C180 matches it: PRT0 at +4, PRT1 at +6, the clocked serial port
+// at +12, where this image puts the IBM PC keyboard handler.
+constexpr uint8_t kCsioVector = 0x0c;
 constexpr uint8_t kTif0 = 0x40;
 constexpr uint8_t kTif1 = 0x80;
 constexpr uint8_t kTie0 = 0x10;
@@ -125,7 +129,10 @@ void EurekaMachine::Reset() {
   fdcFormattedCylinder_ = -1;
   fdcFormattedSide_ = -1;
   lastDiskWrite_ = 0;
-  csioReady_ = false;
+  csioRx_.clear();
+  csioData_ = 0;
+  csioPending_ = false;
+  csioReadyAt_ = 0;
   rtcLatched_ = false;
 
   // Hardware reset values used by the ROM while probing serial devices.
@@ -301,6 +308,10 @@ bool EurekaMachine::MembraneBusy() const {
          membraneState_.row1 != 0 || membraneState_.row2 != 0;
 }
 
+bool EurekaMachine::HardwareInputBusy() const {
+  return MembraneBusy() || csioPending_ || !csioRx_.empty();
+}
+
 // Turns one Eureka key code into the physical presses that produce it.  The
 // codes are KB.LIB's: bits 7-6 select the cursor keypad (10) or a function key
 // (11), bit 5 is ALT -- which is physically the space bar on the braille
@@ -428,10 +439,13 @@ uint8_t EurekaMachine::ReadPortInner(z80* cpu, uint16_t port) {
     case 0x08: return 0;
     case 0x09: return 0;
     case 0x0a: return static_cast<uint8_t>(machine->io_[0x0a] |
-                                           (machine->csioReady_ ? 0x80 : 0));
+                                           (machine->csioPending_ ? 0x80 : 0));
     case 0x0b:
-      machine->csioReady_ = false;
-      return 0xaa;
+      // Reading the data register takes the byte and clears EF, which is what
+      // both the reset handshake at 18847 and the scan code interrupt at
+      // 1DD2E rely on to know another byte may come.
+      machine->csioPending_ = false;
+      return machine->csioData_;
     case 0x0c: return machine->ReadTimerData(0, false);
     case 0x0d: return machine->ReadTimerData(0, true);
     case 0x10:
@@ -482,8 +496,19 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
   }
   if (low != 0x10) machine->io_[low] = value;
   switch (low) {
-    case 0x0a: machine->csioReady_ = true; break;
-    case 0x0b: break;
+    case 0x0a: break;
+    case 0x0b:
+      // FFh is the Reset command every PC keyboard answers with AAh, "self
+      // test passed"; the ROM waits for exactly that at 18858 and gives up
+      // after about 180 ms.  A real keyboard takes its time, and answering
+      // instantly would be worse than useless: the ROM does a throwaway read
+      // of TRDR at 18841 after enabling the receiver, and an answer that
+      // early would be swallowed by it.
+      if (value == 0xff) {
+        machine->csioRx_.push_back(0xaa);
+        machine->csioReadyAt_ = machine->cycles_ + kCpuHz / 1000 * 30;
+      }
+      break;
     case 0x0c: machine->WriteTimerData(0, false, value); break;
     case 0x0d: machine->WriteTimerData(0, true, value); break;
     case 0x10:
@@ -804,9 +829,24 @@ void EurekaMachine::RenderAudio(uint32_t cpuCycles) {
   }
 }
 
+// Hands the next byte from the keyboard to the serial port when the receiver
+// is enabled and the previous one has been collected.  Doing it here rather
+// than at the moment a key is queued keeps the port's own timing: the ROM
+// polls EF during the reset handshake (18847) but takes scan codes on the
+// interrupt (vector C18C -> CD62 -> DD2E), and both need the byte to appear
+// while the receiver is on, not before.
+void EurekaMachine::PumpCsio() {
+  if (csioPending_ || csioRx_.empty() || cycles_ < csioReadyAt_) return;
+  if ((io_[0x0a] & 0x20) == 0) return;  // RE clear: the receiver is off
+  csioData_ = csioRx_.front();
+  csioRx_.pop_front();
+  csioPending_ = true;
+}
+
 void EurekaMachine::Advance(uint32_t cpuCycles) {
   cycles_ += cpuCycles;
   RenderAudio(cpuCycles);
+  PumpCsio();
   const uint8_t control = io_[0x10];
   for (unsigned channel = 0; channel < 2; ++channel) {
     const uint8_t enable = channel == 0 ? kTde0 : kTde1;
@@ -838,6 +878,11 @@ void EurekaMachine::ScheduleInterrupt() {
   } else if (timerPending_[1] && (control & kTie1)) {
     cpu_.interrupt_mode = 2;
     z80_gen_int(&cpu_, static_cast<uint8_t>((io_[0x33] & 0xe0) | kTimer1Vector));
+  } else if (csioPending_ && (io_[0x0a] & 0x40)) {
+    // Lowest of the three, which is the HD64180's own order.  The flag stays
+    // up until the handler reads TRDR, so this re-arms by itself.
+    cpu_.interrupt_mode = 2;
+    z80_gen_int(&cpu_, static_cast<uint8_t>((io_[0x33] & 0xe0) | kCsioVector));
   }
 }
 
@@ -872,12 +917,12 @@ bool EurekaMachine::InterceptBios() {
     case 2:  // console status
       // While a key is on its way through the keyboard ports the ROM's own
       // queue is the one that knows about it, so let the ROM answer.
-      if (MembraneBusy()) return true;
+      if (HardwareInputBusy()) return true;
       cpu_.a = keys_.empty() ? 0 : 0xff;
       ReturnFromCall();
       return true;
     case 3:  // console input
-      if (MembraneBusy()) {
+      if (HardwareInputBusy()) {
         biosWaiting_ = false;
         return true;
       }
@@ -994,6 +1039,10 @@ void EurekaMachine::ReleaseKey(uint8_t key) {
       if (frame.key == membraneHeldKey_) frame.cycles = MsToCycles(kMinPressMs);
   }
   membraneHeldKey_ = 0;
+}
+
+void EurekaMachine::QueueScanCode(uint8_t code) {
+  csioRx_.push_back(code);
 }
 
 void EurekaMachine::QueueText(const std::string& ascii) {

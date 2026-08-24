@@ -183,8 +183,11 @@ uint8_t SpecialKey(const KEY_EVENT_RECORD& key) {
       case VK_END: code = 0x86; break;
       case VK_PRIOR: code = 0x89; break;
       case VK_NEXT: code = 0x8a; break;
-      case VK_INSERT: code = 0x8b; break;
-      case VK_DELETE: code = 0x8c; break;
+      // KB.H and KB.LIB disagree about these two.  The ROM settles it: its
+      // own table for the PC keyboard maps scan code 52h, Insert, to 8Dh and
+      // 53h, Delete, to 8Eh (DF05), which is what KB.LIB says.
+      case VK_INSERT: code = 0x8d; break;
+      case VK_DELETE: code = 0x8e; break;
       default: return 0;
     }
   }
@@ -193,15 +196,36 @@ uint8_t SpecialKey(const KEY_EVENT_RECORD& key) {
   return code;
 }
 
+// How the host keyboard is presented to the machine.  The Eureka had two of
+// them and the emulator can be either.
+enum class InputMode {
+  kEureka,   // the twenty keys, with text handed to the ROM's own queue
+  kBraille,  // the six dot keys, chorded
+  kPc,       // the optional IBM PC keyboard on the serial port
+};
+
 // Perkins entry on a QWERTY keyboard: the six dot keys under the fingers,
 // pressed as a chord.  Nothing here turns dots into letters -- the machine
 // does that itself from the pattern on its row 0, in whichever of its three
 // tables is currently selected, so this only presses keys.
-struct BrailleKeyboard {
-  bool active = false;
+struct HostKeyboard {
+  InputMode mode = InputMode::kEureka;
   uint8_t held = 0;   // dot keys physically down at this moment
   uint8_t chord = 0;  // every dot pressed since the current chord began
 };
+
+// Leaving PC mode with a modifier down would leave it down for good: the ROM
+// tracks shift, control and alt itself from make and break codes, and the
+// break code would never arrive.  So let go of all of them on the way out.
+void ReleaseModifiers(EurekaMachine& machine) {
+  for (uint8_t code : {0x2a, 0x36, 0x1d, 0x38}) {
+    machine.QueueScanCode(static_cast<uint8_t>(code | 0x80));
+    if (code == 0x1d || code == 0x38) {
+      machine.QueueScanCode(0xe0);
+      machine.QueueScanCode(static_cast<uint8_t>(code | 0x80));
+    }
+  }
+}
 
 // The row bits run in Perkins key order, left to right, not in dot number
 // order: bit 0 is dot 3 and bit 2 is dot 1.  Under the hands that is exactly
@@ -219,7 +243,19 @@ uint8_t BrailleBit(WORD virtualKey) {
   }
 }
 
-bool PumpKeyboard(EurekaMachine& machine, BrailleKeyboard& braille, bool& reset,
+// Forwards one host key event to the machine's serial keyboard.  Windows
+// already hands us an XT set 1 scan code in wVirtualScanCode, and the grey
+// keys are the same code with the enhanced flag, which on the wire is an E0h
+// prefix -- so this is a wire, not a translation table.  Everything else, the
+// Czech QWERTZ layout at DF05 included, is the ROM's own work.
+void SendScanCode(EurekaMachine& machine, const KEY_EVENT_RECORD& key) {
+  const uint8_t code = static_cast<uint8_t>(key.wVirtualScanCode);
+  if (code == 0 || code >= 0x80) return;
+  if ((key.dwControlKeyState & ENHANCED_KEY) != 0) machine.QueueScanCode(0xe0);
+  machine.QueueScanCode(key.bKeyDown ? code : static_cast<uint8_t>(code | 0x80));
+}
+
+bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
                   bool& dump) {
   HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
   DWORD available = 0;
@@ -232,14 +268,20 @@ bool PumpKeyboard(EurekaMachine& machine, BrailleKeyboard& braille, bool& reset,
     if (record.EventType != KEY_EVENT) continue;
     const KEY_EVENT_RECORD& key = record.Event.KeyEvent;
     if (!key.bKeyDown) {
+      if (host.mode == InputMode::kPc) {
+        SendScanCode(machine, key);
+        continue;
+      }
       // A braille chord is finished by letting go, not by pressing: the dots
       // go down one at a time and only the whole pattern means anything, so
       // it is sent when the last finger comes up.
-      if (const uint8_t dot = braille.active ? BrailleBit(key.wVirtualKeyCode) : 0) {
-        braille.held &= static_cast<uint8_t>(~dot);
-        if (braille.held == 0 && braille.chord != 0) {
-          machine.PressBraille(braille.chord);
-          braille.chord = 0;
+      if (const uint8_t dot = host.mode == InputMode::kBraille
+                                  ? BrailleBit(key.wVirtualKeyCode)
+                                  : 0) {
+        host.held &= static_cast<uint8_t>(~dot);
+        if (host.held == 0 && host.chord != 0) {
+          machine.PressBraille(host.chord);
+          host.chord = 0;
         }
         continue;
       }
@@ -260,22 +302,38 @@ bool PumpKeyboard(EurekaMachine& machine, BrailleKeyboard& braille, bool& reset,
       dump = true;
       continue;
     }
-    if (ctrl && shift && key.wVirtualKeyCode == 'B') {
-      braille.active = !braille.active;
-      braille.held = braille.chord = 0;
-      Print(braille.active
-                ? L"\r\n[Braille zapnutý: F D S sú body 1 2 3, J K L body 4 5 6, "
-                  L"medzerník je medzerník]\r\n"
-                : L"\r\n[Braille vypnutý, píše sa zase po klávesoch]\r\n");
+    if (ctrl && shift && (key.wVirtualKeyCode == 'B' || key.wVirtualKeyCode == 'E')) {
+      const InputMode wanted = key.wVirtualKeyCode == 'B' ? InputMode::kBraille
+                                                          : InputMode::kPc;
+      if (host.mode == InputMode::kPc) ReleaseModifiers(machine);
+      host.mode = host.mode == wanted ? InputMode::kEureka : wanted;
+      host.held = host.chord = 0;
+      switch (host.mode) {
+        case InputMode::kBraille:
+          Print(L"\r\n[Braille zapnutý: F D S sú body 1 2 3, J K L body 4 5 6, "
+                L"medzerník je medzerník]\r\n");
+          break;
+        case InputMode::kPc:
+          Print(L"\r\n[Klávesnica PC: píše sa po českej klávesnici, ako keby "
+                L"bola pripojená k Eureke]\r\n");
+          break;
+        case InputMode::kEureka:
+          Print(L"\r\n[Späť na klávesnicu Eureky]\r\n");
+          break;
+      }
+      continue;
+    }
+    if (host.mode == InputMode::kPc) {
+      SendScanCode(machine, key);
       continue;
     }
     // Auto-repeat resends key-down without a key-up, so a dot already in the
     // chord must not count as a second finger.
-    if (const uint8_t dot = braille.active && !ctrl
+    if (const uint8_t dot = host.mode == InputMode::kBraille && !ctrl
                                 ? BrailleBit(key.wVirtualKeyCode)
                                 : 0) {
-      braille.held |= dot;
-      braille.chord |= dot;
+      host.held |= dot;
+      host.chord |= dot;
       continue;
     }
     if (const uint8_t special = SpecialKey(key)) {
@@ -422,7 +480,8 @@ int wmain(int argc, wchar_t** argv) {
         L"vrátane Shift/Alt.\r\n"
         L"F9 je režim, F10 povie, kde ste; Shift+F9 stav batérie, "
         L"Shift+F10 sebekontrolu.\r\n"
-        L"Ctrl+Shift+B prepne písanie na braillovu klávesnicu (F D S J K L).\r\n"
+        L"Ctrl+Shift+B prepne na braillovu klávesnicu (F D S J K L), "
+        L"Ctrl+Shift+E na klávesnicu PC.\r\n"
         L"Shift+F7 spustí program z disku. Ctrl+Shift+R resetuje, "
         L"Ctrl+Shift+Q uloží disk a skončí.\r\n\r\n");
 
@@ -430,11 +489,11 @@ int wmain(int argc, wchar_t** argv) {
   auto epoch = Clock::now();
   uint64_t epochCycles = machine->cycles();
   bool running = true;
-  BrailleKeyboard braille;
+  HostKeyboard host;
   while (running) {
     bool reset = false;
     bool dump = false;
-    running = PumpKeyboard(*machine, braille, reset, dump);
+    running = PumpKeyboard(*machine, host, reset, dump);
     if (!running) break;
     if (dump) {
       Print(diagnostics
@@ -446,7 +505,7 @@ int wmain(int argc, wchar_t** argv) {
       machine->Reset();
       // The chosen writing mode is the user's, not the machine's, so it
       // survives; a chord caught half-pressed does not.
-      braille.held = braille.chord = 0;
+      host.held = host.chord = 0;
       audio.Close();
       audio.Open(EurekaMachine::kAudioHz);
       epoch = Clock::now();
