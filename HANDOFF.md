@@ -220,22 +220,79 @@ Treba `sweep`, prípadne `seq kC7`.
 
 Pôvodných päť otázok manuál a následné meranie uzavreli. Zostáva iné.
 
-### 6.1 Zvuk — najväčší nevyužitý priestor
+### 6.1 Zvuk — rekonštrukčný filter hotový, latencia otvorená
 
-`RenderAudio()` je zero-order hold bez filtrácie, výstup 48 kHz, takže
-všetko nad polovicou vzorkovacej frekvencie DAC sa zrkadlí ako aliasing.
-Ignoruje sa bit povolenia zvuku (`80h` bit 7) aj `filtersel_mask`
-(`B0h` bit 4), ktorým rečový engine prepína medznú frekvenciu filtra.
-Latencia až 240 ms.
+**Hotové.** `RenderAudio()` bol zero-order hold bez filtrácie, takže
+všetko nad polovicou vzorkovacej frekvencie DAC sa zrkadlilo ako
+aliasing. Skutočný stroj má za prevodníkom analógový filter — je to
+práve to, čo prepína `filtersel_mask` (`B0h` bit 4) — takže jeho
+doplnenie je modelovanie hardvéru, nie kozmetika.
 
-Teraz je známa aj cieľová frekvencia: **Timer 0 obsluhuje reč asi
-7,5 kHz** a kolíše podľa výšky hlasu a typu alofónu (kapitola 12).
-Zvukové efekty bežia na dvojnásobku zvolenej frekvencie (kapitola 14).
-Predchádzajúci odhad ~11 kHz bol vysoko. WAV-y v `audio/` sa dajú
-prerenderovať na správnu frekvenciu namiesto štyroch hádaných.
+Rečový engine ten prepínač ovláda vedome: rutiny `00162` (nastaví bit)
+a `00175` (zhodí ho) volajú pri každom prechode ustaľovaciu rutinu
+`0234h`. Volajú sa z `0051E`, `005CE` a `03B50` / `03B0B`.
 
-Pre nevidiaceho používateľa je zvuk celé rozhranie, takže toto je
-najnaliehavejšia položka.
+Emulátor má **jednopólový filter, 5 kHz pre reč a 10 kHz otvorený**
+(pomer 2:1 zodpovedá tomu, že efekty bežia na dvojnásobnej frekvencii).
+
+#### Ako sa tá hodnota vybrala
+
+**Manuál medznú frekvenciu neuvádza** — prehľadané kapitoly o hardvéri,
+servisná aj kapitola o reči. Číslo teda nie je doložené a vybralo sa
+počúvaním, ktoré robil majiteľ skutočného stroja. Postupne sa skúšali:
+
+| variant | 3,4–5 kHz | 5–8 kHz | nad 8 kHz | ako to poslucháč opísal |
+|---|---|---|---|---|
+| rad 4, 3400 Hz | −5,4 dB | −7,8 dB | −19,1 dB | zreteľne tlmené „c" a „s", basovejšie a plnšie |
+| rad 2, 3400 Hz | −4,3 dB | −6,9 dB | −13,5 dB | — |
+| rad 2, 4200 Hz | −2,8 dB | −5,0 dB | −10,4 dB | — |
+| 1 pól, 3400 Hz | −3,5 dB | −4,9 dB | −7,3 dB | — |
+| **1 pól, 5000 Hz** | **−2,0 dB** | **−3,0 dB** | **−4,9 dB** | veľmi jemný rozdiel, sykavky miernučko oslabené |
+
+Prvý pokus bol rad 4 na 3400 Hz a bol **zle**. Poslucháč to opísal ako
+tlmenejšie „c" a „s" a basovejší, plnší zvuk — a mal pravdu: sykavky
+majú väčšinu energie práve v 3,4–8 kHz. Štvrtý rád bol navyše výmysel,
+nie model hardvéru; prenosný stroj z roku 1989 mal realisticky jeden
+odpor a jeden kondenzátor.
+
+Tie dva slovné popisy sú kalibrácia tabuľky, nie dojmy. Sedia na čísla
+aj vo veľkosti: pri útlme 5–8 dB je zmena zreteľná, pri 2–3 dB je na
+hranici postrehnuteľnosti. Kto bude hodnotu meniť, vie podľa toho
+odhadnúť, čo ešte bude počuť.
+
+Poslucháč používa kochleárne implantáty, takže v pásme sykaviek počuje
+inak než bežné ucho. Voľbu to nediskvalifikovalo — popisy sedeli na
+meranie v smere aj vo veľkosti — a **druhý, nezávislý poslucháč
+s bežným sluchom výsledok potvrdil**. Jednopólový 5 kHz teda prešiel
+dvoma rôznymi sluchmi, čo je pri tomto parametri asi maximum
+dosiahnuteľnej istoty: doložený údaj neexistuje a skutočné stroje sa
+medzi sebou líšili.
+
+Poznámka pre toho, kto to bude meniť: jednopólový 5 kHz je zámerne
+**mierny**. Nehľadalo sa „čisté", ale vierohodné. Poslucháč tiež
+spomenul, že rôzne Eureky zneli rôzne — čo sedí, lebo tolerancia
+súčiastok posúva medznú frekvenciu o desiatky percent. Jedna správna
+hodnota teda neexistuje a toto je odhad stredu.
+
+#### Ako sa to meria
+
+`audio/porovnanie/` (mimo gitu) drží nahrávky a skript na porovnanie.
+Pozor na dve pasce, na ktoré sa dá naletieť:
+
+1. Rozdiel `bez filtra − s filtrom` obsahuje aj **fázové oneskorenie**
+   filtra. Bez kompenzácie to vyzerá, akoby filter rezal do reči: 78 %
+   odobraného pod 3,4 kHz. Po kompenzácii šiestich vzoriek (0,12 ms) je
+   pod 2 kHz len 1 % a nad 3,4 kHz 92,8 %.
+2. Filter sa nedá vierohodne napodobniť offline v Pythone, lebo firmvér
+   ho prepína za behu. Statický model sedel len na 19 dB.
+
+#### Čo zostáva
+
+- **Latencia až 240 ms** v `audio_player.cpp`. Netýka sa renderovania.
+- **WAV-y v `audio/`** sú stále v štyroch hádaných frekvenciách;
+  prerenderovať podľa známych ~7,5 kHz.
+- `pol_voice` (`A0h` bit 3) sa nemodeluje. Manuál píše, že býva trvalo
+  zapnutý, takže hradenie zvuku naň by len riskovalo trvalé ticho.
 
 ### 6.2 Zahodené zápisy na 1C1FA–1C1FC
 
@@ -310,11 +367,10 @@ python tools\strings_kam.py 8 0xd000 0xe000
 
 Poradie podľa pomeru prínos/námaha:
 
-1. **Zvuk** (6.1) — najväčší dopad na použiteľnosť a teraz aj bez
-   neznámych: cieľová frekvencia DAC je asi 7,5 kHz, filter sa prepína
-   `B0h` bitom 4, povolenie zvuku je `80h` bit 7.
-2. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
-   hádaných (`tools/melodies.py` a export dát reči).
+1. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+   hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
+2. **Latencia zvuku** až 240 ms v `audio_player.cpp` (6.1). Rekonštrukčný
+   filter je hotový, toto je zvyšok.
 3. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -22,6 +23,32 @@ constexpr uint8_t kTde1 = 0x02;
 uint8_t BcdOrBinary(int value) {
   return static_cast<uint8_t>(value);
 }
+
+// One section of the reconstruction filter that follows the DAC.  The machine
+// really does have an analogue low pass there -- it is the thing B0h bit 4
+// retunes -- so filtering here models hardware rather than prettifying it.
+struct Biquad {
+  double b0, b1, b2, a1, a2;
+};
+
+// One pole, which is what a 1989 portable plausibly had after its DAC: one
+// resistor and one capacitor.  Steeper shapes were tried first and were wrong.
+// A fourth-order Butterworth strips the 3.4-8 kHz band where /s/ and /ts/ live
+// by 5 to 8 dB, and the owner of a real A4 heard it immediately as duller
+// sibilants.  A gentle slope also matches the machines varying between units:
+// analogue component tolerance moves the corner by tens of percent, which is
+// why no two Eurekas sounded quite alike.
+Biquad MakeOnePole(double cutoffHz, double sampleHz) {
+  const double a = std::exp(-2.0 * 3.14159265358979323846 * cutoffHz / sampleHz);
+  return {1.0 - a, 0.0, 0.0, -a, 0.0};
+}
+
+// The manual gives no cutoff, so these came from listening tests against the
+// unfiltered output; HANDOFF records the measurements.  The open setting keeps
+// the same 2:1 ratio as the sampling rates it serves: sound effects run at
+// twice the speech rate (chapter 14).
+const Biquad kSpeechFilter = MakeOnePole(5000.0, EurekaMachine::kAudioHz);
+const Biquad kOpenFilter = MakeOnePole(10000.0, EurekaMachine::kAudioHz);
 }
 
 bool EurekaMachine::LoadRom(const fs::path& path, std::wstring& error) {
@@ -60,6 +87,7 @@ void EurekaMachine::Reset() {
   timerControlRead_[0] = timerControlRead_[1] = false;
   timerPending_[0] = timerPending_[1] = false;
   audioPhase_ = 0;
+  audioState_[0] = audioState_[1] = 0.0;
   audio_.clear();
   keys_.clear();
   firmwareKeys_.clear();
@@ -607,8 +635,22 @@ void EurekaMachine::WriteTimerData(unsigned channel, bool high, uint8_t value) {
 
 void EurekaMachine::RenderAudio(uint32_t cpuCycles) {
   audioPhase_ += static_cast<uint64_t>(cpuCycles) * kAudioHz;
+  if (audioPhase_ < kCpuHz) return;
+
+  // The DAC holds its value between writes, so sampling it is a zero order
+  // hold and the images that produces are real -- they exist on the hardware
+  // too.  What the hardware also has, and this did not, is the analogue low
+  // pass that removes them.  filtersel_mask (B0h bit 4) picks its cutoff:
+  // set is the normal one the speech engine wants, clear opens it up.
+  const Biquad& b = (outputLatch_ & 0x10) != 0 ? kSpeechFilter : kOpenFilter;
+  const double input = (static_cast<double>(dac_) - 128.0) * 256.0;
   while (audioPhase_ >= kCpuHz) {
-    audio_.push_back(static_cast<int16_t>((static_cast<int>(dac_) - 128) << 8));
+    // Direct form II transposed: the state carries over when the cutoff
+    // switches, so retuning the filter mid-utterance does not click.
+    const double out = b.b0 * input + audioState_[0];
+    audioState_[0] = b.b1 * input - b.a1 * out + audioState_[1];
+    audioState_[1] = b.b2 * input - b.a2 * out;
+    audio_.push_back(static_cast<int16_t>(std::clamp(out, -32768.0, 32767.0)));
     audioPhase_ -= kCpuHz;
   }
 }

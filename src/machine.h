@@ -161,6 +161,8 @@ class EurekaMachine {
   int fdcFormattedCylinder_ = -1;
   int fdcFormattedSide_ = -1;
   bool csioReady_ = false;
+  // Reconstruction filter state; see RenderAudio.
+  double audioState_[2] = {};
 };
 
 #endif
