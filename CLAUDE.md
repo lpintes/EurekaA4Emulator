@@ -112,3 +112,14 @@ adresu v ROM, ktorá ich dokladá — inak ich nikto neskôr neoverí.
 ## Git
 
 Commituj len keď o to používateľ požiada. Nepushuj bez vyzvania.
+
+Konce riadkov drží `.gitattributes`, nie ty: `* text=auto` ukladá do
+repozitára LF, `*.bat` zostáva CRLF (`cmd.exe` na LF-only dávkach vie
+zlyhať na `if/else` a `goto`, a až za behu) a `eurekatech/**` je z
+konverzie vyňatý úplne, lebo je v ňom osemnásť binárok z roku 1992 a
+test `com` závisí na tom, že `READ.COM` je bajt na bajt z diskety.
+
+Ak na ten súbor siahneš, over, že pravidlo pre `eurekatech/` zostalo
+**posledné** — pri zhode viacerých vzorov vyhráva to nižšie. A keď
+uvidíš diff, v ktorom je prepísaný celý súbor namiesto zmenených
+riadkov, nie je to tvoja zmena, sú to konce riadkov.

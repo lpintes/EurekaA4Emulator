@@ -590,7 +590,35 @@ Test to nechytil, lebo kontroloval `console.size() >= 40`, a zdvojený
 výstup ten limit spĺňal ľahšie než správny. `integration_test` teraz
 kontroluje obsah (`hotovo`, `RUN`, `Read which file?`), nie dĺžku.
 
-### 6.9 Uzavreté otázky
+### 6.9 Hudba v hudobnom editore sa nedá prerušiť
+
+Hlásené **majiteľom skutočného stroja z ostrého používania**, nie
+z merania: keď hudobný editor hrá, nedá sa hranie zastaviť. Sú vraj aj
+iné podobné veci, zatiaľ nezapísané.
+
+Čo je k tomu už známe, aby sa to znovu neodvodzovalo:
+
+- **Nesúvisí to s dĺžkou stlačenia.** Tá je v cykloch hosťa
+  (`kPressMs` = 120 ms) a rámce klávesnice sa posúvajú až pri čítaní
+  portu `89h`, takže je nezávislá od toho, ako často beží hostiteľská
+  slučka. Oprava slučky zo 63 na 352 Hz (sekcia 6.1) teda toto
+  pravdepodobne **nerieši** — zrýchlila len príchod klávesu do
+  emulátora zo 16 ms na 2,8 ms.
+- **Klávesnica je počas hudby snímaná často, nie zriedka.** Obsluha
+  generátora tónov na `00642` skenuje klávesnicu rýchlosťou DAC, teda
+  tisíckrát za sekundu. Práve preto sa kedysi počítanie skenov namiesto
+  času ukázalo ako chyba.
+- Predchádzajúca oprava hudobného editora (sekcia 5, bod 2) riešila
+  iný jav — že sa kláves *stratil*. Tento je, že sa neprejaví.
+
+Kadiaľ ísť: zistiť, **čo presne prehrávacia slučka editora pýta** —
+či stav konzoly cez BIOS, alebo priamo porty membrány, a ktorý kláves
+vôbec hranie ukončuje. Sonda to vie ukázať bez hádania:
+`diag_probe ROM DISK seq … kC6` otvorí editor, `trace` zaznamená porty.
+Kým to nie je zmerané, nedá sa rozlíšiť, či emulátor kláves nedoručí,
+alebo či ho ROM v tej slučke vôbec nečíta.
+
+### 6.10 Uzavreté otázky
 
 | bývalá otázka | výsledok |
 |---|---|
@@ -631,14 +659,17 @@ python tools\strings_kam.py 8 0xd000 0xe000
 
 Poradie podľa pomeru prínos/námaha:
 
-1. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+1. **Hudba v hudobnom editore sa nedá prerušiť** (6.9). Je to jediná
+   známa chyba hlásená z ostrého používania, teda jediná, ktorú niekto
+   naozaj pociťuje; ostatné body sú vylepšenia.
+2. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-2. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+3. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-3. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+4. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-4. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+5. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
    rozhodne otázku 6.3.
 
 ### Čím sa dá testovať

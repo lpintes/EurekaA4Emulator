@@ -136,8 +136,10 @@ Prepínač `--diag` zapne záznam hardvérových prístupov, ktoré model neobsl
 Výpis: `Ctrl+Shift+D` počas behu, a tiež pri ukončení. Bez `--diag` nemá
 záznam žiadnu réžiu.
 
-Slúži na dve otvorené otázky, ktoré sa zo samotnej ROM nedajú zodpovedať:
-kde naozaj začína zapisovateľná RAM a čo visí na sériovom porte Z180.
+Obe otázky, kvôli ktorým vznikol, sú medzitým zodpovedané: zapisovateľná
+RAM začína na `0x70000` a na sériovom porte Z180 visí klávesnica IBM PC.
+Zostáva ako nástroj na hľadanie portov a zápisov, ktoré model neobsluhuje —
+naprieč všetkými aplikáciami v ROM dnes nehlási žiadny port bez modelu.
 
 ## Zostavenie
 
