@@ -394,6 +394,21 @@ Bajt potom príde prerušením: vektor `C18C` (tabuľka na `C180`, `I`=`C1`,
 Bity `CNTR`: bit 7 EF (bajt čaká v `TRDR`), bit 6 EIE, bit 5 RE,
 bit 4 TE. Čítanie `TRDR` EF zhodí.
 
+**Prijatie bajtu zhodí `RE`.** Je to vlastnosť 64180, nie firmvéru,
+a v ROM ju vidno: obsluha prerušenia na `1E012` prijímač po každom
+jednom bajte znovu zapína (`CNTR = 6Fh`). Kto to v modeli vynechá,
+dostane emulátor, na ktorom chodia písmená a nechodia šípky — obsluha
+totiž na `1DFFE` urobí ešte zahadzovacie čítanie `TRDR`, a to pri
+trvalo zapnutom `RE` zje **druhý bajt dvojbajtovej sekvencie** `E0h`.
+Jednobajtové klávesy si to nikdy nevšimnú.
+
+Druhá pasca je fronta: príkaz `FFh` (Reset) musí vyprázdniť aj to, čo
+klávesnica ešte drží na výstupe. Skutočná to robí. Bez toho stačí, aby
+používateľ pustil kláves skôr, než stroj vykoná prvú inštrukciu —
+napríklad Enter, ktorým emulátor spustil — a ROM si pri privítaní
+vytiahne ten break kód namiesto `AAh`, usúdi, že klávesnica nie je
+pripojená, a prijímač vypne natrvalo.
+
 Je to **XT sada 1**: make pod `80h`, break s bitom 7, `E0h` pred
 rozšírenými. Preklad robia štyri tabuľky:
 

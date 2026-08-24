@@ -98,6 +98,13 @@ bool CheckPcKeyboard(EurekaMachine& machine) {
   // a, h, o, j on it; 47h is Home, which speaks the line back.
   static const uint8_t kAhoj[] = {0x1e, 0x23, 0x18, 0x24};
   machine.Reset();
+  // Two break codes before the machine has run one instruction, which is what
+  // really happens: the Enter that launched the emulator and the Escape before
+  // it are released into a window that is already listening.  They must not
+  // survive the ROM's Reset command -- when they did, the ROM read 9Ch instead
+  // of the AAh, decided no keyboard was there and never listened again.
+  machine.QueueScanCode(0x9c);
+  machine.QueueScanCode(0x81);
   for (int step = 0; step < 8'000'000; ++step)
     if (!machine.Step()) break;
   machine.QueueKey(0xd0);  // Shift+F1, the word processor
@@ -112,7 +119,13 @@ bool CheckPcKeyboard(EurekaMachine& machine) {
       if (!machine.Step() && machine.queued_keys() == 0) break;
   }
   machine.TakeSpeechInput();
+  // Home the way a PC keyboard really sends it: E0 first, because the key is
+  // an extended one.  The bare 47h works too and hid a bug for a while -- the
+  // second byte of every extended key was being eaten, so letters typed fine
+  // and not one arrow ever moved the cursor.
+  machine.QueueScanCode(0xe0);
   machine.QueueScanCode(0x47);
+  machine.QueueScanCode(0xe0);
   machine.QueueScanCode(0xc7);
   for (int step = 0; step < 8'000'000; ++step)
     if (!machine.Step() && machine.queued_keys() == 0) break;

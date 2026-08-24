@@ -128,6 +128,7 @@ class EurekaMachine {
   // keyboard rows or the serial port.  The machine has to keep running for it
   // to arrive, so the BIOS console read must not park the CPU meanwhile.
   bool HardwareInputBusy() const;
+  void NoteHardwareInput();
   void InjectFirmwareKey();
 
   z80 cpu_{};
@@ -173,6 +174,7 @@ class EurekaMachine {
   };
   std::deque<MembraneFrame> membraneFrames_;
   MembraneFrame membraneState_;
+  uint64_t hardwareInputUntil_ = 0;
   uint64_t membraneUntil_ = 0;
   uint64_t membraneMinUntil_ = 0;
   uint8_t membraneHeldKey_ = 0;

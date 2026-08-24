@@ -105,6 +105,7 @@ void EurekaMachine::Reset() {
   firmwareKeys_.clear();
   membraneFrames_.clear();
   membraneState_ = MembraneFrame();
+  hardwareInputUntil_ = 0;
   membraneUntil_ = 0;
   membraneMinUntil_ = 0;
   membraneHeldKey_ = 0;
@@ -309,7 +310,24 @@ bool EurekaMachine::MembraneBusy() const {
 }
 
 bool EurekaMachine::HardwareInputBusy() const {
-  return MembraneBusy() || csioPending_ || !csioRx_.empty();
+  return cycles_ < hardwareInputUntil_ || MembraneBusy() || csioPending_ ||
+         !csioRx_.empty();
+}
+
+// Keeps the CPU awake for a moment after a key that the machine's own hardware
+// delivered.  The firmware answers such a key by starting to speak, but speech
+// is driven by the 75 Hz heartbeat, so it needs at least one tick -- 13.3 ms --
+// before anything comes out.  Measured: a scan code left the machine running
+// 1.9 ms before the console read parked it, which is not one tick, and the
+// announcement was silently dropped every single time.  A braille chord hid
+// this by holding the key rows down for 200 ms.
+//
+// Only for keys the firmware itself now owns.  Text that the emulator holds in
+// its own queue must NOT extend the window: there the firmware's own console
+// read would spin forever waiting for a key it cannot see, and both
+// application tests hang.
+void EurekaMachine::NoteHardwareInput() {
+  hardwareInputUntil_ = cycles_ + kCpuHz / 1000 * 100;
 }
 
 // Turns one Eureka key code into the physical presses that produce it.  The
@@ -332,6 +350,7 @@ void EurekaMachine::PressMembraneKey(uint8_t key) {
     }
     return;
   }
+  NoteHardwareInput();
   const uint8_t kind = key & 0xc0;
   const uint8_t number = key & 0x0f;
   const bool alt = (key & 0x20) != 0;
@@ -387,6 +406,7 @@ void EurekaMachine::PressMembraneKey(uint8_t key) {
 // calls once, when they come up, so there is no host repeat to swallow.
 void EurekaMachine::PressBraille(uint8_t dots) {
   if (dots == 0) return;
+  NoteHardwareInput();
   MembraneFrame frame;
   frame.row0 = dots;
   frame.cycles = MsToCycles(kPressMs);
@@ -505,6 +525,14 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
       // of TRDR at 18841 after enabling the receiver, and an answer that
       // early would be swallowed by it.
       if (value == 0xff) {
+        // Reset also empties the keyboard's own output buffer, and leaving
+        // that out cost a whole evening: the Enter that launched the emulator
+        // arrives as a break code before the machine has executed a single
+        // instruction, so the queue held 9Ch ahead of the AAh.  The ROM read
+        // the 9Ch at 18858, decided no keyboard was attached and switched the
+        // receiver off for good -- every key after that fell into silence.
+        machine->csioRx_.clear();
+        machine->csioPending_ = false;
         machine->csioRx_.push_back(0xaa);
         machine->csioReadyAt_ = machine->cycles_ + kCpuHz / 1000 * 30;
       }
@@ -841,6 +869,13 @@ void EurekaMachine::PumpCsio() {
   csioData_ = csioRx_.front();
   csioRx_.pop_front();
   csioPending_ = true;
+  // A completed receive clears RE on the 64180; the firmware has to arm the
+  // port again for every single byte, which is exactly what it does at 1E012.
+  // Leaving RE set costs the arrows: their scan codes are two bytes, E0 then
+  // the key, and the interrupt handler's throwaway read of TRDR at 1DFFE would
+  // swallow the second one before the handler ever came round to it.  Single
+  // byte keys never noticed, so letters worked and navigation did not.
+  io_[0x0a] &= static_cast<uint8_t>(~0x20);
 }
 
 void EurekaMachine::Advance(uint32_t cpuCycles) {
@@ -1042,6 +1077,7 @@ void EurekaMachine::ReleaseKey(uint8_t key) {
 }
 
 void EurekaMachine::QueueScanCode(uint8_t code) {
+  NoteHardwareInput();
   csioRx_.push_back(code);
 }
 

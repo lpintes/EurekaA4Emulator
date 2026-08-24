@@ -258,8 +258,30 @@ void SendScanCode(EurekaMachine& machine, const KEY_EVENT_RECORD& key) {
   machine.QueueScanCode(key.bKeyDown ? code : static_cast<uint8_t>(code | 0x80));
 }
 
+const wchar_t* ModeName(InputMode mode) {
+  switch (mode) {
+    case InputMode::kBraille: return L"braillovská";
+    case InputMode::kPc: return L"externá PC";
+    default: return L"default";
+  }
+}
+
+// With --diag, every key event is echoed with what the emulator made of it.
+// A keyboard that does nothing is otherwise impossible to tell apart from a
+// key that never arrived: both are silence.
+void TraceKey(const KEY_EVENT_RECORD& key, InputMode mode, const wchar_t* took) {
+  wchar_t line[200];
+  swprintf(line, 200,
+           L"[kláves %ls vk=%02X sc=%02X stav=%04X režim=%ls -> %ls]\r\n",
+           key.bKeyDown ? L"dole" : L"hore",
+           static_cast<unsigned>(key.wVirtualKeyCode),
+           static_cast<unsigned>(key.wVirtualScanCode),
+           static_cast<unsigned>(key.dwControlKeyState), ModeName(mode), took);
+  Print(line);
+}
+
 bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
-                  bool& dump) {
+                  bool& dump, bool trace) {
   HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
   DWORD available = 0;
   if (input == INVALID_HANDLE_VALUE || !GetNumberOfConsoleInputEvents(input, &available))
@@ -272,6 +294,7 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
     const KEY_EVENT_RECORD& key = record.Event.KeyEvent;
     if (!key.bKeyDown) {
       if (host.mode == InputMode::kPc) {
+        if (trace) TraceKey(key, host.mode, L"scan kód");
         SendScanCode(machine, key);
         continue;
       }
@@ -296,6 +319,9 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
     const bool ctrl = (key.dwControlKeyState &
                        (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
     const bool shift = (key.dwControlKeyState & SHIFT_PRESSED) != 0;
+    if (trace)
+      TraceKey(key, host.mode,
+               ctrl && shift ? L"skratka emulátora?" : L"do Eureky");
     if (ctrl && shift && key.wVirtualKeyCode == 'Q') return false;
     if (ctrl && shift && key.wVirtualKeyCode == 'R') {
       reset = true;
@@ -366,6 +392,7 @@ void PrintUsage() {
   Print(L"Eureka A4 Emulator\r\n\r\n"
         L"Použitie: EurekaA4Emulator.exe [--rom A4ROM.DMP] [--disk PRIECINOK]\r\n"
         L"                              [--ram-disk] [--no-disk] [--diag]\r\n"
+        L"                              [--braille] [--pc]\r\n"
         L"Ak --disk vynecháte, zobrazí sa výber priečinka; jeho zrušením sa\r\n"
         L"Eureka spustí bez diskety.\r\n"
         L"--ram-disk dá prázdnu disketu, ktorá žije len v pamäti; pri ukončení\r\n"
@@ -373,8 +400,11 @@ void PrintUsage() {
         L"--no-disk spustí Eureku bez diskety a bez pýtania.\r\n"
         L"ROM sa hľadá v premennej A4ROM, vedľa EXE, o úroveň vyššie a\r\n"
         L"v aktuálnom priečinku.\r\n"
+        L"--braille a --pc štartujú rovno v tom režime písania, keby skratky\r\n"
+        L"Ctrl+Shift+B a Ctrl+Shift+E žral terminál.\r\n"
         L"--diag zapne záznam zahodených zápisov, portov bez modelu a zmien\r\n"
-        L"riadiacich latchov. Výpis: Ctrl+Shift+D, aj pri ukončení.\r\n");
+        L"riadiacich latchov, a k tomu záznam každej klávesovej udalosti.\r\n"
+        L"Výpis: Ctrl+Shift+D, aj pri ukončení.\r\n");
 }
 
 }  // namespace
@@ -389,6 +419,10 @@ int wmain(int argc, wchar_t** argv) {
   bool ramDisk = false;
   bool noDisk = false;
   bool diagnostics = false;
+  // Starting straight in a mode, without the shortcut.  A console host that
+  // keeps Ctrl+Shift+E for itself is otherwise indistinguishable from a mode
+  // that does not work, and both look like silence.
+  InputMode startMode = InputMode::kDefault;
   for (int index = 1; index < argc; ++index) {
     const std::wstring argument = argv[index];
     if ((argument == L"--help" || argument == L"-h")) {
@@ -407,6 +441,14 @@ int wmain(int argc, wchar_t** argv) {
     }
     if (argument == L"--no-disk") {
       noDisk = true;
+      continue;
+    }
+    if (argument == L"--pc") {
+      startMode = InputMode::kPc;
+      continue;
+    }
+    if (argument == L"--braille") {
+      startMode = InputMode::kBraille;
       continue;
     }
     if ((argument == L"--rom" || argument == L"--disk") && index + 1 < argc) {
@@ -478,15 +520,19 @@ int wmain(int argc, wchar_t** argv) {
   if (!audio.Open(EurekaMachine::kAudioHz))
     Print(L"Upozornenie: zvukové zariadenie sa nepodarilo otvoriť.\r\n");
 
+  HostKeyboard host;
+  host.mode = startMode;
   Print(L"Eureka A4 je zapnutá. Disk: " + diskDescription + L"\r\n"
         L"Klávesy Windows sa posielajú do Eureky; F1-F10 a kurzory fungujú "
         L"vrátane Shift/Alt.\r\n"
         L"F9 je režim, F10 povie, kde ste; Shift+F9 stav batérie, "
         L"Shift+F10 sebekontrolu.\r\n"
-        L"Píše sa v režime default. Ctrl+Shift+B prepne na braillovskú "
-        L"klávesnicu (F D S J K L),\r\n"
-        L"Ctrl+Shift+E na externú klávesnicu PC; tou istou skratkou späť na "
-        L"default.\r\n"
+        L"Píše sa v režime " + ModeName(host.mode) +
+        L". Ctrl+Shift+B prepne na braillovskú klávesnicu\r\n"
+        L"(F D S J K L), Ctrl+Shift+E na externú klávesnicu PC; tou istou "
+        L"skratkou späť na default.\r\n"
+        L"Ak skratky žerie terminál, dá sa štartovať aj s --braille alebo "
+        L"--pc.\r\n"
         L"Shift+F7 spustí program z disku. Ctrl+Shift+R resetuje, "
         L"Ctrl+Shift+Q uloží disk a skončí.\r\n\r\n");
 
@@ -494,13 +540,14 @@ int wmain(int argc, wchar_t** argv) {
   auto epoch = Clock::now();
   uint64_t epochCycles = machine->cycles();
   bool running = true;
-  HostKeyboard host;
   while (running) {
     bool reset = false;
     bool dump = false;
-    running = PumpKeyboard(*machine, host, reset, dump);
+    running = PumpKeyboard(*machine, host, reset, dump, diagnostics);
     if (!running) break;
     if (dump) {
+      Print(std::wstring(L"\r\n[Režim písania: ") + ModeName(host.mode) +
+            L"]\r\n");
       Print(diagnostics
                 ? machine->diagnostics().Report()
                 : std::wstring(L"\r\nDiagnostika je vypnutá; spustite s "
