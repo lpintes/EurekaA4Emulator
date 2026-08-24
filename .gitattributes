@@ -1,4 +1,17 @@
-# Obsah eurekatech/ sú dobové súbory z roku 1992 vrátane CP/M binárok.
-# Konverzia koncov riadkov by ich poškodila a integračný test závisí na
-# tom, že READ.COM je bajt na bajt taký, aký prišiel z diskety.
+# Konce riadkov drzi git, nie nastroje. Bez tohto ich kazdy editor a kazdy
+# skript prehadzoval tam a spat: polovica stromu bola CRLF, polovica LF,
+# a `src/machine.h` aj `src/z80.h` mali dokonca oba konce vnutri jedneho
+# suboru. Diff potom ukazoval prepisany cely subor namiesto zmenenych
+# riadkov, cim sa skutocna zmena stratila.
+* text=auto
+
+# .bat vykonava cmd.exe. Na suboroch len s LF vie zlyhat na blokoch if/else
+# a na `goto`, a to ticho -- zlyha az za behu, nie pri prekade. Ostavaju CRLF.
+*.bat text eol=crlf
+
+# Obsah eurekatech/ su dobove subory z roku 1992 vratane CP/M binarok.
+# Konverzia koncov riadkov by ich poskodila a integracny test zavisi na
+# tom, ze READ.COM je bajt na bajt taky, aky prisiel z diskety. Toto
+# pravidlo musi zostat POSLEDNE: pri zhode viacerych vzorov vyhrava ten
+# nizsie, takze prave ono prebije `* text=auto` nad nim.
 eurekatech/** -text
