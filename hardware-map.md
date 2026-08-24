@@ -282,11 +282,55 @@ tabuľka na 1D541.
 
 | akord | `89h` | kód | význam |
 |---|---|---|---|
-| medzerník + bod 1 | `84h` | `C8h` | F9 = MODE |
-| medzerník + bod 4 | `88h` | `C9h` | F10 = WHERE |
-| medzerník + body 1,2 | `86h` | `D8h` | Shift+F9 = stav batérie |
+| medzerník + bod 1 (`a`) | `84h` | `C8h` | F9 = režim |
+| medzerník + bod 4 | `88h` | `C9h` | F10 = kde som |
+| medzerník + body 1,2 (`b`) | `86h` | `D8h` | Shift+F9 = stav batérie |
 | medzerník + body 4,5 | `98h` | `D9h` | Shift+F10 = sebekontrola |
-| medzerník + body 1,4,5 | `9Ch` | `CAh` | (nepoužité) |
+| medzerník + body 1,4,5 (`d`) | `9Ch` | `CAh` | dátumy všetkých modulov ROM |
+
+Pod prstami sú to dva zrkadlové páry, nie štyri vzory: ukazovák ľavej
+ruky, ukazovák pravej, a to isté s prostredníkom navyše. Že „b-akord"
+je zároveň *baterie*, je zhoda; symetria je to, čo si ruka pamätá.
+
+### Akordy s medzerníkom, ktoré v manuáli nie sú
+
+Zmerané stlačením všetkých 64 akordov po studenom štarte. Okrem
+piatich vyššie robia niečo ešte tieto štyri — mlčia, lebo neprepínajú
+aplikáciu, ale spôsob písania. V `KB.LIB` ani `KB.H` nie sú.
+
+| akord | `89h` | čo robí | kde |
+|---|---|---|---|
+| medzerník + `v` (body 1,2,3,6) | `A7h` | **veľké písmená zapnúť** | 1D56B |
+| medzerník + `m` (body 1,3,4) | `8Dh` | **veľké písmená vypnúť** | 1D563 |
+| medzerník + body 4,5,6 | `B8h` | predpona **riadiaceho znaku** | 1D577 |
+| medzerník + `p` (body 1,2,3,4) | `8Fh` | predpona, čaká na `f` | 1D57F |
+
+**Veľké písmená** sú bit 4 na `C61Fh`. Keď je nastavený, preklad ide
+vždy cez `D734` (malé na veľké, vrátane diakritiky podľa tabuľky na
+`D754`); keď nie je, len pri držanom shifte. České mnemotechniky:
+`v` ako *veľké*, `m` ako *malé*. Zmerané: po `A7h` napíšu akordy
+`04 16 15 1A` reťazec „AHOJ", s `8Dh` vloženým po prvom písmene
+„Ahoj".
+
+**Riadiaci znak**: nasledujúca bunka sa preloží počítačovou tabuľkou
+a odpočíta sa `60h` (1D5C8), takže z `a` vznikne `01h`, teda Ctrl+A.
+Mimo rozsahu `60h`–`7Fh` sa ozve chybový tón. Stroj to vie aj ohlásiť —
+na `D678` je reťazec `KONTROL `.
+
+**A jedna veľkonočná kraslica.** Po `medzerník + p` prijme ROM jedine
+`f` (`0Eh`); čokoľvek iné potichu zahodí oboje. Pri `f` skopíruje
+dvanásť bajtov z `D6FD` do rečového bufferu (1D5E6) a stroj povie
+**„Hello world"** — anglicky, v českej ROM, bez akéhokoľvek ohlásenia.
+Overené na skutočnom behu emulátora.
+
+Sonda to nezachytí, hoci reťazec v bufferi `C7E2h` vidno: zastavuje sa
+v okamihu, keď firmvér čaká na kláves, takže reč nestihne odznieť. Nie
+je to chyba emulátora, je to chyba merania — dobré vedieť skôr, než sa
+niekto pustí opravovať niečo, čo je v poriadku.
+
+Ostatných 55 akordov s medzerníkom padne na spoločnú vetvu (1D591)
+a nerobí nič. Samotný medzerník píše medzeru; **medzerník so shiftom
+je Escape** (1D52F) — to je odvodené z kódu, nie zmerané.
 
 ### Poradie bitov v braillovom riadku
 
