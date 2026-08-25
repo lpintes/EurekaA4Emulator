@@ -57,12 +57,23 @@ std::string Readable(const std::vector<uint8_t>& bytes) {
   return out;
 }
 
-// Runs until the BIOS blocks on console input or the budget is spent.
-// Returns true if it stopped because input was wanted.
+// Runs until the machine goes quiet or the budget is spent.  It used to run
+// until the BIOS blocked on console input, but the CPU is not parked there
+// any more -- the ROM waits for a key by spinning, as the hardware does --
+// so silence on the console is what "ready for the next key" looks like now.
+// Returns true if it stopped because the machine went quiet.
 bool RunUntilPrompt(EurekaMachine& machine, uint64_t budget) {
   const uint64_t deadline = machine.instructions() + budget;
-  while (machine.instructions() < deadline)
-    if (!machine.Step()) return true;
+  const uint64_t quiet = EurekaMachine::kCpuHz / 2;
+  // The machine is silent while it boots, so the first call must not take
+  // that for a prompt.
+  const uint64_t booted = EurekaMachine::kCpuHz * 3;
+  uint64_t lastOut = machine.cycles() > booted ? machine.cycles() : booted;
+  while (machine.instructions() < deadline) {
+    if (!machine.TakeConsoleOutput().empty()) lastOut = machine.cycles();
+    if (machine.cycles() > lastOut + quiet) return true;
+    machine.Step();
+  }
   return false;
 }
 

@@ -269,6 +269,12 @@ braillovská:
 
 Tou istou skratkou sa ide späť na default.
 
+**Rozhodnuté 25. 8. 2026: default sa ruší.** Nie je to režim stroja, je to
+obchádzka — Eureka mala dve klávesnice, vlastnú braillovskú a voliteľnú PC
+na sériovom porte, tretia neexistovala. Zostanú dva režimy a štartovým bude
+**exterka**, teda stav „Eureka s pripojenou klávesnicou". Dôvod aj postup
+sú v 6.11.
+
 ### Braillovská klávesnica
 
 `Ctrl+Shift+B` prepne písanie na šesť bodových klávesov: `F D S` sú
@@ -908,6 +914,59 @@ zaparkovať v ňom znamená useknúť reč. Preto:
 2. Až potom je parkovanie vnútri rozdeľovača bezpečné.
 3. A až potom drží oprava makier bez pálenia procesora.
 
+#### Overené 25. 8. 2026: zrušenie parkovania to rieši
+
+Skúšané tak, že sa BIOS-ové čítanie konzoly prestalo zachytávať úplne —
+ROM na kláves čaká točením vo vlastnom rozdeľovači, ako na kremíku.
+
+- V sonde prejde `F1` v BASICu celé: „bezi..ahoj...hotovo", nič useknuté.
+- Majiteľ odskúšal ručne v režime **externej klávesnice** a fungovalo
+  `run`, `load`, `save`, `F1`, `F2`, `F5` aj `Shift+F5` — teda aj ukladanie,
+  ktoré predtým nešlo vôbec.
+- `integration_test` prejde vo všetkých troch režimoch, keď sa v ňom
+  podávanie klávesov prepne z „stroj zaparkoval" na „stroj pol sekundy nič
+  nevypísal". To isté platí pre `RunUntilPrompt` v sonde.
+- Znelka `F7` je časovo aj výškovo nezmenená (rozostup 270 ms, −18/−19
+  centov), takže sa zvuku netýka.
+
+Cena je hostiteľský procesor: 30 s hosťovského času v nečinnosti stálo
+**1,12 s s parkovaním a 4,15 s bez neho**, teda 3,7 % oproti 13,8 % jadra.
+
+**Prvý krok je už v strome.** Zachytávanie console input odpovedá len na to,
+čo hostiteľ naozaj napísal, inak nechá čakať ROM; `biosWaiting_` a parkovanie
+sú preč a testy aj sonda podávajú klávesy podľa ticha. Kým nezanikne default,
+treba emulátor spúšťať s **`--pc`** (alebo hneď dať `Ctrl+Shift+E`).
+
+#### Prečo to samo o sebe nestačí: default režim
+
+Zrušenie parkovania **rozbije režim default**. Text v ňom išiel do
+hostiteľskej fronty `keys_` a vyzdvihovalo ho práve zachytené čítanie
+konzoly; keď sa ROM prestane vracať ku dverám BIOS-u, je z tej fronty slepá
+schránka a v defaulte prestane fungovať všetko. Braille a exterka idú cez
+hardvér, tých sa to netýka.
+
+Pokus posielať aj default do fronty ROM (`C67B`) neuspel: vstup sa dostal
+dnu, ale hromadný text sa rozsypal a BASIC hlásil `chyba 26`. Nepomohlo ani
+spomalenie vkladania pod tempo heartbeatu.
+
+#### Rozhodnutý koniec: default sa ruší
+
+Nie opraviť skratku, ale odstrániť ju. Rozsah:
+
+- `main.cpp` — zrušiť default, štartovať v exterke, `Ctrl+Shift+B` bude
+  prepínať medzi dvoma režimami namiesto troch
+- `machine.cpp` — preč so zachytávaním konzolového vstupu (funkcie 2 a 3),
+  s `keys_`, `keyboardInitialized_`, `biosWaiting_` aj parkovaním
+- testy — `QueueText` musí písať scancodmi. Tabuľku **neodhadovať**:
+  obrátiť ROM-ové `DF05`, `DF5E` a `DF98`. Znak, ktorý sa v nich nenájde,
+  nech test ohlási nahlas, nie potichu napíše nezmysel. Pacing podľa ticha.
+- `HANDOFF.md` — sekcia 5 sa stane dvoma režimami, 6.1 stratí dôvod pre
+  `RenderIdle`
+
+Cenou je, že `ľ ĺ ŕ ô ä Ľ` sa nebude dať napísať. To je správne: česká ROM
+ich nemá v žiadnej tabuľke, takže ich nevedela napísať ani skutočná Eureka,
+a default bol jediné miesto, kde emulátor stroj zámerne prevyšoval.
+
 #### Nedoriešené vedľa toho
 
 Meno súboru pri `SAVE` sa do jednoriadkového editora nedostane: pri
@@ -962,21 +1021,20 @@ Poradie podľa pomeru prínos/námaha:
 2. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
    percent zle započítaných cyklov v obsluhe generátora tónov. Pozor na
    páku 8 : 1 — tempo reaguje osemkrát citlivejšie než cena obsluhy.
-3. **Zaparkovaný stroj musí tikať** (6.11) — časovače a prerušenia počas
-   parkovania. Je to podmienka pre opravu funkčných klávesov aj
-   pravdepodobný spoločný koreň s 6.9.
-4. **Funkčné klávesy hladujú** (6.11). Diagnóza hotová, predikát známy;
-   chýba bezpečné miesto na zaparkovanie. Až po bode 3.
-5. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
+3. **Zrušiť default režim a s ním zachytávanie vstupu** (6.11). Rozhodnuté
+   a overené, že to rieši funkčné klávesy aj ukladanie. Zásah do `main.cpp`,
+   `machine.cpp` aj testov naraz, s ručným odskúšaním. Parkovanie
+   a `RenderIdle` tým zaniknú.
+4. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
    reprodukciu; bez neho je to beh naslepo.
-6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+5. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+6. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-8. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+7. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-9. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+8. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
    rozhodne otázku 6.3.
 
 ### Čím sa dá testovať

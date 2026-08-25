@@ -110,7 +110,6 @@ void EurekaMachine::Reset() {
   membraneMinUntil_ = 0;
   membraneHeldKey_ = 0;
   keyboardInitialized_ = false;
-  biosWaiting_ = false;
   consoleOutput_.clear();
   speechInput_.clear();
   biosTrack_ = 0;
@@ -958,21 +957,25 @@ bool EurekaMachine::InterceptBios() {
       return true;
     case 3:  // console input
       if (HardwareInputBusy()) {
-        biosWaiting_ = false;
-        return true;
+              return true;
       }
-      if (keys_.empty()) {
-        biosWaiting_ = true;
-        return false;
-      }
+      // Answer only what the host actually typed.  While a key is on its way
+      // in through real hardware, or when there is nothing queued at all, the
+      // ROM is left to wait for the key itself.  It does that by spinning in
+      // its own event dispatcher (19B41), which is what the real machine does,
+      // and it is the only way it ever gets to read the input it produces for
+      // itself: a function key types its text into the ROM's own queue
+      // (fk_table, SYSRAM.A), and answering the read from here starved every
+      // one of them.  The same trap already caught scan codes once -- see
+      // HardwareInputBusy.
+      if (keys_.empty()) return true;
       cpu_.a = keys_.front();
       keys_.pop_front();
       // H bit 0 distinguishes Eureka function/cursor key codes from ordinary
       // text in the ROM console ABI.
       cpu_.h = (cpu_.a & 0x80) != 0 ? 1 : 0;
       keyboardInitialized_ = true;
-      biosWaiting_ = false;
-      ReturnFromCall();
+          ReturnFromCall();
       return true;
     case 4:  // console output: capture, then let the ROM feed screen and speech.
       // Captured at the stub only.  Taking it here as well doubled every
@@ -1043,10 +1046,6 @@ void EurekaMachine::QueueKey(uint8_t key) {
   // application keys act wherever they are pressed.  Handing them to a
   // blocked BIOS console read instead made them dead inside BASIC and the
   // music editor, so they always go on the real keyboard ports.
-  if (biosWaiting_ && (key & 0x80) == 0) {
-    keys_.push_back(key);
-    return;
-  }
   if ((key & 0x80) != 0) {
     PressMembraneKey(key);
   } else if (keyboardInitialized_) {

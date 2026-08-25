@@ -46,7 +46,10 @@ class EurekaMachine {
   bool DiskSettled() const;
   void Reset();
 
-  // Returns false only while BIOS console input is waiting for a host key.
+  // Always true now: the CPU is never parked.  The ROM waits for a key by
+  // spinning in its own event dispatcher, exactly as the hardware does, so
+  // nothing here has to guess when the machine is idle.  The value is kept
+  // because a cheap suspend would want it back.
   bool Step();
   void QueueKey(uint8_t key);
   // Optional counterpart of QueueKey for hosts that see key releases: it ends
@@ -186,7 +189,6 @@ class EurekaMachine {
   uint64_t membraneMinUntil_ = 0;
   uint8_t membraneHeldKey_ = 0;
   bool keyboardInitialized_ = false;
-  bool biosWaiting_ = false;
   std::vector<uint8_t> consoleOutput_;
   std::vector<uint8_t> speechInput_;
   uint16_t biosTrack_ = 0;

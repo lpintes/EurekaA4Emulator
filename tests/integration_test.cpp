@@ -168,37 +168,44 @@ int wmain(int argc, wchar_t** argv) {
     return passed ? 0 : 1;
   }
 
-  unsigned prompts = 0;
+  // Emulator uz neparkuje -- ROM na klaves caka tocenim ako skutocny stroj --
+  // takze "Step() vratil false" uz nie je signal, ze si stroj pyta vstup.
+  // Nahradou je ticho: dalsi klaves ide az ked stroj pol sekundy nic nevypisal.
+  const uint64_t kQuiet = EurekaMachine::kCpuHz / 2;
+  const unsigned kSteps = basic ? 3u : 2u;
+  std::vector<uint8_t> console;
+  uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
+  unsigned fed = 0;
   uint64_t runStarted = 0;
-  constexpr uint64_t kLimit = 20'000'000;
+  constexpr uint64_t kLimit = 60'000'000;
   while (machine->instructions() < kLimit) {
-    if (!machine->Step()) {
-      ++prompts;
-      if (prompts == 1) {
-        machine->QueueKey(basic ? 0xc5 : 0xd6);  // F6 BASIC / Shift+F7 COM
-      } else if (prompts == 2) {
-        machine->QueueText(basic ? "LOAD \"BEEP\"\r" : "READ\r");
-      } else if (basic && prompts == 3) {
-        machine->QueueText("RUN\r");
-        runStarted = machine->instructions();
-      } else {
-        break;
-      }
+    auto chunk = machine->TakeConsoleOutput();
+    if (!chunk.empty()) {
+      console.insert(console.end(), chunk.begin(), chunk.end());
+      lastOut = machine->cycles();
     }
-    if (basic && runStarted && machine->instructions() > runStarted + 3'000'000)
+    if (fed < kSteps && machine->cycles() > lastOut + kQuiet) {
+      lastOut = machine->cycles();
+      if (fed == 0) machine->QueueKey(basic ? 0xc5 : 0xd6);
+      else if (fed == 1) machine->QueueText(basic ? "LOAD \"BEEP\"\r" : "READ\r");
+      else { machine->QueueText("RUN\r"); runStarted = machine->instructions(); }
+      ++fed;
+    }
+    machine->Step();
+    if (basic && runStarted && machine->instructions() > runStarted + 5'000'000)
       break;
+    if (!basic && fed >= kSteps && machine->cycles() > lastOut + 3 * kQuiet) break;
   }
 
   const auto speech = machine->TakeSpeechInput();
-  const auto console = machine->TakeConsoleOutput();
   const auto audio = machine->TakeAudio();
   // The console is checked by content, not by length.  A byte count passed
   // happily while every character was being emitted twice ("hhoottoovvoo").
   const bool passed = basic
-      ? prompts >= 3 && machine->debug_bios_reads() >= 60 &&
+      ? fed >= 3 && machine->debug_bios_reads() >= 60 &&
             Contains(speech, "hotovo") && Contains(console, "hotovo") &&
             Contains(console, "RUN") && runStarted != 0 && audio.size() > 200000
-      : prompts >= 3 && machine->debug_bios_reads() >= 150 &&
+      : fed >= 2 && machine->debug_bios_reads() >= 150 &&
             Contains(speech, "Read which file?") &&
             Contains(console, "Read which file?");
   std::cout << (passed ? "PASS" : "FAIL")
