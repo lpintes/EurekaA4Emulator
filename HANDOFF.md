@@ -593,8 +593,21 @@ kontroluje obsah (`hotovo`, `RUN`, `Read which file?`), nie dĺžku.
 ### 6.9 Hudba v hudobnom editore sa nedá prerušiť
 
 Hlásené **majiteľom skutočného stroja z ostrého používania**, nie
-z merania: keď hudobný editor hrá, nedá sa hranie zastaviť. Sú vraj aj
-iné podobné veci, zatiaľ nezapísané.
+z merania. Upresnené 25. 8. 2026 — pôvodné znenie („hranie sa nedá
+zastaviť") je pravdivé len sčasti:
+
+- **Medzerníkom sa hranie zastaviť nedá.** Toto je isté a platí vždy.
+  Manuál pritom naznačuje, že by skladbu mal ukončiť **ľubovoľný**
+  kláves. Je to najtvrdší bod, od ktorého sa dá začať.
+- **Úplná nemožnosť prerušiť skladbu čímkoľvek je pravda, ale nie za
+  každých okolností.** Stroj sa do toho stavu dá dostať, presné kroky
+  na reprodukciu zatiaľ nikto nemá. Je to teda skôr stav, do ktorého
+  emulátor občas spadne, než trvalá vlastnosť prehrávania.
+- **Po čase občas prestanú fungovať aj šípky mimo hudby** — napríklad
+  do adresára disku sa dá vojsť, ale nedá sa v ňom listovať. Opäť bez
+  postupu na vyvolanie. Ak sú tie dva javy jeden, hľadá sa niečo, čo
+  umŕtvi klávesnicu **naprieč aplikáciami** (zaseknutý stav dekodéra
+  ROM alebo fronty emulátora), nie chyba prehrávacej slučky editora.
 
 Čo je k tomu už známe, aby sa to znovu neodvodzovalo:
 
@@ -611,14 +624,54 @@ iné podobné veci, zatiaľ nezapísané.
 - Predchádzajúca oprava hudobného editora (sekcia 5, bod 2) riešila
   iný jav — že sa kláves *stratil*. Tento je, že sa neprejaví.
 
-Kadiaľ ísť: zistiť, **čo presne prehrávacia slučka editora pýta** —
-či stav konzoly cez BIOS, alebo priamo porty membrány, a ktorý kláves
-vôbec hranie ukončuje. Sonda to vie ukázať bez hádania:
-`diag_probe ROM DISK seq … kC6` otvorí editor, `trace` zaznamená porty.
-Kým to nie je zmerané, nedá sa rozlíšiť, či emulátor kláves nedoručí,
-alebo či ho ROM v tej slučke vôbec nečíta.
+Kadiaľ ísť — v tomto poradí, lebo prvý krok je jediný spoľahlivo
+reprodukovateľný:
 
-### 6.10 Uzavreté otázky
+1. **Medzerník počas hrania.** Zistiť, **čo presne prehrávacia slučka
+   editora pýta** — či stav konzoly cez BIOS, alebo priamo porty
+   membrány, a ktorý kláves vôbec hranie ukončuje. Sonda to vie ukázať
+   bez hádania: `diag_probe ROM DISK seq … kC6` otvorí editor, `trace`
+   zaznamená porty. Kým to nie je zmerané, nedá sa rozlíšiť, či
+   emulátor kláves nedoručí, alebo či ho ROM v tej slučke nečíta.
+   Pozor na to, že medzerník je zároveň ALT (sekcia 5) — je teda
+   pravdepodobnejším kandidátom na zvláštne zaobchádzanie než ostatné
+   klávesy.
+2. **Umŕtvená klávesnica po čase.** Prejav mimo hudby (šípky v adresári)
+   dáva jednoduchší terén: dosť dlhý `seq` s opakovanými šípkami
+   a porovnanie, či ROM prestane čítať porty, alebo emulátor prestane
+   vydávať. Bez postupu na vyvolanie je to však beh naslepo, takže sa
+   oplatí až po bode 1.
+
+### 6.10 Hudba hrá pomalšie, než má
+
+Hlásené 25. 8. 2026 z priameho porovnania so skutočným strojom; majiteľ
+má aj nahrávku. Hudba znie **správne, ale pomalšie**. Týka sa to aj
+úvodnej znelky po `F7`, teda nejde o vlastnosť jednej skladby ani
+o obsah editora — spomaľuje sa všetko, čo generátor tónov hrá.
+
+Prečo je to dobre uchopiteľné:
+
+- Znelka po `F7` je pevná v ROM, takže sa dá porovnať **1 : 1**
+  s nahrávkou z ostrého stroja. Pomer dvoch dĺžok povie rovno,
+  koľkokrát je emulátor pomalý, a také číslo obyčajne ukáže na
+  konkrétny deliteľ.
+- **Neurčené a rozhodujúce:** klesá aj **výška** tónov, alebo je nižšie
+  len **tempo**? Rozdeľuje to hľadanie na dve nespojité vetvy:
+  - *výška aj tempo nižšie* → pomaly beží samotný takt alebo DAC:
+    RLDR0 (vzorkovacia frekvencia je φ / (20 × (RLDR0+1)), sekcia 2),
+    emulovaný takt 6,144 MHz, alebo wait staty pri prístupe do pamäte.
+  - *výška správna, tempo pomalé* → dĺžky nôt sa počítajú z niečoho
+    iného než z DAC — PRT alebo softvérové počítadlo, ktoré v emulátore
+    tiká pomalšie, než má.
+- **Regulátor latencie to nie je.** Taktom hýbe najviac o 2 %
+  (sekcia 6.1), čo je tretina poltónu; počuteľne pomalšiu hudbu z toho
+  nespraví.
+- **Možný spoločný koreň so 6.9.** Ak sa dĺžky nôt počítajú niečím, čo
+  emulátor obsluhuje inou rýchlosťou než skutočný stroj (skeny
+  klávesnice, heartbeat), môže tá istá príčina spôsobovať aj to, že
+  kláves počas hrania nezaberie.
+
+### 6.11 Uzavreté otázky
 
 | bývalá otázka | výsledok |
 |---|---|
@@ -659,17 +712,22 @@ python tools\strings_kam.py 8 0xd000 0xe000
 
 Poradie podľa pomeru prínos/námaha:
 
-1. **Hudba v hudobnom editore sa nedá prerušiť** (6.9). Je to jediná
-   známa chyba hlásená z ostrého používania, teda jediná, ktorú niekto
-   naozaj pociťuje; ostatné body sú vylepšenia.
-2. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+1. **Medzerník počas hrania nezastaví skladbu** (6.9). Z chýb hlásených
+   z ostrého používania je to jediná, ktorá sa dá spoľahlivo vyvolať,
+   takže sa dá aj zmerať. Ostatné body ďalej dole sú vylepšenia.
+2. **Hudba hrá pomalšie, než má** (6.10). Porovnateľné s nahrávkou zo
+   skutočného stroja, a keďže sa to týka aj znelky po `F7`, ide
+   o časovanie generátora tónov, nie o dáta skladby.
+3. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
+   reprodukciu; bez neho je to beh naslepo.
+4. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-3. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+5. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-4. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+6. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-5. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+7. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
    rozhodne otázku 6.3.
 
 ### Čím sa dá testovať
