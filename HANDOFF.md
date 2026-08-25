@@ -715,32 +715,67 @@ pripadá **540 T-stavov**, z toho obsluha zoberie asi 480 a na slučku
 zostane 60. Slučka teda dostáva **iba zvyšok**, a preto sa **chyba 1 %
 v cene obsluhy premietne do 8 % v tempe**.
 
-#### Čo z toho už vieme vylúčiť
+#### Obsluha generátora tónov, presne
 
-- **Zrýchliť emulovaný takt neprichádza do úvahy.** `kCpuHz` ide aj do
-  časovačov aj do fázy zvuku, takže o 14,5 % vyšší takt zdvihne rovnako
-  výšku tónov — o vyše dvoch poltónov. Tempo a výška sa v tomto stroji
-  ladia oddelene a výška je už správna.
-- **Vymeniť tabuľky cyklov za Z180 naslepo by prestrelilo, a hrubo.**
-  Jadro `z80.c` má Z180 *inštrukcie* (`IN0`, `OUT0`, `MLT`, `OTIM`)
-  aj s ich T-stavmi, ale časovanie základnej sady je pôvodné **Z80**
-  (`cyc_00`, `cyc_ed`, `cyc_ddfd`; napr. `DEC HL` = 6, splnené `JR` = 12).
-  Lenže z tých 540 T-stavov vychádza, že na vysvetlenie 14,5 % stačí, aby
-  priemerná inštrukcia bola rýchlejšia o **1,6 %**. Rovnomerné zrýchlenie
-  o 25 %, aké sa Z180 obyčajne pripisuje, by dalo 7,5 obehu slučky na
-  prerušenie namiesto 2,32 — teda hudbu **trojnásobne rýchlejšiu**, než
-  akú hrá skutočný stroj. Hľadá sa teda okolo dvoch percent zle
-  započítaných cyklov, nie generálna oprava časovania.
+Vytiahnutá z RAM trasovaním (logická `B000`–`B051`). Je to štvorhlasý
+fázový akumulátor: pre každý hlas `HL += BC`, index do 256-bajtovej
+tabuľky priebehu je horný bajt `HL`, vzorky sa sčítajú a idú na DAC.
+
+```
+B000  EXX / EX AF,AF'         B046  OUT (88h),A
+B002  LD DE,(B0A5h)           B048  EXX
+B006  4x { LD HL,(fáza)       B049  IN0 A,(ITC)
+           LD BC,(prírastok)  B04C  IN0 A,(TMDR0L)
+           ADD HL,BC          B04F  EX AF,AF'
+           LD (fáza),HL       B050  EI
+           LD L,H / LD H,0    B051  RET
+           ADD HL,DE
+           ADD A,(HL) }
+```
+
+Zmerané v emulátore (nie odvodené):
+
+| veličina | hodnota |
+|---|---|
+| perióda prerušenia | **540,00 T-stavu** (φ/540 = 11 377,8 Hz) |
+| jeden obeh čakacej slučky | **26 T-stavov** |
+| obehov slučky na prerušenie | **2,286** = 59,43 T |
+| obsluha vrátane prijatia prerušenia | **480,58 T = 89,0 %** |
+
+Aby tempo sedelo, musí slučka stihnúť 2,286 × 1,145 = **2,617 obehu**,
+teda obsluha smie stáť **472 T namiesto 480,6** — o **1,8 % menej**.
+Rovnomerne rozložené je to zrýchlenie vykonávania o **1,6 %**.
+
+#### Prečo časovanie Z180 nie je tá oprava
+
+Toto je zmeraný záver, nie odhad. Obsluha má **49 načítaní operačného
+kódu** na jeden prechod. Z180 ich robí za 3 takty namiesto štyroch, takže
+len na nich ušetrí 49 T, čo je 10 %. Slučka by potom dostala nie 68, ale
+asi 108 T a stihla by okolo **4,9 obehu** namiesto potrebných 2,617 —
+hudba by hrala **takmer dvojnásobne rýchlejšie než skutočný stroj**.
+
+Skutočná Eureka teda tú výhodu Z180 niekde stráca a **firmvér ukazuje
+len časť odpovede**: na `00012` sa hneď pri štarte zapisuje
+`DCNTL = 38h`, čo je **0 čakacích stavov pre pamäť** a **3 pre I/O**.
+Emulátor nemodeluje ani jedno, ale I/O sú tu len tri prístupy na
+prerušenie, teda nanajvýš 9 T — na chýbajúcich 49 to nestačí.
+Zvyšok musí prichádzať zvonku, cez vývod WAIT, a to je vec, ktorú
+**žiadny register nezaznamenáva a z ROM sa vyčítať nedá**.
+
+Vedľajší dôsledok stojí za zapísanie: terajšie **Z80 tabuľky sú náhodou
+presnejšie** než ideálne Z180 by boli — trafia efektívny výkon
+skutočného stroja na 1,6 %, kdežto Z180 by minul o 90 %.
 
 #### Kadiaľ ísť
 
-1. Vytiahnuť obsluhu z RAM (`7B01D`–`7B051`, je to kópia, v dumpe ROM ju
-   hľadať netreba) a spočítať jej inštrukčnú zmes. Pri pomere 8 : 1
-   rozhoduje ona, nie tá štvorriadková slučka.
-2. Porovnať jej cenu s HD64180, vrátane ceny prijatia prerušenia
-   a prípadných wait-statov, ktoré emulátor nemodeluje vôbec.
-3. Až potom meniť tabuľky — a po každej zmene premerať znelku, lebo pri
-   tej páke je ľahké prejsť z −14 % na +40 %.
+1. Doplniť do jadra časovanie Z180 (M1 = 3 takty) **spolu s
+   nastaviteľným počtom čakacích stavov pamäte** a ten počet
+   nakalibrovať na znelku. Ak vyjde celé číslo, je to model hardvéru;
+   ak nie, je to len prispôsobenie a treba to tak aj napísať.
+2. Znelka je meradlo s presnosťou okolo 0,5 %, čo je pri páke 8 : 1
+   dosť na rozlíšenie jedného čakacieho stavu. Merať po každej zmene.
+3. Nezabudnúť, že rovnaká zmena zrýchli **všetko** — reč beží na
+   časovači a nemala by sa hnúť, ale to treba overiť, nie predpokladať.
 
 #### Vedľajší nález: jednosmerná zložka v hudobnom editore
 
