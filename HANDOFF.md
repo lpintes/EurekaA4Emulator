@@ -80,7 +80,9 @@ Zabudovaný voltmeter a teplomer (`DVM`, `TIC`, `TIF` v BASICu).
   `[` = háčik.
 - **Generátor tónov je čisto softvérový.** Obsluha prerušenia PRT0 na
   `0x0FB6D` sčíta až štyri fázové akumulátory zo 64-bajtovej tabuľky
-  priebehu a vyhodí jeden bajt na DAC (port `88h`).
+  priebehu a vyhodí jeden bajt na DAC (port `88h`). Za behu sa vykonáva
+  z kópie v RAM (`7B01D`–`7B051`) a pri hraní melódie beží **11 378-krát
+  za sekundu** (RLDR0 = `26`); zmerané histogramom PC, viď 6.10.
 - Priebehy: 10 tabuliek po 64 B od `0x0677`, hodnota = bajt − `0x20`,
   rozsah −32..+31. `*0` píla, `*1` sínus, `*8` obdĺžnik, `*9` trojuholník.
 - Vzorkovacia frekvencia je φ / (20 × (RLDR0+1)). **Nie je konštantná** —
@@ -642,34 +644,113 @@ reprodukovateľný:
    vydávať. Bez postupu na vyvolanie je to však beh naslepo, takže sa
    oplatí až po bode 1.
 
-### 6.10 Hudba hrá pomalšie, než má
+### 6.10 Hudba v emulátore hrá o 14,5 % pomalšie
 
-Hlásené 25. 8. 2026 z priameho porovnania so skutočným strojom; majiteľ
-má aj nahrávku. Hudba znie **správne, ale pomalšie**. Týka sa to aj
-úvodnej znelky po `F7`, teda nejde o vlastnosť jednej skladby ani
-o obsah editora — spomaľuje sa všetko, čo generátor tónov hrá.
+**Zmerané 25. 8. 2026** proti nahrávke skutočnej Eureky (mobil, majiteľ
+stroja). Emulátor hrá **1,145-krát pomalšie** a **výšku má správnu na
+0,006 %**. Tým je rozhodnutá otvorená otázka, ktorá tu stála predtým:
+dĺžky nôt sa nepočítajú z rýchlosti DAC.
 
-Prečo je to dobre uchopiteľné:
+#### Ako sa to meralo
 
-- Znelka po `F7` je pevná v ROM, takže sa dá porovnať **1 : 1**
-  s nahrávkou z ostrého stroja. Pomer dvoch dĺžok povie rovno,
-  koľkokrát je emulátor pomalý, a také číslo obyčajne ukáže na
-  konkrétny deliteľ.
-- **Neurčené a rozhodujúce:** klesá aj **výška** tónov, alebo je nižšie
-  len **tempo**? Rozdeľuje to hľadanie na dve nespojité vetvy:
-  - *výška aj tempo nižšie* → pomaly beží samotný takt alebo DAC:
-    RLDR0 (vzorkovacia frekvencia je φ / (20 × (RLDR0+1)), sekcia 2),
-    emulovaný takt 6,144 MHz, alebo wait staty pri prístupe do pamäte.
-  - *výška správna, tempo pomalé* → dĺžky nôt sa počítajú z niečoho
-    iného než z DAC — PRT alebo softvérové počítadlo, ktoré v emulátore
-    tiká pomalšie, než má.
-- **Regulátor latencie to nie je.** Taktom hýbe najviac o 2 %
-  (sekcia 6.1), čo je tretina poltónu; počuteľne pomalšiu hudbu z toho
-  nespraví.
-- **Možný spoločný koreň so 6.9.** Ak sa dĺžky nôt počítajú niečím, čo
-  emulátor obsluhuje inou rýchlosťou než skutočný stroj (skeny
-  klávesnice, heartbeat), môže tá istá príčina spôsobovať aj to, že
-  kláves počas hrania nezaberie.
+Kópia sondy v scratchpade poháňa skutočný `EurekaMachine` tou istou
+slučkou ako `main.cpp`, ale **bez regulátora latencie**, takže hosťovské
+hodiny idú presne 6,144 MHz; všetko z DAC ide cez `TakeAudio()` do WAV.
+Kontrola sedí na vzorku: 25,001 s hosťovského času = 1 200 047 vzoriek
+pri 48 kHz. Do tej istej kópie sa pridal histogram PC za zvolené okno
+hosťovského času — bez neho by sa mechanizmus hľadal odvodzovaním.
+
+Noty sa z oboch nahrávok vytiahli jedným skriptom: FFT v 40 ms okne
+s posunom 10 ms, doplnenie núl na osemnásobok a parabolická interpolácia
+vrcholu (bez nej sa 18 centov v 25 Hz koši nedá vidieť), potom zlúčenie
+susedných rámcov s rovnakým poltónom. Že ide o tú istú znelku, potvrdzuje
+zhodná sedemtónová postupnosť E5 C5 D5 A#4 C5 A4 A#4 aj korelácia obálok
+nábehov, ktorá o notách nevie nič.
+
+#### Čísla
+
+| meranie | skutočný stroj | emulátor | pomer |
+|---|---|---|---|
+| úvodný tón -> E5 | 1,158 s | 1,320 s | 1,140 |
+| úvodný tón -> záverečné F5 | 3,762 s | 4,310 s | 1,146 |
+| rozostup tónov v behu | 236,2 ms | 272,9 ms | 1,155 |
+| korelácia obálok nábehov | — | — | 1,141 |
+
+Výška: skutočný stroj −18,4 centa, emulátor −18,5 centa oproti A = 440 Hz.
+
+Tá odchýlka **nie je vlastnosť skutočného stroja** — je to aritmetika
+v ROM, lebo emulátor s presne 6,144 MHz vyrobí tú istú. (Skorší výklad,
+že skutočnej Eureke ide kryštál o 1 % pomalšie, bol nesprávny.)
+
+A práve tá zhoda je dôkaz, kde chyba **nie je**: výšku určuje prerušenie
+od časovača, takže keby jeho frekvencia bola vedľa o 2 %, výška by sa
+posunula o 35 centov. Namerané je 0,1 centa. **Časovač je správne na
+0,06 % a tempo je napriek tomu o 14,5 % vedľa.**
+
+#### Kde tempo vzniká
+
+Dĺžku noty odmeriava **prázdna čakacia slučka v ROM na 10E5D**, žiadny
+časovač:
+
+```
+10E5A  LD HL,(B0B0h)
+10E5D  DEC HL
+10E5E  LD A,H
+10E5F  OR L
+10E60  JR NZ,10E5Dh
+10E62  RET
+```
+
+Rozdelenie procesora počas tónu (histogram PC, okno 0,2 s):
+
+- **11 378-krát za sekundu** beží obsluha generátora tónov v RAM na
+  `7B01D`–`7B051`. To je φ / (20 × 27), teda RLDR0 = `26` — pre generátor
+  tónov, nie tých 7,5 kHz, ktoré patria reči.
+- Čakacia slučka urobí **26 400 obehov za sekundu**. Pri 26 T-stavoch
+  (časovanie Z80) je to **11,2 %** cyklov; zvyšných **88,8 %** spotrebuje
+  obsluha.
+
+Z toho plynie páka, ktorá je na tomto celá podstatná. Na jedno prerušenie
+pripadá **540 T-stavov**, z toho obsluha zoberie asi 480 a na slučku
+zostane 60. Slučka teda dostáva **iba zvyšok**, a preto sa **chyba 1 %
+v cene obsluhy premietne do 8 % v tempe**.
+
+#### Čo z toho už vieme vylúčiť
+
+- **Zrýchliť emulovaný takt neprichádza do úvahy.** `kCpuHz` ide aj do
+  časovačov aj do fázy zvuku, takže o 14,5 % vyšší takt zdvihne rovnako
+  výšku tónov — o vyše dvoch poltónov. Tempo a výška sa v tomto stroji
+  ladia oddelene a výška je už správna.
+- **Vymeniť tabuľky cyklov za Z180 naslepo by prestrelilo, a hrubo.**
+  Jadro `z80.c` má Z180 *inštrukcie* (`IN0`, `OUT0`, `MLT`, `OTIM`)
+  aj s ich T-stavmi, ale časovanie základnej sady je pôvodné **Z80**
+  (`cyc_00`, `cyc_ed`, `cyc_ddfd`; napr. `DEC HL` = 6, splnené `JR` = 12).
+  Lenže z tých 540 T-stavov vychádza, že na vysvetlenie 14,5 % stačí, aby
+  priemerná inštrukcia bola rýchlejšia o **1,6 %**. Rovnomerné zrýchlenie
+  o 25 %, aké sa Z180 obyčajne pripisuje, by dalo 7,5 obehu slučky na
+  prerušenie namiesto 2,32 — teda hudbu **trojnásobne rýchlejšiu**, než
+  akú hrá skutočný stroj. Hľadá sa teda okolo dvoch percent zle
+  započítaných cyklov, nie generálna oprava časovania.
+
+#### Kadiaľ ísť
+
+1. Vytiahnuť obsluhu z RAM (`7B01D`–`7B051`, je to kópia, v dumpe ROM ju
+   hľadať netreba) a spočítať jej inštrukčnú zmes. Pri pomere 8 : 1
+   rozhoduje ona, nie tá štvorriadková slučka.
+2. Porovnať jej cenu s HD64180, vrátane ceny prijatia prerušenia
+   a prípadných wait-statov, ktoré emulátor nemodeluje vôbec.
+3. Až potom meniť tabuľky — a po každej zmene premerať znelku, lebo pri
+   tej páke je ľahké prejsť z −14 % na +40 %.
+
+#### Vedľajší nález: jednosmerná zložka v hudobnom editore
+
+Keď editor dohrá a čaká na kláves, ROM nechá DAC na hodnote **65**
+namiesto stredných 128. `RenderIdle` ju drží ďalej, takže výstup má
+konštantnú jednosmernú zložku −49 % rozsahu — overené, od 10. do 25.
+sekundy je každá vzorka presne −16128. Skutočný stroj to nemá kam pustiť,
+v emulátore to lupne pri nábehu a zoberie polovicu odstupu od orezania
+všetkému, čo príde potom. Overenie zo sekcie 6.1, že držaná hodnota je
+stred stupnice, platí **pre parkovanie po reči, nie po hudbe**.
 
 ### 6.11 Uzavreté otázky
 
@@ -715,9 +796,9 @@ Poradie podľa pomeru prínos/námaha:
 1. **Medzerník počas hrania nezastaví skladbu** (6.9). Z chýb hlásených
    z ostrého používania je to jediná, ktorá sa dá spoľahlivo vyvolať,
    takže sa dá aj zmerať. Ostatné body ďalej dole sú vylepšenia.
-2. **Hudba hrá pomalšie, než má** (6.10). Porovnateľné s nahrávkou zo
-   skutočného stroja, a keďže sa to týka aj znelky po `F7`, ide
-   o časovanie generátora tónov, nie o dáta skladby.
+2. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
+   percent zle započítaných cyklov v obsluhe generátora tónov. Pozor na
+   páku 8 : 1 — tempo reaguje osemkrát citlivejšie než cena obsluhy.
 3. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
    reprodukciu; bez neho je to beh naslepo.
 4. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
