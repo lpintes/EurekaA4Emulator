@@ -746,36 +746,79 @@ Aby tempo sedelo, musí slučka stihnúť 2,286 × 1,145 = **2,617 obehu**,
 teda obsluha smie stáť **472 T namiesto 480,6** — o **1,8 % menej**.
 Rovnomerne rozložené je to zrýchlenie vykonávania o **1,6 %**.
 
-#### Prečo časovanie Z180 nie je tá oprava
+#### Rozpočet 540 T-stavov, presne
 
-Toto je zmeraný záver, nie odhad. Obsluha má **49 načítaní operačného
-kódu** na jeden prechod. Z180 ich robí za 3 takty namiesto štyroch, takže
-len na nich ušetrí 49 T, čo je 10 %. Slučka by potom dostala nie 68, ale
-asi 108 T a stihla by okolo **4,9 obehu** namiesto potrebných 2,617 —
-hudba by hrala **takmer dvojnásobne rýchlejšie než skutočný stroj**.
+Zmerané priamo, nie dopočítané. Telo obsluhy `B000`–`B050` stojí
+**443,00 T-stavu** (zhoduje sa s ručným súčtom podľa tabuliek v `z80.c`),
+`RET` 10, prijatie prerušenia v IM 2 pridáva 19.
 
-Skutočná Eureka teda tú výhodu Z180 niekde stráca a **firmvér ukazuje
-len časť odpovede**: na `00012` sa hneď pri štarte zapisuje
-`DCNTL = 38h`, čo je **0 čakacích stavov pre pamäť** a **3 pre I/O**.
-Emulátor nemodeluje ani jedno, ale I/O sú tu len tri prístupy na
-prerušenie, teda nanajvýš 9 T — na chýbajúcich 49 to nestačí.
-Zvyšok musí prichádzať zvonku, cez vývod WAIT, a to je vec, ktorú
-**žiadny register nezaznamenáva a z ROM sa vyčítať nedá**.
+| položka | kde beží | T-stavov na prerušenie | podiel inštrukcií |
+|---|---|---|---|
+| obsluha + prijatie | RAM | 472,0 | 80,6 % |
+| čakacia slučka `10E5D` | ROM | 59,4 (2,286 × 26) | 17,6 % |
+| prehrávač melódie `10C9x`–`10FCx` | ROM | 9,0 | 1,9 % |
+| **spolu** | | **540,0** | |
 
-Vedľajší dôsledok stojí za zapísanie: terajšie **Z80 tabuľky sú náhodou
-presnejšie** než ideálne Z180 by boli — trafia efektívny výkon
-skutočného stroja na 1,6 %, kdežto Z180 by minul o 90 %.
+Aby tempo sedelo, musí slučka dostať 68,0 T namiesto 59,4 — teda všetko
+ostatné musí zlacnieť o **8,6 T-stavu, čo je 1,8 %**.
+
+#### Prečo časovanie Z180 nie je tá oprava (s prameňom)
+
+Časovanie je z **Zilog Z8018x Family MPU User Manual UM005004**, tabuľka
+Instruction Summary a kapitola o zbernicových cykloch. Základné pravidlo:
+zbernicový strojový cyklus má **3 takty**, vnútorný **1**; Z80 má načítanie
+operačného kódu za 4.
+
+| inštrukcia | Z80 (dnes v jadre) | Z180 (manuál) |
+|---|---|---|
+| `ADD HL,ww` | 11 | **7** |
+| `DEC ww` | 6 | **4** |
+| `JR cc,j` splnené | 12 | **8** |
+| `LD ww,(mn)` (`ED 4B`) | 20 | **18** |
+| `LD HL,(mn)` | 16 | **15** |
+| `LD g,m` | 7 | **6** |
+| `ADD A,(HL)` | 7 | **6** |
+| `EXX` | 4 | **3** |
+| `RET` | 10 | **9** |
+
+Po dosadení: telo obsluhy klesne zo 443 na **385**, `RET` na 9, obeh
+slučky z 26 na **20**. Aj keď sa pripočítajú tri čakacie stavy pre I/O,
+ktoré si firmvér objednáva sám (`DCNTL = 38h` na `00012`: **0 pre pamäť,
+3 pre I/O**, tri I/O prístupy v obsluhe = +9 T), vyjde obsluha okolo
+**422 T** a slučka by dostala vyše 100 T. Znelka by hrala **asi
+dvojnásobne rýchlejšie než skutočný stroj**.
+
+#### Čo z toho zostáva ako model
+
+Aby čísla sedeli, musí skutočný stroj niekde stratiť okolo 40 T-stavov na
+prerušenie. Jediné miesto, kde sa môžu stratiť a firmvér o nich nevie, sú
+**čakacie stavy z vývodu WAIT**. Dve možnosti a ich dôsledky:
+
+- **Rovnomerne na každý prístup do pamäte:** vychádza **0,44** čakacieho
+  stavu na prístup. To hardvér nerobí, takže tento model je vylúčený.
+- **Len na ROM, RAM bez čakania:** vychádza **asi 3,6**. To hardvér robiť
+  môže, a hlavne to sedí s tým, čo firmvér sám robí — **obsluhu si kopíruje
+  do RAM**, hoci ju má v ROM na `0FB6D`. Nikto nekopíruje kód do RAM pre
+  zábavu; robí sa to práve vtedy, keď je ROM na obsluhu prerušenia
+  11 378-krát za sekundu príliš pomalá.
+
+Je to však **jedna rovnica na jednu neznámu, dopasovaná na jedno meranie**.
+Kým nie je druhé, nezávislé meranie, je to hypotéza, nie výsledok.
 
 #### Kadiaľ ísť
 
-1. Doplniť do jadra časovanie Z180 (M1 = 3 takty) **spolu s
-   nastaviteľným počtom čakacích stavov pamäte** a ten počet
-   nakalibrovať na znelku. Ak vyjde celé číslo, je to model hardvéru;
-   ak nie, je to len prispôsobenie a treba to tak aj napísať.
-2. Znelka je meradlo s presnosťou okolo 0,5 %, čo je pri páke 8 : 1
-   dosť na rozlíšenie jedného čakacieho stavu. Merať po každej zmene.
-3. Nezabudnúť, že rovnaká zmena zrýchli **všetko** — reč beží na
-   časovači a nemala by sa hnúť, ale to treba overiť, nie predpokladať.
+1. **Netreba meniť tabuľky samotné.** Dnešné Z80 hodnoty trafia skutočný
+   stroj na 1,8 %; samotné Z180 by minuli o 100 %. Zmena tabuliek bez
+   čakacích stavov by emulátor **zhoršila**, nie zlepšila.
+2. Zaviesť oboje naraz: časovanie Z180 **a** počet čakacích stavov zvlášť
+   pre ROM a pre RAM. Počet pre ROM nakalibrovať na znelku; ak vyjde blízko
+   celého čísla, je to model hardvéru, ak nie, je to prispôsobenie a treba
+   to tak napísať.
+3. Nájsť druhé nezávislé meranie, ktoré ten model overí. Ideálne niečo,
+   čo beží celé z ROM a čoho dĺžku vidieť na nahrávke.
+4. Pozor, taký zásah sa dotkne **všetkého** — disku, reči, klávesnice.
+   Reč beží na časovači a nemala by sa hnúť; treba to overiť, nie
+   predpokladať.
 
 #### Vedľajší nález: jednosmerná zložka v hudobnom editore
 
@@ -787,7 +830,92 @@ v emulátore to lupne pri nábehu a zoberie polovicu odstupu od orezania
 všetkému, čo príde potom. Overenie zo sekcie 6.1, že držaná hodnota je
 stred stupnice, platí **pre parkovanie po reči, nie po hudbe**.
 
-### 6.11 Uzavreté otázky
+### 6.11 Funkčné klávesy hladujú: emulátor odreže ROM od jej vlastnej fronty
+
+Hlásené z používania: v BASICu `F1` (run), `F2` (list) aj `F5` (save)
+**neurobia nič**, kým sa nestlačí ďalší kláves. Pri `F5` sa navyše
+„odošle blbosť" a príde syntaktická chyba. Diagnóza je hotová
+a reprodukovateľná na povel; oprava nie.
+
+#### Čo sa deje
+
+Funkčný kláves **nedoručuje kód** — natlačí text do **vlastnej fronty
+ROM** a tá si ho potom číta cez BIOS ako každé iné písanie. Manuál to
+pomenúva v `SYSRAM.A`: `fk_table` (`$C622`) je tabuľka textu,
+`fk_echo` (`$C624`) tabuľka toho, čo sa pri klávese povie,
+`qhelp_ptr` (`$C628`) rýchla nápoveda. To „běží" pri `F1` je teda
+**echo, nie hlásenie stavu**.
+
+Emulátor zachytáva BIOS console input (funkcia 3) a odpovedá naň
+z hostiteľskej fronty; keď je prázdna, zaparkuje procesor. ROM sa tak
+k vlastnému textu nikdy nedostane. Makro zamrzne po prvom znaku, ktorý
+už stihla vyhodiť na konzolu.
+
+Zmerané na `F5`:
+
+- `C62B` prejde z `00` na `C4` (kód klávesu), `C62C/C62D` na ukazovateľ
+  `D1E4`
+- stroj povie „uložit? vlož jméno souboru" a **zastane**
+- po príchode ľubovoľného **hardvérového** klávesu (`HardwareInputBusy()`
+  prestane zachytávať) ukazovateľ prebehne `D1E5`…`D1E9`, na konzolu
+  vypadne `s`, `a`, `v`, `e`, `"` a `C62B` sa vráti na `00`
+
+Makro `F5` je teda `save"`, makro `F1` je `run`. „Odošle blbosť" je ten
+istý jav: `save"` visí nedopísané, meno sa napíše medzitým a riadok sa
+poskladá naopak.
+
+#### Predikát, ktorý na to sedí
+
+„Má ROM ešte vlastný vstup?" — nie „kto práve číta". Tri zložky:
+fronta emulátora nie je prázdna, **fronta ROM** má nevyzdvihnutú položku
+(indexy `C679`/`C67A`, tie isté, cez ktoré píše `InjectFirmwareKey`),
+alebo je rozpísané makro (`C62B` nenulové). Odskúšané: keď sa podľa toho
+ROM pustí dnu, `F1` prejde celé — „bezi..ahoj...hotovo", nič useknuté.
+
+#### Prečo to samo o sebe nestačí
+
+`19B41`–`19B6B` **nie je čakacia slučka, je to hlavný rozdeľovač
+udalostí**: prejde päťpoložkovú tabuľku (obsluhy na `EBDD`, podmienky na
+`EBAD`), na každý nastavený bit zavolá `EB64h` a keď niektorá ohlási
+prácu, skočí do nej cez `JP (HL)`; inak `JR 19B41h` donekonečna.
+ROM sa teda ku dverám BIOS-u **nevracia** — v tom rozdeľovači aj beží,
+program sa vykonal zvnútra neho. Parkovať sa preto musí **vnútri**.
+S opravou samotnou padne parkovanie z 83 % na 0 % a emulátor páli
+procesor natrvalo.
+
+Dva slepé konce, aby sa neopakovali:
+
+- **„Zaparkuj, keď makro dopísalo"** zmrazí stroj tam, kde práve je,
+  teda uprostred programu. Počuť to ako useknutú reč.
+- **Všeobecný detektor točenia na mieste** (PC v okne 64 bajtov) rozbíjajú
+  prerušenia — PC skáče do obsluhy a okno sa resetuje. Bez podmienenia
+  zamrzol už štart stroja.
+
+#### Prepletené s parkovaním, a záleží na poradí
+
+`Step()` odchádza pri zaparkovaní **skôr** než `ScheduleInterrupt()`
+a `Advance()`, a `RenderIdle()` renderuje len zvuk. Zaparkovaný stroj
+teda **stojí celý**: netikajú časovače, nebeží heartbeat na 75 Hz,
+nevystrelí prerušenie. Zmerané: po `F1` (záznamník) je z dvadsiatich
+sekúnd 15,4 zamrznutých, v nečinnosti 83 %. Na hodinách to nevidno, lebo
+RTC číta **hostiteľský** čas.
+
+Ak je medzi tými piatimi obsluhami rozdeľovača aj pumpa reči, potom
+zaparkovať v ňom znamená useknúť reč. Preto:
+
+1. **Najprv** zariadiť, aby zaparkovaný čas tikal — časovače, prerušenia,
+   DAC. Skutočná Eureka v rozdeľovači točí a heartbeat jej beží.
+2. Až potom je parkovanie vnútri rozdeľovača bezpečné.
+3. A až potom drží oprava makier bez pálenia procesora.
+
+#### Nedoriešené vedľa toho
+
+Meno súboru pri `SAVE` sa do jednoriadkového editora nedostane: pri
+parkovaní je fronta prázdna a procesor stojí na `D874`, teda znaky mizú
+inou cestou než cez makrá. Môže to byť aj artefakt sondy — tá podáva
+klávesy bez pustenia a bez ľudského tempa, na rozdiel od `main.cpp`.
+
+### 6.12 Uzavreté otázky
 
 | bývalá otázka | výsledok |
 |---|---|
@@ -834,16 +962,21 @@ Poradie podľa pomeru prínos/námaha:
 2. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
    percent zle započítaných cyklov v obsluhe generátora tónov. Pozor na
    páku 8 : 1 — tempo reaguje osemkrát citlivejšie než cena obsluhy.
-3. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
+3. **Zaparkovaný stroj musí tikať** (6.11) — časovače a prerušenia počas
+   parkovania. Je to podmienka pre opravu funkčných klávesov aj
+   pravdepodobný spoločný koreň s 6.9.
+4. **Funkčné klávesy hladujú** (6.11). Diagnóza hotová, predikát známy;
+   chýba bezpečné miesto na zaparkovanie. Až po bode 3.
+5. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
    reprodukciu; bez neho je to beh naslepo.
-4. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-5. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-6. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+8. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-7. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+9. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
    rozhodne otázku 6.3.
 
 ### Čím sa dá testovať
