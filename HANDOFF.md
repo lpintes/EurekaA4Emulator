@@ -1551,10 +1551,24 @@ pohodlnejšie prepínanie diskiet, obľúbené diskety a čo príde neskôr.
   jeden membránový rámec je priamo stav klávesnice, nie skladačka
   z udalostí.
 
+**Poradie oproti 6.11 je rozhodnuté: 6.11 najprv, a v konzole.** Obe
+prepisujú tú istú časť `main.cpp`, takže otázka stála. Rozhodli tri
+veci:
+
+- Za 6.11 sú **tri hlásené chyby z ostrého používania** — funkčné
+  klávesy, ukladanie v BASICu a medzerník v hudbe (6.9). GUI je dlhá
+  práca a nie je dôvod, aby tie tri čakali za ňou.
+- Väčšina 6.11 je v `machine.cpp` (zachytávanie konzolového vstupu,
+  `keys_`, `keyboardInitialized_`) a s hostiteľským oknom nemá nič
+  spoločné. Treba to tak či tak.
+- Časť v `main.cpp` je **mazanie, nie stavanie**. Zmazať default stojí
+  skoro nič, aj keď to GUI neskôr prepíše; opačné poradie by tú skratku
+  prenieslo do nového okna a rušilo ju tam druhýkrát.
+
+GUI teda začína nad dvojrežimovou klávesnicou, nie nad trojrežimovou.
+
 Otvorené a treba rozhodnúť:
 
-- **Poradie oproti 6.11.** Zrušenie default režimu prepisuje presne tú
-  časť `main.cpp`, ktorú by GUI nahradilo. Robiť to dvakrát nemá zmysel.
 - **Ktoré nastavenia** a kde sa uchovajú. Dnešné prepínače sú prepínače
   príkazového riadka (`--pc`, `--disk`, `--diag`); časť z nich sa stane
   položkou v okne a časť by mala prežiť medzi behmi — a to je tá istá
@@ -1599,9 +1613,10 @@ Poradie podľa pomeru prínos/námaha:
    `main.cpp`, `machine.cpp` aj testov naraz, s ručným odskúšaním.
    Parkovanie a `RenderIdle` tým zaniknú.
 2. **GUI** (6.18) — vlastné okno, nastavenia, prepínanie a obľúbené
-   diskety. Je to najväčšia položka tohto zoznamu a **jej poradie oproti
-   bodu 1 je otvorená otázka**: obe prepisujú tú istú časť `main.cpp`
-   a robiť to dvakrát nemá zmysel.
+   diskety. Najväčšia položka tohto zoznamu, a ide **až za bodom 1**:
+   obe prepisujú tú istú časť `main.cpp`, a 6.11 je väčšinou mazanie,
+   takže GUI ho zdedí hotové namiesto toho, aby tú skratku rušilo
+   druhýkrát.
 3. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
    percent zle započítaných cyklov v obsluhe generátora tónov. Pozor na
    páku 8 : 1 — tempo reaguje osemkrát citlivejšie než cena obsluhy.
