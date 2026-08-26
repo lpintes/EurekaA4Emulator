@@ -1477,6 +1477,92 @@ Odskúšané mutáciou: pri obídení filtra spadne na troch zo štyroch
 aplikácií (po `F1` DAC zhodou okolností spočinie presne na 128, a práve
 preto ich test skúša viac).
 
+### 6.17 Výmena diskety za behu — EurekaDOS sa preloguje sám
+
+**Rozhodnuté manuálom, 26. 8. 2026.** Na skutočnom stroji bola výmena
+diskety bezstarostná vec: vytiahnuť, vložiť, pokračovať. Nie je to
+zhoda okolností a **nie je to správanie stock CP/M 2.2**, kde po výmene
+príde „BDOS err: R/O", kým sa drive neprihlási znovu.
+
+`BDOS.8`, služba 13 (`bdos_reset`), to hovorí priamo:
+
+> Forces BDOS to re-log the disk drive. **As drive logging is
+> automatically performed in EurekaDOS**, this service is provided for
+> compatibility.
+
+Rovnako služba 28 (`bdos_protect`): stav read-only trvá „until a BDOS
+reset is performed, **or the disk is changed**". Výmena diskety je pre
+ten operačný systém prvotriedna udalosť.
+
+**Ako ju zbadá, je dátovo, nie hardvérovo.** DPB v `BDOS.8` deklaruje
+`CKS = 256/4`, teda 64 kontrolných súčtov pre 256 položiek adresára —
+„an 8-bit checksum is maintained for each record in the directory *so
+that disk changes can be detected*". Preto stroj nemá a nepotrebuje
+žiadny signál „disketa vymenená": na `A8h` sú modem, komparátory
+a batéria (viď mapu hardvéru), radič ponúka len `98h` bit 1 INDEX
+a bit 7 not ready.
+
+Pre emulátor z toho plynie, že mid-run výmena je malá práca a **nie je
+to zásah do modelu stroja**:
+
+- `VirtualDisk::Mount` stavia obraz z priečinka nanovo, a keďže sa volá
+  medzi dvoma `Step()`, z pohľadu hosťa je výmena okamžitá. ROM potom
+  nájde iný adresár, kontrolné súčty nesedia a preloguje sa sama.
+- Ustrážiť treba len hostiteľskú stranu, a tá je hotová: nevymieňať,
+  kým beží `fdcWriting_`, a starý obraz predtým zapísať späť
+  (`DiskSettled`, `FlushDisk`).
+
+Zatiaľ **nespravené a neodskúšané** — cesta na výmenu za behu v kóde
+neexistuje, takže vyššie uvedené je z manuálu a z kódu, nie z merania.
+
+### 6.18 GUI — otvorená otázka
+
+**Zámer, 26. 8. 2026.** Emulátor dostane vlastné okno (Win32). Nie je to
+kvôli jednej klávese; ide o ovládanie emulátora ako takého: nastavenia,
+pohodlnejšie prepínanie diskiet, obľúbené diskety a čo príde neskôr.
+
+Čo je už rozhodnuté alebo zistené, aby sa to znovu neodvodzovalo:
+
+- **Virtuálnu obrazovku hostiteľ robiť nemusí.** Eureka ju má ako
+  vlastné výstupné zariadenie a zapína si ju tam, kde to dáva zmysel —
+  napríklad v BASICu. `cono_list` (`C90A`, `SYSRAM.A`) je bitová maska
+  „Speech / Serial Port / Virtual Screen / Printer".
+- **Hostiteľská konzola nie je tá obrazovka.** Je to odbočka z BIOS
+  funkcie 4, zachytená na stube (`machine.cpp`), a ROM si znak potom aj
+  tak pošle svojim zariadeniam. Keď prestane byť hlavným povrchom,
+  konštrukčne sa nestratí nič a pre testy a `--diag` zostáva užitočná.
+- **Prístupnosť:** chróm okna — menu, výber diskety, obľúbené,
+  nastavenia — nech sú **štandardné Win32 prvky**. Štandardné menu,
+  listbox a common dialog číta NVDA zadarmo; owner-draw je presne to,
+  čo čítačky rozbíja.
+- **Výmena diskety za behu je vyriešená vecne** (6.17): stroj sa
+  preloguje sám, hostiteľ len nesmie vymieňať uprostred zápisu.
+
+Čo GUI prinesie na klávesnici, a konzola to dať nevie:
+
+- `lParam` bit 30 je „kláves už bol dole", teda **explicitné
+  autorepeat**. Padla by tým heuristika `SameKey` v `PressMembraneKey`,
+  ktorá dnes háda, či je opakovanie nové stlačenie.
+- `WM_KILLFOCUS` dovolí pri strate zamerania **deterministicky pustiť
+  všetko**. Dnes to rieši `ForgetStaleArrows` dvojsekundovým limitom
+  a je to presne ten druh veci, ktorý potichu zožerie kurzorový kláves —
+  nie je vylúčené, že s tým súvisí „umŕtvená klávesnica po čase" (6.9).
+- Okno môže držať **skutočnú bitovú mapu dvadsiatich klávesov**, takže
+  jeden membránový rámec je priamo stav klávesnice, nie skladačka
+  z udalostí.
+
+Otvorené a treba rozhodnúť:
+
+- **Poradie oproti 6.11.** Zrušenie default režimu prepisuje presne tú
+  časť `main.cpp`, ktorú by GUI nahradilo. Robiť to dvakrát nemá zmysel.
+- **Ktoré nastavenia** a kde sa uchovajú. Dnešné prepínače sú prepínače
+  príkazového riadka (`--pc`, `--disk`, `--diag`); časť z nich sa stane
+  položkou v okne a časť by mala prežiť medzi behmi — a to je tá istá
+  otázka ako uchovanie RAM (6.15), takže sa oplatí rozhodnúť naraz.
+- **Čo s konzolou.** Buď zostane vedľa okna, alebo výstup pôjde do
+  editačného prvku len na čítanie. Editačný prvok má tú výhodu, že
+  v ňom NVDA vie prehliadať kurzorom; konzola má tú, že už funguje.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -1512,27 +1598,35 @@ Poradie podľa pomeru prínos/námaha:
    hudbu (6.9). Rozhodnuté a overené, že to všetky tri rieši. Zásah do
    `main.cpp`, `machine.cpp` aj testov naraz, s ručným odskúšaním.
    Parkovanie a `RenderIdle` tým zaniknú.
-2. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
+2. **GUI** (6.18) — vlastné okno, nastavenia, prepínanie a obľúbené
+   diskety. Je to najväčšia položka tohto zoznamu a **jej poradie oproti
+   bodu 1 je otvorená otázka**: obe prepisujú tú istú časť `main.cpp`
+   a robiť to dvakrát nemá zmysel.
+3. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
    percent zle započítaných cyklov v obsluhe generátora tónov. Pozor na
    páku 8 : 1 — tempo reaguje osemkrát citlivejšie než cena obsluhy.
-3. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
+4. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
    reprodukciu; bez neho je to beh naslepo. Prvá stopa, ktorá sa dá
    sledovať bez neho, sú `C598h`/`C599h` (viď 6.9). Pozor: kým nebol
    modelovaný vypínací strob, päť minút nečinnosti stroj potichu zabilo,
    takže časť starších pozorovaní „po čase prestane reagovať" môže byť
-   práve toto.
+   práve toto. Časť z toho môže spadnúť aj s GUI — `WM_KILLFOCUS`
+   nahradí dvojsekundový limit v `ForgetStaleArrows`.
 5. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
    Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
-   používa.
-6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+   používa. Oplatí sa rozhodnúť naraz s uchovaním nastavení (6.18).
+6. **Výmena diskety za behu** (6.17) — vecne vyriešené, EurekaDOS sa
+   preloguje sám. Zostáva cesta v kóde a stráženie, aby sa nevymieňalo
+   uprostred zápisu.
+7. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+8. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-8. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+9. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-9. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
-   rozhodne otázku 6.3.
+10. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+    rozhodne otázku 6.3.
 
 ### Čím sa dá testovať
 
