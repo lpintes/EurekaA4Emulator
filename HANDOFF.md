@@ -312,6 +312,34 @@ Eureke. Nie je to zvláštnosť tohto režimu — chordovanie je zapnuté všade
 okrem exterky, kde sa scancody prekladajú po jednom a chordovať sa
 nedajú (viď „Vypínanie stroja").
 
+### Čítacie klávesy textového procesora
+
+Od majiteľa, a potom zmerané, lebo testy sa o ne opierajú. Riadok
+**nečíta šípka hore** — tá povie len znak pod kurzorom. Riadok prečíta
+**medzerník + šípka hore**, teda kód `A1h`.
+
+Napísané „Ahoj Svete", kurzor na konci, a stlačené jedno:
+
+| kláves | kód | povie |
+|---|---|---|
+| medzerník + hore / dole | `A1h` / `A2h` | „Ahoj Svete." — **celý riadok** |
+| Home | `85h` | „Svete " — slovo, v ktorom je kurzor |
+| End | `86h` | „Ahoj " |
+| shift + hore | `91h` | „strana 1" |
+| šípka hore / dole | `81h` / `82h` | nič, len klik `!%E1` |
+| šípka vľavo / vpravo | `84h` / `88h` | klik; na okraji navyše `!%E7` |
+
+Na klávesnici PC je to **ľavý Alt + šípka hore** a overené je to
+zmeraním, nie odvodením: ROM na `1DD9E` prisadí k šípke bit 5, keď je
+v `C670h` bit 3 (ľavý Alt, `DF05[38h]` = `F8h`), takže z `81h` vznikne
+to isté `A1h`, ktoré robí medzerníkový akord. Odoslané ako `38 E0 48
+E0 C8 B8` stroj povie „Ahoj Svete.".
+
+Pozor na to pri testoch: `tests/README.md` roky tvrdil, že `kbd` si
+nechá „prečítať riadok". Nechá si prečítať **slovo**. Test tým neprešiel
+omylom — píše jedno slovo, takže je to to isté — ale popis bol nesprávny
+a je opravený.
+
 ### Klávesnica IBM PC na sériovom porte
 
 `Ctrl+Shift+E` prepne hostiteľskú klávesnicu na tú, ktorá sa k Eureke
