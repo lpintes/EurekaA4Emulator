@@ -11,9 +11,12 @@
 //   diag_probe ROM DISK_FOLDER seq [budget] TOKEN...
 //
 // A sequence TOKEN is either "kXX" (one key code in hex, e.g. kD7 for
-// Shift+F8) or a literal string typed as text.  The machine is run until the
-// BIOS blocks on console input before each token, so the sequence follows the
-// ROM's own pacing instead of a guessed instruction count.
+// Shift+F8) or a literal string typed on the emulated PC keyboard.  Between
+// tokens the machine is run until it has been quiet for half a second, which
+// is what "ready for the next key" looks like now that the CPU is never parked
+// at console input, so the sequence follows the ROM's own pacing instead of a
+// guessed instruction count.  A long silent job -- a disk format -- outlasts
+// that, so seq stops before one finishes; see tests/README.md.
 
 #include <cstdio>
 #include <cstdlib>

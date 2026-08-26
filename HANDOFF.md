@@ -1213,6 +1213,14 @@ po vypnutí, a to sa zo slučky rovno vyskakuje. Ruší sa spolu s defaultom.
 
 #### Nedoriešené vedľa toho
 
+Sonda prestala stíhať formátovanie. `RunUntilPrompt` sa dnes vracia pol
+sekundy po tom, čo konzola stíchne, a formát je dlhé ticho, takže
+`seq 15000000 kD7 Y Y` z `tests/README.md` skončí po necelých štyroch
+miliónoch inštrukcií, ešte pred ním. **Nie je to chyba modelu**: keď sa
+tá istá sekvencia vyklepe a stroj sa nechá bežať ďalej, po 206 miliónoch
+inštrukcií povie „formátování skončeno" ako predtým. Chýba sonde spôsob,
+ako povedať „a teraz už len bež" — tokenu na čakanie.
+
 Meno súboru pri `SAVE` sa do jednoriadkového editora nedostane: pri
 parkovaní je fronta prázdna a procesor stojí na `D874`, teda znaky mizú
 inou cestou než cez makrá. Môže to byť aj artefakt sondy — tá podáva

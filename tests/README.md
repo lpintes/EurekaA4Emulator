@@ -109,8 +109,12 @@ in the ROM.
 
 Mode `seq` drives the machine with a scripted sequence. A token is either
 `kXX` (one key code in hex) or a literal string typed as text; `~` stands for
-Enter. The machine is run until the BIOS blocks on console input before each
-token, so the script follows the ROM's own pacing:
+Enter.  Text goes in on the emulated PC keyboard, on the keys the ROM's own
+tables put those characters on, so a character that is on none of them is
+refused out loud instead of being typed as something near it.  Between tokens
+the machine is run until it has been quiet for half a second, so the script
+follows the ROM's own pacing rather than a guessed instruction count -- the CPU
+is not parked at console input any more, so there is no block to wait for:
 
 ```text
 diag_probe A4ROM.DMP disk-folder seq 15000000 kD7 Y
@@ -172,11 +176,18 @@ mode stops one gate short of the format itself; drive it with `seq` instead:
 diag_probe A4ROM.DMP disk-folder seq 15000000 kD7 Y Y
 ```
 
-Formatting now runs to completion and the machine says "formatovani skonceno":
-162 track writes, 1620 verify reads, 81 steps. That was the first time DMA
-channel 1 and Write Track were ever executed, and getting there took four more
-model fixes -- DMA arming order and direction, BUSY on reads, and the type I
-step commands. `HANDOFF.md` section 5 lists them.
+Formatting runs to completion and the machine says "formatovani skonceno":
+162 track writes, 1620 verify reads, 81 steps.  The sequence above no longer
+reaches that on its own, though: `RunUntilPrompt` returns half a second after
+the console falls quiet, and a format is a long quiet, so `seq` prints its last
+answer and exits within four million instructions.  Driven by hand and then
+simply left running, the same machine still says it after 206 million, so what
+is missing is a way to tell the sequence "now just run" -- not anything in the
+model.
+
+That was the first time DMA channel 1 and Write Track were ever executed, and
+getting there took four more model fixes -- DMA arming order and direction,
+BUSY on reads, and the type I step commands. `HANDOFF.md` section 5 lists them.
 
 The moral, and the reason this is written down: every wrong step above came
 from reading the ROM alone and mistaking adjacency for causation. The probe
