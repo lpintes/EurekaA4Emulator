@@ -68,14 +68,33 @@ Dve veci, bez ktorých sa emulátor nezlinkuje: `-municode`, lebo vstupný
 bod je `wmain`, a `-static -static-libgcc -static-libstdc++`, inak EXE
 pýta mingw DLL a mimo msys2 shellu sa nespustí.
 
-`z80.c` sa prekladá ako C, nie C++; `build.bat` to už rieši.
+`z80.c` sa prekladá ako C, nie C++; `Makefile` to už rieši.
 
 Sonda a testy: `build-tests.bat`. Zostaví `bin\diag_probe.exe`,
 `bin\integration_test.exe`, `bin\codec_test.exe` a `bin\disk_test.exe`,
-a linkuje ich proti objektom z `build\`. `build.bat` si volá **vždy**, takže objekty nikdy
-nie sú staršie než zdrojáky. Kým tam bola podmienka na ich existenciu,
-testy sa dali zlinkovať proti kódu, ktorý sa nepreložil, a meranie
-ukazovalo správanie, ktoré už v zdrojáku nebolo.
+a linkuje ich proti objektom z `build\`.
+
+Všetky tri dávky sú len obálky nad `Makefile` — nastavia PATH, dopočítajú
+`-j` z počtu jadier a zavolajú `mingw32-make`. Meniť pravidlá prekladu má
+zmysel v `Makefile`, nie v nich.
+
+Objekty nikdy nie sú staršie než zdrojáky, ale drží to niečo iné než
+kedysi. Kým tam bola podmienka na existenciu `build\machine.o`, testy sa
+dali zlinkovať proti kódu, ktorý sa nepreložil, a meranie ukazovalo
+správanie, ktoré už v zdrojáku nebolo. Riešilo sa to prekladom **všetkého**
+pri každom spustení, čo bolo správne, ale hrubé: dávka nevedela, na ktorej
+hlavičke ktorý objekt visí. Teraz to vie `make` z `.d` súborov, ktoré
+vypisuje `gcc -MMD -MP`. Zastaraný objekt tak nevznikne a pritom sa
+neprekladá viac, než treba — po dotyku na `machine.h` sa preložia presne
+`machine.cpp` a `main.cpp`.
+
+**Nepridávaj podmienky typu „ak už existuje, preskoč".** Sú zbytočné (od
+toho je make) a presne takto vznikla tá pôvodná pasca.
+
+Pozor na jednu vec v `Makefile`: `make` si shell vyberá podľa PATH — z
+`cmd.exe` použije cmd, z bashu `sh.exe` z Gitu. Recepty preto nesmú
+používať `copy`, `if not exist` ani `mkdir -p`. `mkdir build` funguje v
+oboch, kopírovanie `READ.COM` nie, a preto ho robí `run-tests.bat`.
 
 Pozor: `codec_test` a `disk_test` majú obyčajný `main`, takže sa prekladajú
 **bez** `-municode`; s ním linker spadne na chýbajúcom `wWinMain`.
@@ -85,6 +104,26 @@ generuje v `%TEMP%` a po sebe ich maže. Drží pravidlá kapacity diskety
 (396 blokov po 2 KiB, 256 položiek adresára) a to, že sa žiadny súbor
 nestratí potichu. Skutočný diskový priečinok na to nepoužívaj, mení sa pod
 rukami.
+
+## Spustenie testov
+
+`run-tests.bat` zostaví testy a pustí všetkých deväť naraz — dva
+samostatné testy a sedem režimov `integration_test`. Sú to nezávislé
+procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
+`build\testdisk` a skopíruje doň `eurekatech\TECHMAN1\READ.COM`, bez
+ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
+`C:\b\a4rom.dmp`.
+
+Výstup drží pohromade `--output-sync=target`; bez neho sa riadky deviatich
+procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
+
+**Pasca, do ktorej som už spadol:** režimy sa v `Makefile` generujú ako
+výslovné pravidlá cez `foreach`/`eval`. Vzorové pravidlo `check-%` tam
+najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
+`.PHONY` cieľoch nehľadá, takže sedem režimov zostalo bez receptu, make ich
+vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
+z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
+byť deväť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
 
 ## Diagnostická sonda
 

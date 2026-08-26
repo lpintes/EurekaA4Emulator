@@ -1820,8 +1820,13 @@ disk_test                              -> PASS (18 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 ```
 
+Všetkých deväť naraz spustí `run-tests.bat`: paralelne, s jedným súhrnom
+na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
+diskety si pripraví sám, takže ručne netreba nič.
+
 Pozor: `com` potrebuje `READ.COM` v priečinku disku a bez neho zlyhá.
-Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`.
+Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`, a `run-tests.bat`
+si ho kopíruje sám.
 
 `TP.COM` a `TPS.COM` (Turbo Pascal) sú zatiaľ nevyskúšané a boli by
 podstatne tvrdším testom EurekaDOS.
