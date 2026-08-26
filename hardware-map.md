@@ -258,6 +258,30 @@ Hodnoty sú **binárne, nie BCD** — dôkaz je redukcia roku modulo sto
 binárnym `CP 64h / SUB 64h` na 0DF8A a rovnaký vzor na 0DA5B, plus
 `CP 55h` (85) na 0DFD6, ktoré rozlišuje roky 1985–1999 od 2000+.
 
+### Budík a prerušovacia linka
+
+`rtc_mask` (zápis na 290h) vyberá, ktoré udalosti sa hlásia: bit 0 je
+zhoda času s registrami `rtc_ram_*`, bity 1 až 6 periodicky stotina,
+desatina, sekunda, minúta, hodina, deň. `rtc_status` (čítanie z 290h)
+hlási, ktorá nastala, bit 7 je „nastala aspoň jedna", a **čítanie
+register nuluje**.
+
+Do alarmových registrov (190h–197h) sa do polí, ktoré sa porovnávať
+nemajú, zapisuje **80h**. Robí to `0DA5B` a je to jednoznačné: registre
+sú binárne a nikdy nepresiahnu 99, takže bit 7 nemôže byť platná
+hodnota. Stotiny a deň v týždni sú ľubovoľné vždy, sekundy podľa
+`C43Fh`.
+
+**Prerušovacia linka RTC nejde na procesor.** ROM nikdy nenastaví
+`ITE1` ani `ITE2` (jediný zápis do `ITC` na `196BE` zhadzuje len TRAP),
+neobsahuje ani jednu inštrukciu `IM`, a vektory `INT1` aj `INT2`
+ukazujú na pahýľ `EI; RET` na `CC37`. Linka je zapojená na spínač
+napájania: studený štart číta `rtc_status` na `18000`, odloží ho do
+`0040h` a na `180C2` z neho vyvolá `.service_alarm1` — budík zapne
+vypnutý stroj. Kým stroj beží, budík sa hľadá **pollovaním** v
+heartbeate na `PRT1` (`1D0FB` → `.service_alarm`, čítanie na `CF61`).
+Emulátor to modeluje v `UpdateRtcEvents()`; podrobnosti v HANDOFF 6.13.
+
 ### Prečo pôvodné odvodenie vyšlo prehodené
 
 Čítacia slučka na 0DFA4 uloží porty 90h..96h **zostupne** do CB8B..CB85

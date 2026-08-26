@@ -1159,7 +1159,7 @@ sektory sú číslované **1 až 40**, kým `VirtualDisk::ReadRecord` berie
 ale program, ktorý si volá `bios_setsec` sám, by mal u nás všetko
 posunuté o jeden záznam a sektor 40 by skončil chybou.
 
-### 6.13 Časové funkcie nefungujú
+### 6.13 Časové funkcie — vyriešené
 
 Hlásené 26. 8. 2026: nefungujú funkcie viazané na čas — **budík,
 odbíjanie hodín, diár a automatické vypnutie pri nečinnosti**.
@@ -1193,40 +1193,102 @@ Meranie hovorí opak — za celých 320 sekúnd prešla do rečového engine iba
 tá znelka a nič viac, a v ROM je „konec" viazané výhradne na vetvu
 `CP 8Fh` na 18154. Ak sa dojem potvrdí, chýba v tej ceste ešte niečo.
 
-#### Zvyšné tri stoja na RTC prerušení, ktoré sa nemodeluje
+#### Zvyšné tri: RTC sa nemodeloval — opravené 26. 8. 2026
 
-**Diagnóza z 26. 8. 2026, oprava nespravená.** Je to jeden spoločný
-mechanizmus, nie tri chyby.
+Bol to jeden spoločný mechanizmus, nie tri chyby. Emulátor mal na
+`rtc_status` `case 0x0290: return 0;`, takže poll v heartbeate čítal
+donekonečna nulu a budík, odbíjanie ani diár nemali ako nastať.
+Doložené meraním: pri boote a potom stále dokola `čítanie portu 0290h
+-> 00h` z `PC CF63h`.
 
-Manuál (`IOPORT.H`, `rtc_mask`, port `290h` na zápis):
+**Opravená bola aj premisa.** Nie je to prerušenie. RTC svojou
+prerušovacou linkou na procesor vôbec nesiaha:
 
-| bit masky | udalosť, ktorá vyvolá prerušenie |
-|---|---|
-| 0 | čas a dátum sa zhodujú s registrami `rtc_ram_*` (`190h`–`197h`) |
-| 1–6 | periodicky každú stotinu, desatinu, sekundu, minútu, **hodinu**, deň |
+- ROM nikdy nenastaví `ITE1` ani `ITE2` — jediný zápis do `ITC`
+  (`196BE`) zhodí bit 7 (TRAP) a nič viac;
+- v celej ROM nie je ani jedna inštrukcia `IM`;
+- vektory `INT1` a `INT2` (obraz tabuľky na `1D000`, kopíruje sa na
+  `CC00` a odtiaľ na `C180`) ukazujú obidva na holý pahýľ `EI; RET`
+  na `CC37`.
 
-Bit 0 **je** budík. Hodinový bit je odbíjanie. `rtc_status` (čítanie
-z `290h`) hlási, ktorá udalosť nastala, bit 7 hlási prerušenie bez ohľadu
-na povolenie v `rtc_command`, a **register sa čítaním nuluje**.
-`rtc_command` (`291h`) má v bite 4 povolenie, aby RTC pri budíku zdvihol
-svoju prerušovaciu linku; `rtc_default` je `00001100b`.
+Linka ide na spínač napájania. Preto studený štart číta `rtc_status`
+hneď na `18000`, odloží ho do `0040h` a na `180C2` z neho vyvolá
+`.service_alarm1` — **budík zapne vypnutý stroj**. Kým stroj beží,
+budík sa nachádza **pollovaním**: heartbeat na `PRT1` prepadne na konci
+každého tiku do `.service_alarm` (`1D0FB`), a to je to čítanie na
+`CF61`.
 
-Emulátor má na to `case 0x0290: return 0;` (`machine.cpp`). Stav sa nikdy
-nenastaví a RTC prerušenie sa negeneruje vôbec — modelované sú len tri
-vnútorné zdroje Z180 (časovač 0, časovač 1, CSI/O). Že to nie je mŕtvy
-kód, je doložené trasovaním: ROM ten register naozaj pollne, na `PC CF63h`,
-a vždy dostane nulu.
+##### Mapa mechanizmu
 
-Pri oprave pozor na aliasing, ktorý tam dnes je a zatiaľ nevadí: zápisy na
-`290h`/`291h` idú do `io_[0x90]` a `io_[0x91]`, teda **do tých istých
-buniek ako hodinové registre `90h` a `91h`**. Kým sa maska nečíta, je to
-neškodné; potom by sa nastavenie hodín a maska prerušenia navzájom
-prepisovali.
+Systémová skoková tabuľka je v RAM na `CFA0` (`jump_table equ
+system_addr - 32*3`, `SYSEQU.LIB`), obraz má ROM na `1D3A0`. Z nej:
 
-Čo bude treba: maska, stavový register s nulovaním pri čítaní, periodické
-udalosti odvodené od toho istého hostiteľského času ako `ReadRtc`, zhoda
-s `rtc_ram_*` a externé prerušenie do jadra. A až potom sa dá povedať, či
-tie tri funkcie ožijú — je to najpravdepodobnejšia príčina, nie dokázaná.
+| položka | adresa | čo robí |
+|---|---|---|
+| `.schedule_alarm` | `CFC4` → `CF79` → `D95C` | naplánuje najbližšiu udalosť a vybaví premeškané |
+| `.service_alarm` | `CFD3` → `CF54` → `D442` | pozrie `rtc_status`, a ak je bit 0, obslúži budík |
+| `.service_alarm1` | `CFEB` → `CF65` | to isté, ale bez pohľadu na `rtc_status` |
+
+Celý blok `CC00`–`CFFF` je kód bežiaci v RAM a je to kópia ROM
+`1D000`–`1D400` (posun `10400h`); modul budíka a diára je fyzicky
+`0D000`–`0FFFF` a mapuje sa na logické `D000` pri `CBR=0`. Preto
+`.service_alarm` nemá v ROM ani jediné `CALL` — volá sa cez RAM.
+
+##### Alarmové registre
+
+`0DA5B` ich plní z šesťbajtovej štruktúry v poradí rok, mesiac, deň,
+hodina, minúta, sekunda, a do polí, ktoré sa porovnávať nemajú, zapíše
+**`80h`**. Registre sú binárne a nikdy nepresiahnu 99, takže bit 7 sa
+s nijakou platnou hodnotou nebije. Stotiny a deň v týždni sú „ľubovoľné"
+vždy, sekundy podľa `C43Fh`. `C43Fh` zároveň hovorí, o aký druh udalosti
+ide (`1`, `2`, `4` — vetvy na `D454`, `D466`, `D46F`), a `0DA98` budík
+ozbrojí (`rtc_mask` = `01h`, `rtc_command` = `1Ch`), `0DAA8` ho zruší.
+
+##### Čo je v emulátore
+
+`machine.cpp` má teraz masku, stavový register s nulovaním pri čítaní,
+periodické udalosti (stotina až deň) a komparátor budíka s „ľubovoľnými"
+poľami. Dve veci stoja za zapamätanie:
+
+1. **Budík je hrana, nie úroveň.** Zhoda platí celú minútu; keby sa bit
+   nastavoval podľa úrovne, heartbeat by ho prečítaním zhodil a hneď by
+   naskočil späť, a ten istý budík by zvonil dovtedy, kým minúta neprejde.
+2. **Zápis do `190h`–`197h` prepočíta komparátor bez vyvolania udalosti.**
+   Firmvér plní osem registrov po jednom a nedopísaná zostava sa vie
+   trafiť náhodou; keby sa to počítalo za zhodu, zjedlo by to hranu, na
+   ktorej stojí skutočný budík.
+
+Zrušený je aj starý aliasing: `290h`/`291h` už nepadajú do `io_[90h]`
+a `io_[91h]`, teda do tých istých buniek ako hodinové registre.
+
+##### Overené
+
+Majiteľ 26. 8. 2026 ručne: **budík aj diár fungujú**, a dialóg „vlož
+čas buzení" je počuť. (Sonda ho nezachytila, ale to je jej vlastná
+slepota, nie chyba stroja — reč aplikácií cez `0103` neprechádza celá.) Automaticky
+`integration_test ROM DISK_FOLDER rtc` — nastaví budík v aplikácii
+hodín, skontroluje alarmové registre a masku, potom posunie hodiny do
+tej minúty a čaká, kým firmvér budík obslúži. Že ho obslúžil, sa pozná
+po tom, že `.schedule_alarm` prepísal alarmové registre na ďalší deň;
+nič iné v ROM ich samo od seba nemení.
+
+Aby test nemusel čakať dve minúty v reálnom čase, pribudlo
+`EurekaMachine::SetRtcOffset()` — hodiny stroja sú hostiteľské, takže
+sa posunú ony, nie test. Nič iné než testy to nenastavuje.
+
+##### Vedľajšie zistenia z tejto práce
+
+- Klávesnica ROM je **česká QWERTZ** (`DF05`): horný rad bez shiftu dáva
+  písmená s diakritikou, číslice si žiadajú shift. Bez neho príde do
+  dialógu budíka namiesto „10 33" reťazec „+ě šš" a stroj len pípne.
+- Parser času na `E3BC` chce medzi hodinou a minútou oddeľovač, a musí
+  byť **pod `'0'`**. `E40D` je `CP 30h / RET NC` — preskočí len znaky
+  menšie než `30h`, takže medzera, bodka, čiarka či pomlčka prejdú.
+  **Dvojbodka neprejde**: `3Ah` je nad `'0'`, takže sa `E40D` na nej
+  zastaví, pošle ju do testu číslice a `CP 3Ah / JR NC` na `E3DE` ju
+  zhodí do chyby. Overené aj z druhej strany — majiteľ skúšal „11:00"
+  a stroj ho odmietol. „1033" zlyhá tiež, `E42E` číta číslice hltavo
+  a vyjde mu 1033. Sekundy sú nepovinné.
 
 ### 6.14 Uzavreté otázky
 
@@ -1394,20 +1456,17 @@ Poradie podľa pomeru prínos/námaha:
    reprodukciu; bez neho je to beh naslepo. Pozor: kým nebol modelovaný
    vypínací strob, päť minút nečinnosti stroj potichu zabilo, takže časť
    starších pozorovaní „po čase prestane reagovať" môže byť práve toto.
-5. **RTC prerušenie** (6.13) — odblokuje naraz budík, odbíjanie aj diár.
-   Diagnóza je hotová a doložená manuálom; je to najväčší kus práce
-   z tejto trojice, ale aj najviac funkcií naraz.
-6. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
+5. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
    Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
    používa.
-7. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-8. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-9. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+8. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-10. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+9. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
    rozhodne otázku 6.3.
 
 ### Čím sa dá testovať
@@ -1422,6 +1481,7 @@ integration_test ROM DISK_FOLDER com   -> PASS (196 BIOS čítaní)
 integration_test ROM DISK_FOLDER kbd   -> PASS (klávesy, braille, PC)
 integration_test ROM DISK_FOLDER power -> PASS (vypnutie štyrmi kurzormi)
 integration_test ROM DISK_FOLDER dc    -> PASS (výstup po reči sadne na ticho)
+integration_test ROM DISK_FOLDER rtc   -> PASS (budík sa nastaví a zazvoní)
 disk_test                              -> PASS (18 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 ```
