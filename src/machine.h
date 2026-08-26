@@ -100,7 +100,18 @@ class EurekaMachine {
     return keys_.size() + firmwareKeys_.size() + membraneFrames_.size() +
            csioRx_.size();
   }
+  // Moves the clock the RTC reports, in seconds, without touching the host's.
+  // The Eureka's clock is the host clock, which is what a user wants and what
+  // makes anything waiting for a time untestable: a test for the alarm would
+  // have to sit out the wait in real time.  Nothing but tests sets this.
+  void SetRtcOffset(int64_t seconds) { rtcOffset_ = seconds; }
+
   uint8_t debug_peek(uint16_t address) const { return Peek(address); }
+  // The alarm the firmware last armed: registers 190h-197h in port order, the
+  // interrupt mask at 290h, and the events waiting to be read from it.
+  uint8_t debug_rtc_ram(unsigned index) const { return rtcRam_[index & 7]; }
+  uint8_t debug_rtc_mask() const { return rtcMask_; }
+  uint8_t debug_rtc_status() const { return rtcStatus_; }
   uint8_t debug_io(uint8_t port) const { return io_[port]; }
   uint64_t debug_bios_reads() const { return biosReads_; }
   uint16_t debug_bios_track() const { return biosTrack_; }
@@ -141,6 +152,9 @@ class EurekaMachine {
   void WriteFdcData(uint8_t value);
   uint8_t ReadRtc(uint16_t port) const;
   void SampleRtc() const;
+  std::array<uint8_t, 8> CurrentRtcRegisters() const;
+  bool RtcAlarmMatches(const std::array<uint8_t, 8>& now) const;
+  void UpdateRtcEvents();
   uint8_t ReadInputBuffer() const;
   void PumpCsio();
   uint8_t ReadMembraneKeyboard(uint8_t port);
@@ -156,10 +170,21 @@ class EurekaMachine {
   z80 cpu_{};
   std::array<uint8_t, kPhysicalSize> memory_{};
   std::array<uint8_t, 256> io_{};
+  // Alarm registers, ports 190h-197h: the time the RTC compares the clock
+  // against, in the same order as the clock registers.  80h in a field means
+  // "do not compare this one".
   std::array<uint8_t, 8> rtcRam_{};
   // Snapshot of the clock taken when the firmware reads rtc_100th; see ReadRtc.
   mutable std::array<uint8_t, 8> rtcRegisters_{};
   mutable bool rtcLatched_ = false;
+  uint8_t rtcMask_ = 0;      // 290h written: which events reach rtc_status
+  uint8_t rtcCommand_ = 0;   // 291h: crystal, 12/24h, run, interrupt pin
+  uint8_t rtcStatus_ = 0;    // 290h read: events since the last read
+  bool rtcAlarmMatched_ = false;
+  bool rtcEventsPrimed_ = false;
+  std::array<uint8_t, 8> rtcPrevious_{};
+  uint64_t rtcNextPoll_ = 0;
+  int64_t rtcOffset_ = 0;
   VirtualDisk disk_;
   uint64_t lastDiskWrite_ = 0;
   Diagnostics diag_;

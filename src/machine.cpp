@@ -165,6 +165,13 @@ void EurekaMachine::Reset() {
   csioPending_ = false;
   csioReadyAt_ = 0;
   rtcLatched_ = false;
+  rtcMask_ = 0;
+  rtcCommand_ = 0;
+  rtcStatus_ = 0;
+  rtcAlarmMatched_ = false;
+  rtcEventsPrimed_ = false;
+  rtcPrevious_.fill(0);
+  rtcNextPoll_ = 0;
 
   // Hardware reset values used by the ROM while probing serial devices.
   io_[0x04] = 0x02;
@@ -224,12 +231,18 @@ uint16_t EurekaMachine::PeekWord(uint16_t logical) const {
   return Peek(logical) | (static_cast<uint16_t>(Peek(logical + 1)) << 8);
 }
 
-void EurekaMachine::SampleRtc() const {
-  std::time_t now = std::time(nullptr);
+// The eight clock registers as the RTC would show them at this instant.  Kept
+// apart from SampleRtc because the event poller runs on its own schedule: if
+// it went through the latch, a poll landing between the firmware's read of
+// 90h and its read of 96h would re-latch the batch half way through a tick.
+std::array<uint8_t, 8> EurekaMachine::CurrentRtcRegisters() const {
+  const auto now = std::chrono::system_clock::now() +
+                   std::chrono::seconds(rtcOffset_);
+  std::time_t seconds = std::chrono::system_clock::to_time_t(now);
   std::tm local{};
-  localtime_s(&local, &now);
+  localtime_s(&local, &seconds);
   const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
+      now.time_since_epoch()).count();
   // Port order is fixed by the hardware, not by the firmware's own layout:
   // 90h hundredths, 91h hour, 92h minute, 93h second, 94h month, 95h date,
   // 96h year, 97h day of week (IOPORT.LIB, Appendix H).  Reading the ROM
@@ -237,15 +250,79 @@ void EurekaMachine::SampleRtc() const {
   // 0DFA4 stores the ports into a descending buffer and then swaps 91h with
   // 93h and 94h with 95h at 0DFBB, so its internal buffer runs year, month,
   // date, hour, minute, second, hundredths.  Do not "fix" this order.
-  rtcRegisters_[0] = BcdOrBinary(static_cast<int>((millis / 10) % 100));
-  rtcRegisters_[1] = BcdOrBinary(local.tm_hour);
-  rtcRegisters_[2] = BcdOrBinary(local.tm_min);
-  rtcRegisters_[3] = BcdOrBinary(local.tm_sec);
-  rtcRegisters_[4] = BcdOrBinary(local.tm_mon + 1);
-  rtcRegisters_[5] = BcdOrBinary(local.tm_mday);
-  rtcRegisters_[6] = BcdOrBinary(local.tm_year % 100);
-  rtcRegisters_[7] = BcdOrBinary(local.tm_wday);
+  std::array<uint8_t, 8> registers{};
+  registers[0] = BcdOrBinary(static_cast<int>((millis / 10) % 100));
+  registers[1] = BcdOrBinary(local.tm_hour);
+  registers[2] = BcdOrBinary(local.tm_min);
+  registers[3] = BcdOrBinary(local.tm_sec);
+  registers[4] = BcdOrBinary(local.tm_mon + 1);
+  registers[5] = BcdOrBinary(local.tm_mday);
+  registers[6] = BcdOrBinary(local.tm_year % 100);
+  registers[7] = BcdOrBinary(local.tm_wday);
+  return registers;
+}
+
+void EurekaMachine::SampleRtc() const {
+  rtcRegisters_ = CurrentRtcRegisters();
   rtcLatched_ = true;
+}
+
+// True while every alarm register the firmware asked to be compared holds the
+// value the clock shows.  A register with bit 7 set is a don't care: the alarm
+// writer at 0DA5B stores 80h into the hundredths and the day of week always,
+// and into the seconds unless C43Fh says the alarm wants them, so an alarm for
+// 7:30 really means "any second of that minute".  The registers are binary and
+// never exceed 99, so bit 7 cannot collide with a real value.
+bool EurekaMachine::RtcAlarmMatches(const std::array<uint8_t, 8>& now) const {
+  for (unsigned index = 0; index < 8; ++index)
+    if ((rtcRam_[index] & 0x80) == 0 && rtcRam_[index] != now[index])
+      return false;
+  return true;
+}
+
+// Sets the bits the firmware will find in rtc_status.  Nothing here raises a
+// CPU interrupt, and that is not an omission: the RTC's interrupt pin does not
+// reach the processor.  The ROM never sets ITE1 or ITE2 -- its one write to
+// the ITC at 196BE only clears the TRAP bit -- it contains no IM instruction
+// at all, and the INT1 and INT2 entries of its vector table (the image at
+// 1D000) both point at the bare EI/RET stub at CC37.  The pin goes to the
+// power switch instead, which is why cold boot reads rtc_status at 18000,
+// keeps it in 0040h and services an alarm from it at 180C2.  While the machine
+// is on the alarm is found by polling: the PRT1 heartbeat falls into
+// .service_alarm every tick (1D0FB), and that is the read at CF61 this feeds.
+void EurekaMachine::UpdateRtcEvents() {
+  if (cycles_ < rtcNextPoll_) return;
+  // 5 ms of guest time.  The finest event the chip can raise is a hundredth of
+  // a second, so this cannot miss one; the ROM enables none of the periodic
+  // bits anyway, only bit 0.
+  rtcNextPoll_ = cycles_ + kCpuHz / 200;
+
+  const std::array<uint8_t, 8> now = CurrentRtcRegisters();
+  uint8_t events = 0;
+  if (rtcEventsPrimed_) {
+    if (now[0] != rtcPrevious_[0]) events |= 0x02;            // 1/100 second
+    if (now[0] / 10 != rtcPrevious_[0] / 10) events |= 0x04;  // 1/10 second
+    if (now[3] != rtcPrevious_[3]) events |= 0x08;            // second
+    if (now[2] != rtcPrevious_[2]) events |= 0x10;            // minute
+    if (now[1] != rtcPrevious_[1]) events |= 0x20;            // hour
+    if (now[5] != rtcPrevious_[5]) events |= 0x40;            // day
+  }
+  rtcPrevious_ = now;
+  rtcEventsPrimed_ = true;
+
+  // The alarm is an edge, not a level: the comparator stays true for the whole
+  // minute an alarm without seconds names, so a level would put bit 0 back the
+  // instant the heartbeat cleared it by reading the port, and the same alarm
+  // would fire again and again until the minute ran out.
+  const bool matched = RtcAlarmMatches(now);
+  if (matched && !rtcAlarmMatched_) events |= 0x01;
+  rtcAlarmMatched_ = matched;
+
+  // Appendix H: a status bit stands for an event "in rtc_mask", and bit 7 says
+  // an interrupt happened whatever rtc_command's enable bit says -- so the
+  // mask gates the bits and the command register does not.
+  const uint8_t fired = static_cast<uint8_t>(events & rtcMask_ & 0x7f);
+  if (fired != 0) rtcStatus_ |= static_cast<uint8_t>(fired | 0x80);
 }
 
 uint8_t EurekaMachine::ReadRtc(uint16_t port) const {
@@ -478,8 +555,18 @@ uint8_t EurekaMachine::ReadPortInner(z80* cpu, uint16_t port) {
     case 0x0190: case 0x0191: case 0x0192: case 0x0193:
     case 0x0194: case 0x0195: case 0x0196: case 0x0197:
       return machine->rtcRam_[port & 7];
-    case 0x0290: return 0;
-    case 0x0291: return machine->io_[0x91];
+    case 0x0290: {
+      // rtc_status, and reading it clears it (Appendix H).  The firmware
+      // depends on that: .service_alarm reads it every heartbeat at CF61 and
+      // would otherwise service the same alarm on every tick that follows.
+      const uint8_t status = machine->rtcStatus_;
+      machine->rtcStatus_ = 0;
+      return status;
+    }
+    // rtc_command is write only, so nothing reads this; answering with the
+    // last value written is still better than the clock register that used to
+    // sit here, because 291h and 91h are different registers.
+    case 0x0291: return machine->rtcCommand_;
     default: break;
   }
   if (low >= 0x90 && low <= 0x97) return machine->ReadRtc(low);
@@ -546,10 +633,18 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
     case 0x0190: case 0x0191: case 0x0192: case 0x0193:
     case 0x0194: case 0x0195: case 0x0196: case 0x0197:
       machine->rtcRam_[port & 7] = value;
+      // Re-read the comparator without firing anything.  The firmware writes
+      // the eight alarm registers one at a time (0DA5B), and a stale field
+      // half way through that sequence can match by accident; letting that
+      // count as the match would eat the rising edge the real alarm needs.
+      machine->rtcAlarmMatched_ =
+          machine->RtcAlarmMatches(machine->CurrentRtcRegisters());
       return;
-    case 0x0290: case 0x0291:
-      machine->io_[static_cast<uint8_t>(port)] = value;
-      return;
+    // Neither of these is a clock register.  They used to land in io_[90h] and
+    // io_[91h], the same cells the hour and minute counters use, which stayed
+    // harmless only for as long as nothing read the mask back.
+    case 0x0290: machine->rtcMask_ = value; return;
+    case 0x0291: machine->rtcCommand_ = value; return;
     default: break;
   }
   if (low != 0x10) machine->io_[low] = value;
@@ -931,6 +1026,7 @@ void EurekaMachine::Advance(uint32_t cpuCycles) {
   cycles_ += cpuCycles;
   RenderAudio(cpuCycles);
   PumpCsio();
+  UpdateRtcEvents();
   const uint8_t control = io_[0x10];
   for (unsigned channel = 0; channel < 2; ++channel) {
     const uint8_t enable = channel == 0 ? kTde0 : kTde1;
