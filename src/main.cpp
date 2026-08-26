@@ -267,6 +267,7 @@ struct HostKeyboard {
   uint8_t arrows = 0;       // cursor keys physically down at this moment
   uint8_t arrowChord = 0;   // every cursor key pressed since the first went down
   ULONGLONG arrowStamp = 0; // host time of the last cursor key event
+  uint8_t mods = 0;         // modifiers the machine is being told are held
 };
 
 // The four cursor keys are one keypad, not four keys: the ROM reads them as a
@@ -298,17 +299,70 @@ void ForgetStaleArrows(HostKeyboard& host) {
   host.arrowStamp = now;
 }
 
-// Leaving PC mode with a modifier down would leave it down for good: the ROM
-// tracks shift, control and alt itself from make and break codes, and the
-// break code would never arrive.  So let go of all of them on the way out.
-void ReleaseModifiers(EurekaMachine& machine) {
-  for (uint8_t code : {0x2a, 0x36, 0x1d, 0x38}) {
-    machine.QueueScanCode(static_cast<uint8_t>(code | 0x80));
-    if (code == 0x1d || code == 0x38) {
-      machine.QueueScanCode(0xe0);
-      machine.QueueScanCode(static_cast<uint8_t>(code | 0x80));
-    }
+// Which modifiers the ROM is currently being told are held, one bit each so
+// the difference against what Windows reports is a single XOR.
+enum : uint8_t {
+  kModShift = 1,
+  kModCtrl = 2,
+  kModAlt = 4,    // left Alt
+  kModAltGr = 8,  // right Alt, the one that selects the DF98 table
+};
+
+// The modifiers are not forwarded as key events at all.  Windows reports the
+// whole modifier state on every single record, and that report is the only
+// thing here worth trusting: measured 26. 8. 2026, the release of AltGr
+// arrives with ENHANCED_KEY already clear, so a break built from the event
+// alone goes out as a plain 38h -- which clears the *left* Alt bit in C670h
+// and leaves the right one set for good.  The machine then reads every key
+// through the AltGr table until it is reset.
+//
+// Reconciling against the reported state also survives a key-up lost to a
+// focus change, which is the same trap ForgetStaleArrows exists for on the
+// cursor keypad.
+uint8_t WantedModifiers(DWORD state) {
+  uint8_t mods = 0;
+  if ((state & SHIFT_PRESSED) != 0) mods |= kModShift;
+  if ((state & LEFT_ALT_PRESSED) != 0) mods |= kModAlt;
+  if ((state & RIGHT_ALT_PRESSED) != 0) mods |= kModAltGr;
+  // Windows builds AltGr out of left Ctrl plus right Alt on every layout that
+  // has one, and reports both.  A real PC keyboard sends only the right Alt,
+  // so that Ctrl is a host artifact and must not reach the wire: with it held
+  // the ROM masks every character above 3Fh to a control code at 1DE16, and
+  // AltGr+2 arrives as 00h instead of '@'.  Measured both ways.
+  if ((mods & kModAltGr) == 0 &&
+      (state & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0)
+    mods |= kModCtrl;
+  return mods;
+}
+
+void SendModifier(EurekaMachine& machine, uint8_t mod, bool down) {
+  uint8_t code = 0;
+  switch (mod) {
+    case kModShift: code = 0x2a; break;
+    case kModCtrl: code = 0x1d; break;
+    case kModAlt: code = 0x38; break;
+    // The right Alt is the one extended key among them, so it needs the E0
+    // prefix on the break as much as on the make -- DFD6 lists both 38h and
+    // B8h, and only behind an E0 does the decoder ever look there (1DD48).
+    case kModAltGr: machine.QueueScanCode(0xe0); code = 0x38; break;
+    default: return;
   }
+  machine.QueueScanCode(down ? code : static_cast<uint8_t>(code | 0x80));
+}
+
+// Brings the machine's idea of the modifiers in line with the host's.  Called
+// on every key event in PC mode, and with nothing held on the way out of it:
+// leaving a modifier down there would leave it down for good.
+void SyncModifiers(EurekaMachine& machine, HostKeyboard& host, uint8_t wanted) {
+  // Let go before pressing, so that on the way from one Alt to the other the
+  // machine never has both of them down at once.
+  for (uint8_t mod : {kModShift, kModCtrl, kModAlt, kModAltGr})
+    if ((host.mods & mod) != 0 && (wanted & mod) == 0)
+      SendModifier(machine, mod, false);
+  for (uint8_t mod : {kModShift, kModCtrl, kModAlt, kModAltGr})
+    if ((host.mods & mod) == 0 && (wanted & mod) != 0)
+      SendModifier(machine, mod, true);
+  host.mods = wanted;
 }
 
 // The row bits run in Perkins key order, left to right, not in dot number
@@ -335,6 +389,9 @@ uint8_t BrailleBit(WORD virtualKey) {
 void SendScanCode(EurekaMachine& machine, const KEY_EVENT_RECORD& key) {
   const uint8_t code = static_cast<uint8_t>(key.wVirtualScanCode);
   if (code == 0 || code >= 0x80) return;
+  // SyncModifiers owns these, from the state Windows reports rather than from
+  // records that can arrive without their ENHANCED_KEY flag.
+  if (code == 0x2a || code == 0x36 || code == 0x1d || code == 0x38) return;
   if ((key.dwControlKeyState & ENHANCED_KEY) != 0) machine.QueueScanCode(0xe0);
   machine.QueueScanCode(key.bKeyDown ? code : static_cast<uint8_t>(code | 0x80));
 }
@@ -372,6 +429,7 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
     if (!key.bKeyDown) {
       if (host.mode == InputMode::kPc) {
         if (trace) TraceKey(key, host.mode, L"scan kód");
+        SyncModifiers(machine, host, WantedModifiers(key.dwControlKeyState));
         SendScanCode(machine, key);
         continue;
       }
@@ -414,9 +472,12 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
       if (const uint8_t special = SpecialKey(key)) machine.ReleaseKey(special);
       continue;
     }
-    const bool ctrl = (key.dwControlKeyState &
-                       (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0;
-    const bool shift = (key.dwControlKeyState & SHIFT_PRESSED) != 0;
+    // The same reading the machine gets, so an emulator shortcut can never be
+    // triggered by the left Ctrl that Windows pairs with AltGr: without this
+    // AltGr+K switched the keyboard instead of typing.
+    const uint8_t wanted = WantedModifiers(key.dwControlKeyState);
+    const bool ctrl = (wanted & kModCtrl) != 0;
+    const bool shift = (wanted & kModShift) != 0;
     if (trace)
       TraceKey(key, host.mode,
                ctrl && shift ? L"skratka emulátora?" : L"do Eureky");
@@ -436,7 +497,7 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
     // it to a control code at 1DE0E -- so the guest loses 0Bh in that mode.
     // No ROM application was found to react to it.
     if (ctrl && key.wVirtualKeyCode == 'K') {
-      if (host.mode == InputMode::kPc) ReleaseModifiers(machine);
+      if (host.mode == InputMode::kPc) SyncModifiers(machine, host, 0);
       host.mode = host.mode == InputMode::kPc ? InputMode::kBraille
                                               : InputMode::kPc;
       host.held = host.chord = host.arrows = host.arrowChord = 0;
@@ -451,6 +512,7 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
       continue;
     }
     if (host.mode == InputMode::kPc) {
+      SyncModifiers(machine, host, wanted);
       SendScanCode(machine, key);
       continue;
     }

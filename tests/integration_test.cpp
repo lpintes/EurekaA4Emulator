@@ -167,6 +167,39 @@ bool CheckPcKeyboard(EurekaMachine& machine) {
   return false;
 }
 
+// AltGr, pressed and let go, must leave nothing behind.  The right Alt is the
+// one modifier on this keyboard that lives behind an E0 prefix (DFD6 lists 38h
+// and B8h, and 1DD48 only looks there when the previous byte was E0), so a
+// break sent without that prefix clears the *left* Alt bit in C670h and leaves
+// the right one set for good -- after which the machine reads every key
+// through the AltGr table.  Windows makes that easy to do by accident: it
+// reports ENHANCED_KEY on the AltGr press and not on its release.
+//
+// Typed here in BASIC, which echoes: AltGr with the "2" key of the Czech
+// layout is '@', and the same key on its own is 'ě' (88h in Kamenicky).  So a
+// stuck AltGr shows up as a second '@' where the letter should be.
+bool CheckAltGr(EurekaMachine& machine) {
+  machine.Reset();
+  for (int step = 0; step < 8'000'000; ++step) machine.Step();
+  machine.QueueKey(0xc5);  // F6, Eureka BASIC
+  for (int step = 0; step < 12'000'000; ++step) machine.Step();
+  machine.TakeConsoleOutput();
+
+  for (uint8_t code : {0xe0, 0x38, 0x03, 0x83, 0xe0, 0xb8})
+    machine.QueueScanCode(code);
+  for (int step = 0; step < 12'000'000; ++step) machine.Step();
+  for (uint8_t code : {0x03, 0x83}) machine.QueueScanCode(code);
+  for (int step = 0; step < 12'000'000; ++step) machine.Step();
+
+  const auto echoed = machine.TakeConsoleOutput();
+  if (echoed.size() == 2 && echoed[0] == 0x40 && echoed[1] == 0x88) return true;
+  std::cout << "  po AltGr a nasledujucom klavese prislo";
+  for (uint8_t byte : echoed)
+    std::cout << " " << std::hex << static_cast<unsigned>(byte) << std::dec;
+  std::cout << ", cakalo sa 40 88\n";
+  return false;
+}
+
 // The four cursor keys at once (8Fh, k_udlr) are the Eureka's off switch, and
 // the inactivity timeout takes the same road.  Both end at a single instruction
 // -- IN A,(B8h) at 1D144 -- so the whole thing is checked here from the outside:
@@ -545,11 +578,13 @@ int wmain(int argc, wchar_t** argv) {
     const bool braille =
         CheckBraille(*machine) && CheckBrailleShiftSpace(*machine);
     const bool pc = CheckPcKeyboard(*machine);
-    const bool passed = keys && braille && pc;
+    const bool altgr = CheckAltGr(*machine);
+    const bool passed = keys && braille && pc && altgr;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=KBD"
               << " klavesy=" << (keys ? "ok" : "chyba")
               << " braille=" << (braille ? "ok" : "chyba")
-              << " pc=" << (pc ? "ok" : "chyba") << "\n";
+              << " pc=" << (pc ? "ok" : "chyba")
+              << " altgr=" << (altgr ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 
