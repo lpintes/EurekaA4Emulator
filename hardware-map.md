@@ -384,7 +384,23 @@ niekto pustí opravovať niečo, čo je v poriadku.
 
 Ostatných 55 akordov s medzerníkom padne na spoločnú vetvu (1D591)
 a nerobí nič. Samotný medzerník píše medzeru; **medzerník so shiftom
-je Escape** (1D52F) — to je odvodené z kódu, nie zmerané.
+je Escape** (1D52F) — zmerané 26. 8. 2026, `C638h` = `1Bh`.
+
+### Shift je dvadsiaty kláves, nie príznak
+
+Shift leží na riadku `8Ch`, bit 6, a dekodér ho číta na dvoch miestach:
+
+- `1D4F9` skladá kód klávesu: `C62E AND 80h` (medzerník) a `C630 AND 40h`
+  (shift), potom `RRCA` dvakrát, takže z medzerníka je bit 5 (`k_alt`)
+  a zo shiftu bit 4 (`k_shift`).
+- `1D60C` rozhoduje o veľkosti písmena: pri bodovom akorde a stlačenom
+  shifte ide písmeno cez `D72D`, inak sa nechá tak. Ak je zapnutý zámok
+  veľkých písmen (bit 4 na `(IY+0)`, testovaný na `1D605`), ide vždy cez
+  `D734` a shift sa už nepýta.
+
+**Medzerník so shiftom je jediný kód, ktorý potrebuje dva riadky naraz.**
+Hostiteľ, ktorý shift drží len ako príznak a stláča jediný riadok, ho
+nevyrobí — a nevyrobí ani veľké písmeno.
 
 ### Kto číta riadky priamo, mimo dekodéra
 

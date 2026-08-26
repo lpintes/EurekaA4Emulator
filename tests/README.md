@@ -18,7 +18,13 @@ the emulator). The executables land in `bin\` next to the emulator.
   then does whatever that letter means.  It then types "ahoj" on the six dot
   keys in the word processor and has the machine read the line back, which is
   the only way to catch a wrong bit order: the row bits run in key order, so
-  bit 0 is dot 3 and bit 2 is dot 1.  Last it types the same word again as IBM
+  bit 0 is dot 3 and bit 2 is dot 1.  The first chord is shifted and the word
+  must come back as "Ahoj": shift is the keyboard's twentieth key, on row 8Ch,
+  and the decoder sends a shifted chord through D72D (1D60C).  Then shift with
+  the bare space bar, which is Escape and not a space (1D52F) -- the only key
+  code on this machine that needs two rows held at once, so it is the sharpest
+  check that the host presses shift as a key and not as a flag it keeps to
+  itself.  Last it types the same word again as IBM
   PC scan codes down the serial port, which exercises the reset handshake, the
   CSI/O interrupt and the ROM's own Czech QWERTZ tables.  Needs no files on
   the disk.

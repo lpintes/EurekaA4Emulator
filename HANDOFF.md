@@ -282,11 +282,29 @@ body 1, 2, 3 a `J K L` body 4, 5, 6, medzerník zostáva medzerníkom.
 Akord sa zbiera, kým sú prsty dole, a vydá sa naraz pri pustení
 posledného — to je perkinsovské správanie a `ReleaseKey` ho umožňuje.
 
-Emulátor **neprekladá nič**. Pošle šesť bitov na riadok `89h`
-a znak si nájde ROM sama (`1D79C`), takže fungujú všetky tri tabuľky
-vrátane číselného režimu aj akordy s medzerníkom, o ktorých nevieme.
-Doložené: štyri akordy napíšu v textovom procesore „ahoj" a `Home` to
-prečíta späť — presne to robí `integration_test … kbd`.
+**Shift patrí do akordu, nie vedľa neho** (doplnené 26. 8. 2026).
+Je to dvadsiaty kláves braillovej klávesnice a leží na riadku `8Ch`,
+bit 6. Dekodér ROM ho číta na dvoch miestach a obe robia niečo, čo sa
+bez neho nedá vyrobiť vôbec:
+
+- `1D60C` — pri bodovom akorde pošle písmeno cez `D72D`, takže vznikne
+  **veľké písmeno**. Zmerané: tie isté štyri akordy dajú bez shiftu
+  „ahoj" a so shiftom na prvom „Ahoj".
+- `1D52F` — pri **samotnom medzerníku** nevydá medzeru, ale `1Bh`, teda
+  **Escape**. Zmerané: `C638h` = `1Bh`. Je to jediný kód na tomto stroji,
+  ktorý potrebuje dva riadky naraz, a preto je to zároveň najostrejšia
+  skúška, či hostiteľ shift naozaj stláča ako kláves.
+
+Kým `PressBraille` písal len riadok `89h`, nebolo dostupné ani jedno.
+Hostiteľská strana shift zbiera po celý akord, na stlačeniach aj
+pusteniach: kto pustí shift skôr než posledný bod, ten posledný záznam
+už `SHIFT_PRESSED` nenesie.
+
+Emulátor **neprekladá nič**. Pošle šesť bitov na riadok `89h`, shift na
+`8Ch` a znak si nájde ROM sama (`1D79C`), takže fungujú všetky tri
+tabuľky vrátane číselného režimu aj akordy s medzerníkom, o ktorých
+nevieme. Doložené: štyri akordy napíšu v textovom procesore „Ahoj"
+a `Home` to prečíta späť — presne to robí `integration_test … kbd`.
 
 **Kurzory sa v tomto režime chordujú tiež** a je to tak zámerne: kto píše
 na braillovej klávesnici, čaká, že sa aj kurzory budú správať ako na
