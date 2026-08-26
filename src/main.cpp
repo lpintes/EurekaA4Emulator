@@ -263,7 +263,39 @@ struct HostKeyboard {
   InputMode mode = InputMode::kDefault;
   uint8_t held = 0;   // dot keys physically down at this moment
   uint8_t chord = 0;  // every dot pressed since the current chord began
+  uint8_t arrows = 0;       // cursor keys physically down at this moment
+  uint8_t arrowChord = 0;   // every cursor key pressed since the first went down
+  ULONGLONG arrowStamp = 0; // host time of the last cursor key event
 };
+
+// The four cursor keys are one keypad, not four keys: the ROM reads them as a
+// bit set on row 8Ch, so several held at once mean a chord of their own.  That
+// is why Home is up plus left (85h) and why all four together are a command --
+// 8Fh, k_udlr in KB.LIB, the one that switches the Eureka off from the Main
+// Menu (CP 8Fh at 18154).
+uint8_t ArrowBit(WORD virtualKey) {
+  switch (virtualKey) {
+    case VK_UP: return 1;
+    case VK_DOWN: return 2;
+    case VK_LEFT: return 4;
+    case VK_RIGHT: return 8;
+    default: return 0;
+  }
+}
+
+// A key-up can go missing: let the console window lose focus mid-press and the
+// release is delivered to whoever took the focus.  A cursor key left believed
+// down would then suppress every later single one -- and on this machine a key
+// that does nothing is indistinguishable from a key that never arrived, because
+// both are silence.  Windows repeats a held key about thirty times a second, so
+// anything not heard from for two seconds is not under a finger; two seconds is
+// also well above the longest first-repeat delay Windows offers, so a slowly
+// assembled chord is never mistaken for a stale one.
+void ForgetStaleArrows(HostKeyboard& host) {
+  const ULONGLONG now = GetTickCount64();
+  if (now - host.arrowStamp > 2000) host.arrows = host.arrowChord = 0;
+  host.arrowStamp = now;
+}
 
 // Leaving PC mode with a modifier down would leave it down for good: the ROM
 // tracks shift, control and alt itself from make and break codes, and the
@@ -359,6 +391,24 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
         }
         continue;
       }
+      if (const uint8_t arrow = ArrowBit(key.wVirtualKeyCode)) {
+        ForgetStaleArrows(host);
+        host.arrows &= static_cast<uint8_t>(~arrow);
+        if (host.arrows != 0) continue;  // fingers still on the keypad
+        const uint8_t chord = host.arrowChord;
+        host.arrowChord = 0;
+        // chord == 0 means ForgetStaleArrows just wiped the set, so this is a
+        // lone key however it got here.
+        if (chord == arrow || chord == 0) {
+          machine.ReleaseKey(SpecialKey(key));
+        } else {
+          // More than one cursor key was down: send the union, keeping only
+          // the modifier bits of the code the single keys would have used.
+          machine.QueueKey(
+              static_cast<uint8_t>(0x80 | chord | (SpecialKey(key) & 0x30)));
+        }
+        continue;
+      }
       // Only the twenty-key keyboard has a released state worth reporting;
       // text goes into a queue and has nothing to let go of.
       if (const uint8_t special = SpecialKey(key)) machine.ReleaseKey(special);
@@ -384,7 +434,7 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
                                                           : InputMode::kPc;
       if (host.mode == InputMode::kPc) ReleaseModifiers(machine);
       host.mode = host.mode == wanted ? InputMode::kDefault : wanted;
-      host.held = host.chord = 0;
+      host.held = host.chord = host.arrows = host.arrowChord = 0;
       switch (host.mode) {
         case InputMode::kBraille:
           Print(L"\r\n[Braillovská klávesnica: F D S sú body 1 2 3, "
@@ -411,6 +461,20 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
                                 : 0) {
       host.held |= dot;
       host.chord |= dot;
+      continue;
+    }
+    if (const uint8_t arrow = ArrowBit(key.wVirtualKeyCode)) {
+      ForgetStaleArrows(host);
+      host.arrows |= arrow;
+      host.arrowChord |= arrow;
+      // One cursor key on its own goes down straight away, so navigation stays
+      // immediate and the ROM's own typematic keeps repeating it.  A second
+      // finger landing on top of it makes a chord, and a chord only means
+      // something whole, so it waits for the last finger to come up -- the way
+      // a braille chord does.  The single key that already went is not a bug:
+      // fingers landing more than one scan apart look exactly like that to the
+      // real machine too.
+      if (host.arrows == arrow) machine.QueueKey(SpecialKey(key));
       continue;
     }
     if (const uint8_t special = SpecialKey(key)) {
@@ -604,7 +668,9 @@ int wmain(int argc, wchar_t** argv) {
         L"--pc.\r\n"
         L"Shift+F7 spustí program z disku. Ctrl+Shift+R resetuje, "
         L"Ctrl+Shift+Q uloží disk a skončí.\r\n"
-        L"Vypne sa aj sama po piatich minútach nečinnosti, tridsť sekúnd "
+        L"Eureku vypnete tak ako naozaj: v hlavnom menu podržte všetky štyri "
+        L"kurzorové klávesy naraz.\r\n"
+        L"Vypne sa aj sama po piatich minútach nečinnosti, tridsať sekúnd "
         L"vopred to ohlási tónmi.\r\n\r\n");
 
   using Clock = std::chrono::steady_clock;
@@ -634,7 +700,7 @@ int wmain(int argc, wchar_t** argv) {
       machine->Reset();
       // The chosen writing mode is the user's, not the machine's, so it
       // survives; a chord caught half-pressed does not.
-      host.held = host.chord = 0;
+      host.held = host.chord = host.arrows = host.arrowChord = 0;
       audio.Close();
       audio.Open(EurekaMachine::kAudioHz);
       lastTick = Clock::now();
