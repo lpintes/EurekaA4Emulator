@@ -5,7 +5,7 @@ the emulator). The executables land in `bin\` next to the emulator.
 
 `codec_test.cpp` verifies Unicode ↔ Kamenicky conversion.
 
-`integration_test.cpp` boots the real ROM and has three modes:
+`integration_test.cpp` boots the real ROM and has several modes:
 
 - `com` starts `READ.COM` through Shift+F7 and verifies its prompt;
 - `bas` opens Eureka BASIC, loads `BEEP.BAS`, issues `RUN`, and verifies that
@@ -22,6 +22,17 @@ the emulator). The executables land in `bin\` next to the emulator.
   PC scan codes down the serial port, which exercises the reset handshake, the
   CSI/O interrupt and the ROM's own Czech QWERTZ tables.  Needs no files on
   the disk.
+- `power` presses all four cursor keys and checks the machine switches itself
+  off through pwr_stb;
+- `dc` checks the output settles to silence after speech, whatever the DAC is
+  left holding;
+- `rtc` sets an alarm in the clock and calendar application, checks it reached
+  the RTC alarm registers, then moves the clock into that minute and checks the
+  firmware services it.  The RTC raises no interrupt on this machine, so an
+  alarm is found only by polling rtc_status; while that port answered zero, the
+  alarm, the chime and the diary were dead together.  Needs no files on the
+  disk.  Typing here goes down the serial port, and the ROM's keyboard table is
+  Czech QWERTZ -- the digits need shift.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
 A genuine `READ.COM` ships with the Technical Manual's development disk and is

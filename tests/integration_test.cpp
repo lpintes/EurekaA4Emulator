@@ -1,4 +1,6 @@
 #include <algorithm>
+#include <array>
+#include <ctime>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -264,15 +266,127 @@ bool CheckSettlesToSilence(EurekaMachine& machine) {
   return ok;
 }
 
+// Runs a fixed stretch of instructions, draining what the machine produces so
+// the buffers cannot grow without bound.  Pacing on silence, the way the other
+// checks here do, does not work in the clock application: it says nothing at
+// all, so "quiet" is its normal state and the wait would end before it had
+// finished opening a dialogue.
+void Grind(EurekaMachine& machine, uint64_t instructions) {
+  const uint64_t deadline = machine.instructions() + instructions;
+  while (machine.instructions() < deadline) {
+    machine.TakeSpeechInput();
+    machine.TakeConsoleOutput();
+    machine.TakeAudio();
+    if (!machine.Step() && machine.powered_off()) return;
+  }
+}
+
+// XT set 1 make codes for the top digit row, 0 to 9.
+const uint8_t kDigitScan[10] = {0x0b, 0x02, 0x03, 0x04, 0x05,
+                                0x06, 0x07, 0x08, 0x09, 0x0a};
+
+void TypeScan(EurekaMachine& machine, uint8_t code) {
+  machine.QueueScanCode(code);
+  machine.QueueScanCode(static_cast<uint8_t>(code | 0x80));
+}
+
+// The ROM's own keyboard table is Czech QWERTZ (DF05), where the unshifted top
+// row is the accented letters -- typing the digits needs shift, and without it
+// "10 33" arrives as "+e s s" and the alarm dialogue only beeps.
+void TypeDigit(EurekaMachine& machine, int value) {
+  machine.QueueScanCode(0x2a);
+  TypeScan(machine, kDigitScan[value]);
+  machine.QueueScanCode(0xaa);
+}
+
+// The alarm, end to end: set one in the clock and calendar application and
+// then let the clock reach it.
+//
+// This is the whole of section 6.13.  The RTC raises no interrupt on this
+// machine -- its interrupt pin goes to the power switch, not to the CPU -- so
+// an alarm is found only by polling rtc_status, which the heartbeat does at
+// CF61 on every tick.  While that port answered a hard zero, the poll could
+// never see anything and the alarm, the chime and the diary were all dead
+// together.  The check would pass with the port still dead only if the ROM
+// found the alarm some other way, and it has no other way.
+bool CheckAlarm(EurekaMachine& machine) {
+  machine.Reset();
+  Grind(machine, 12'000'000);
+  machine.QueueKey(0xc1);  // F2, clock and calendar
+  Grind(machine, 8'000'000);
+  machine.QueueKey(0xd2);  // Shift+F3, "vloz cas buzeni"
+  Grind(machine, 8'000'000);
+
+  // Two minutes ahead, so typing cannot spill over into the alarm's own minute.
+  const std::time_t target = std::time(nullptr) + 120;
+  std::tm local{};
+  localtime_s(&local, &target);
+  if (local.tm_hour >= 10) TypeDigit(machine, local.tm_hour / 10);
+  TypeDigit(machine, local.tm_hour % 10);
+  // A space, and it has to be one: the skip loop at E40D is CP 30h / RET NC,
+  // so only a character below '0' separates the two numbers.  A colon is 3Ah,
+  // which the loop hands straight to the digit test that then rejects it.
+  TypeScan(machine, 0x39);
+  TypeDigit(machine, local.tm_min / 10);
+  TypeDigit(machine, local.tm_min % 10);
+  Grind(machine, 8'000'000);
+  TypeScan(machine, 0x1c);  // Enter
+  Grind(machine, 20'000'000);
+
+  std::array<uint8_t, 8> armed{};
+  for (unsigned index = 0; index < 8; ++index)
+    armed[index] = machine.debug_rtc_ram(index);
+
+  bool ok = true;
+  if (armed[1] != local.tm_hour || armed[2] != local.tm_min) {
+    std::cout << "  budik sa nenastavil: 191h=" << std::hex
+              << static_cast<unsigned>(armed[1]) << " 192h="
+              << static_cast<unsigned>(armed[2]) << std::dec << " namiesto "
+              << local.tm_hour << " a " << local.tm_min << "\n";
+    ok = false;
+  }
+  // 80h in a field means "do not compare"; the alarm writer at 0DA5B puts it
+  // in the hundredths, the seconds and the day of week.
+  if ((armed[0] & 0x80) == 0 || (armed[3] & 0x80) == 0) {
+    std::cout << "  sekundy alebo stotiny nie su oznacene ako lubovolne\n";
+    ok = false;
+  }
+  if ((machine.debug_rtc_mask() & 0x01) == 0) {
+    std::cout << "  rtc_mask nema povoleny budik\n";
+    ok = false;
+  }
+  if (!ok) return false;
+
+  // Ten seconds into the alarm's minute.  Waiting for it in real time would
+  // cost two minutes per run; the clock is the host's, so it is moved instead.
+  machine.SetRtcOffset(static_cast<int64_t>(target - target % 60 + 10 -
+                                            std::time(nullptr)));
+  for (int slice = 0; slice < 12; ++slice) {
+    Grind(machine, 8'000'000);
+    if (machine.debug_rtc_ram(5) != armed[5]) break;
+  }
+  // Servicing an alarm ends in .schedule_alarm, which arms the next one: for a
+  // daily alarm that is the same time tomorrow, so the date register moves.
+  // Nothing else in the ROM rewrites these registers on its own.
+  std::array<uint8_t, 8> rearmed{};
+  for (unsigned index = 0; index < 8; ++index)
+    rearmed[index] = machine.debug_rtc_ram(index);
+  if (rearmed == armed) {
+    std::cout << "  budik nezazvonil: alarmove registre zostali nedotknute\n";
+    ok = false;
+  }
+  return ok;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
   if (argc != 4 ||
       (std::wstring(argv[3]) != L"com" && std::wstring(argv[3]) != L"bas" &&
        std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power" &&
-       std::wstring(argv[3]) != L"dc")) {
+       std::wstring(argv[3]) != L"dc" && std::wstring(argv[3]) != L"rtc")) {
     std::wcerr
-        << L"usage: integration_test ROM DISK_FOLDER com|bas|kbd|power|dc\n";
+        << L"usage: integration_test ROM DISK_FOLDER com|bas|kbd|power|dc|rtc\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -283,6 +397,15 @@ int wmain(int argc, wchar_t** argv) {
     return 2;
   }
   machine->Reset();
+
+  if (std::wstring(argv[3]) == L"rtc") {
+    const bool passed = CheckAlarm(*machine);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=RTC"
+              << " maska=" << std::hex
+              << static_cast<unsigned>(machine->debug_rtc_mask()) << std::dec
+              << "\n";
+    return passed ? 0 : 1;
+  }
 
   if (std::wstring(argv[3]) == L"dc") {
     const bool passed = CheckSettlesToSilence(*machine);
