@@ -239,6 +239,7 @@ class EurekaMachine {
   uint64_t csioReadyAt_ = 0;
   // Reconstruction filter state; see RenderAudio.
   double audioState_[2] = {};
+  double couplingState_[2] = {};
 };
 
 #endif

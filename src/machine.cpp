@@ -53,6 +53,33 @@ Biquad MakeOnePole(double cutoffHz, double sampleHz) {
 // twice the speech rate (chapter 14).
 const Biquad kSpeechFilter = MakeOnePole(5000.0, EurekaMachine::kAudioHz);
 const Biquad kOpenFilter = MakeOnePole(10000.0, EurekaMachine::kAudioHz);
+
+// The coupling capacitor every audio output stage has, and this one did not.
+// The DAC holds its last written value for as long as nothing writes it again,
+// and after an utterance that value is wherever the final sample happened to
+// land -- measured 111 after the music editor, 131 after the calculator, 135
+// after "kde som".  Without a high pass that becomes a permanent DC offset on
+// the output, and every interruption of the stream steps between the offset
+// and zero.  That step is the irregular clicking reported from use.  A real
+// Eureka cannot pass DC to its speaker at all: no amplifier can, or the coil
+// would sit with current through it.
+//
+// Written as a biquad so it shares the state handling above; the coefficients
+// are the ordinary one pole y[n] = x[n] - x[n-1] + r*y[n-1], unity gain
+// everywhere that matters.
+Biquad MakeCoupling(double cutoffHz, double sampleHz) {
+  const double r = std::exp(-2.0 * 3.14159265358979323846 * cutoffHz / sampleHz);
+  return {1.0, -1.0, 0.0, -r, 0.0};
+}
+
+// 30 Hz.  The synthesiser's own fundamental sits near 174 Hz -- voiced runs
+// hold a period of 41 to 45 samples at roughly 7.5 kHz -- so this is almost
+// three octaves below anything the speech carries and takes 0.1 dB off it.
+// Unlike the low pass above there is nothing here to calibrate by ear: the
+// value only has to be low enough to leave the voice alone and high enough
+// that a step decays promptly, the time constant being 1/(2*pi*f), 5.3 ms.
+// Move it down if the speech ever sounds thin, not if something clicks.
+const Biquad kCouplingFilter = MakeCoupling(30.0, EurekaMachine::kAudioHz);
 }
 
 bool EurekaMachine::LoadRom(const fs::path& path, std::wstring& error) {
@@ -100,6 +127,7 @@ void EurekaMachine::Reset() {
   timerPending_[0] = timerPending_[1] = false;
   audioPhase_ = 0;
   audioState_[0] = audioState_[1] = 0.0;
+  couplingState_[0] = couplingState_[1] = 0.0;
   audio_.clear();
   keys_.clear();
   firmwareKeys_.clear();
@@ -866,7 +894,14 @@ void EurekaMachine::RenderAudio(uint32_t cpuCycles) {
     const double out = b.b0 * input + audioState_[0];
     audioState_[0] = b.b1 * input - b.a1 * out + audioState_[1];
     audioState_[1] = b.b2 * input - b.a2 * out;
-    audio_.push_back(static_cast<int16_t>(std::clamp(out, -32768.0, 32767.0)));
+    // Then the coupling capacitor, which is what keeps the resting value of
+    // the DAC from becoming a standing offset on the output.
+    const Biquad& c = kCouplingFilter;
+    const double coupled = c.b0 * out + couplingState_[0];
+    couplingState_[0] = c.b1 * out - c.a1 * coupled + couplingState_[1];
+    couplingState_[1] = c.b2 * out - c.a2 * coupled;
+    audio_.push_back(
+        static_cast<int16_t>(std::clamp(coupled, -32768.0, 32767.0)));
     audioPhase_ -= kCpuHz;
   }
 }

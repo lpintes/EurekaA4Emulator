@@ -453,6 +453,11 @@ a `00175` (zhodí ho) volajú pri každom prechode ustaľovaciu rutinu
 Emulátor má **jednopólový filter, 5 kHz pre reč a 10 kHz otvorený**
 (pomer 2:1 zodpovedá tomu, že efekty bežia na dvojnásobnej frekvencii).
 
+Za ním je od 26. 8. 2026 ešte **väzobný kondenzátor, hornopriepusť
+30 Hz** — bez neho zostávala na výstupu pokojová hodnota DAC ako stojatá
+jednosmerná zložka a lupalo to. Viď 6.16; toho, čo je v tejto sekcii,
+sa to nedotklo, merateľne vôbec.
+
 #### Ako sa tá hodnota vybrala
 
 **Manuál medznú frekvenciu neuvádza** — prehľadané kapitoly o hardvéri,
@@ -911,7 +916,8 @@ stred stupnice, platí **pre parkovanie po reči, nie po hudbe**.
 
 Doplnené 26. 8. 2026: nie je to zvláštnosť editora. Rovnaké to je po
 každej aplikácii, len s inou hodnotou, a príčina je jedna — chýbajúca
-hornopriepusť. Viď **6.16**; tam sa to aj opraví, tento odsek zanikne.
+hornopriepusť. **Opravené**, viď 6.16 — držaná hodnota už na výstup
+neprejde a tento odsek platí len ako záznam, čo sa dialo predtým.
 
 ### 6.11 Funkčné klávesy hladujú: emulátor odreže ROM od jej vlastnej fronty
 
@@ -1263,9 +1269,9 @@ stav a stroj sa po zapnutí vrátil tam, kde používateľ skončil.
   si mal niesť aspoň MD5 ROM a identitu disku a pri nezhode ponúknuť
   tvrdý štart.
 
-### 6.16 Lupanie: chýba väzobný kondenzátor
+### 6.16 Lupanie: chýbal väzobný kondenzátor — opravené
 
-**Zmerané 26. 8. 2026, oprava nespravená.** Hlásené z ostrého používania:
+**Zmerané a opravené 26. 8. 2026.** Hlásené z ostrého používania:
 pri zvýšenej hlasitosti počuť počas nečinnosti **nepravidelné lupanie**.
 
 Podstatná časť diagnózy je v tom, kedy sa to *nedeje*: po čerstvom boote
@@ -1300,11 +1306,41 @@ Vysvetľuje to zároveň vedľajší nález zo 6.10 (hudobný editor nechá DAC
 na 65): nie je to zvláštnosť editora, je to všeobecná vlastnosť a editor
 bol len najkrikľavejší prípad.
 
-Oprava je jednopólová hornopriepusť rádovo 20–30 Hz, teda **modelovanie
-hardvéru, nie kozmetika** — ten istý argument, akým sa do modelu dostala
-dolnopriepusť. Na rozdiel od jej medznej frekvencie tu nie je čo
-kalibrovať počúvaním; hodnota musí byť len dosť nízko, aby nezobrala
-basy reči.
+#### Oprava
+
+Jednopólová hornopriepusť **30 Hz** za rekonštrukčným filtrom
+(`kCouplingFilter` v `machine.cpp`), teda **modelovanie hardvéru, nie
+kozmetika** — ten istý argument, akým sa do modelu dostala dolnopriepusť.
+
+Prečo práve 30 Hz: fundamentál syntetizátora je okolo **174 Hz** (znelé
+úseky držia periódu 41–45 vzoriek pri asi 7,5 kHz), takže filter sedí
+takmer tri oktávy pod čímkoľvek, čo reč nesie, a berie jej 0,1 dB. Na
+rozdiel od medznej frekvencie dolnopriepusti tu **nie je čo kalibrovať
+počúvaním**: hodnota musí byť len dosť nízko, aby nechala hlas na pokoji,
+a dosť vysoko, aby skok promptne odzvonil — časová konštanta je
+1/(2π·f), teda 5,3 ms. Posúvať nadol, ak by reč znela chudobne; nie
+vtedy, keď niečo lupne.
+
+Zmerané na tej istej vete (F3, kalkulátor), bez filtra a s ním:
+
+| veličina | bez filtra | s filtrom |
+|---|---|---|
+| RMS počas reči | 6281,4 | 6280,9 (**−0,00 dB**) |
+| jednosmerná zložka počas reči | 37,4 | −0,4 |
+| pol sekundy ticha po vete | konštantne +2560 | presne 0 |
+
+Reč sa teda nezmenila merateľne vôbec a zmizla len tá zložka, ktorá tam
+nemala čo robiť. Najväčší rozdiel jednej vzorky je 1683 (5,1 % rozsahu)
+a je to práve odobratie stojatého odstupu, nie skreslenie hlasu.
+
+Drží to `integration_test ROM DISK dc`: prejde štyri aplikácie, po každej
+nechá dosek deväť sekúnd hosťovského času a overí, že posledná polsekunda
+je v pásme ±64, teda štvrtine najmenšieho kroku, aký DAC vie urobiť. Ak
+by žiadna z tých aplikácií nenechala DAC mimo stredu, test to **ohlási
+a spadne** namiesto toho, aby prešiel bez toho, že by čokoľvek overil.
+Odskúšané mutáciou: pri obídení filtra spadne na troch zo štyroch
+aplikácií (po `F1` DAC zhodou okolností spočinie presne na 128, a práve
+preto ich test skúša viac).
 
 ## 7. Nástroje
 
@@ -1349,23 +1385,20 @@ Poradie podľa pomeru prínos/námaha:
    reprodukciu; bez neho je to beh naslepo. Pozor: kým nebol modelovaný
    vypínací strob, päť minút nečinnosti stroj potichu zabilo, takže časť
    starších pozorovaní „po čase prestane reagovať" môže byť práve toto.
-5. **Lupanie a jednosmerná zložka** (6.16). Zmerané, príčina istá,
-   oprava je malá: hornopriepusť do `RenderAudio`. Odstráni aj vedľajší
-   nález zo 6.10. Najlepší pomer prínos/námaha z celého zoznamu.
-6. **RTC prerušenie** (6.13) — odblokuje naraz budík, odbíjanie aj diár.
+5. **RTC prerušenie** (6.13) — odblokuje naraz budík, odbíjanie aj diár.
    Diagnóza je hotová a doložená manuálom; je to najväčší kus práce
    z tejto trojice, ale aj najviac funkcií naraz.
-7. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
+6. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
    Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
    používa.
-8. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+7. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-9. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+8. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-10. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+9. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-11. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+10. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
    rozhodne otázku 6.3.
 
 ### Čím sa dá testovať
@@ -1379,6 +1412,7 @@ integration_test ROM DISK_FOLDER bas   -> PASS
 integration_test ROM DISK_FOLDER com   -> PASS (196 BIOS čítaní)
 integration_test ROM DISK_FOLDER kbd   -> PASS (klávesy, braille, PC)
 integration_test ROM DISK_FOLDER power -> PASS (vypnutie štyrmi kurzormi)
+integration_test ROM DISK_FOLDER dc    -> PASS (výstup po reči sadne na ticho)
 disk_test                              -> PASS (18 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 ```

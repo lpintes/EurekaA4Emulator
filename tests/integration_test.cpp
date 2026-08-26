@@ -196,14 +196,83 @@ bool CheckPowerOff(EurekaMachine& machine) {
   return ok;
 }
 
+// The output has to settle to silence once the machine stops talking, whatever
+// the DAC is left holding.  It holds its last written value for as long as
+// nothing writes it again, and after an utterance that is wherever the final
+// sample happened to land -- so without the coupling capacitor modelled the
+// stream carries a standing DC offset, and every interruption of it steps
+// between that offset and zero.  Those steps are audible as clicking, which is
+// the one kind of bug this machine cannot report: it is all sound.
+//
+// The check is worth nothing if every application happens to leave the DAC at
+// mid scale, so that is reported rather than assumed.
+bool CheckSettlesToSilence(EurekaMachine& machine) {
+  // The recorder, the calculator, BASIC and "where am I": four different exits
+  // from the speech engine, which is what varies the resting value.
+  static const uint8_t kApps[] = {0xc0, 0xc2, 0xc5, 0xc9};
+  const uint64_t kQuiet = EurekaMachine::kCpuHz / 2;
+  bool ok = true;
+  bool exercised = false;
+
+  for (uint8_t app : kApps) {
+    machine.Reset();
+    uint64_t lastOut = EurekaMachine::kCpuHz * 3;
+    bool pressed = false;
+    for (uint64_t step = 0; step < 40'000'000; ++step) {
+      if (!machine.TakeConsoleOutput().empty()) lastOut = machine.cycles();
+      if (machine.cycles() > lastOut + kQuiet) {
+        if (pressed) break;
+        machine.QueueKey(app);
+        pressed = true;
+        lastOut = machine.cycles();
+      }
+      if (!machine.Step()) break;
+    }
+    // Console output stops well before the speech engine does -- the text goes
+    // out in one go and is then rendered sample by sample -- so give the
+    // announcement time to finish before looking at what is left behind.
+    const uint64_t spoken = machine.cycles() + EurekaMachine::kCpuHz * 9;
+    while (machine.cycles() < spoken && machine.Step()) {}
+    machine.TakeAudio();
+
+    // A second of guest time with nobody speaking: far longer than the filter's
+    // 5.3 ms time constant, so anything still there is standing, not decaying.
+    const uint64_t until = machine.cycles() + EurekaMachine::kCpuHz;
+    while (machine.cycles() < until && machine.Step()) {}
+    const auto tail = machine.TakeAudio();
+    const uint8_t resting = machine.debug_io(0x88);
+    if (resting != 0x80) exercised = true;
+
+    int16_t worst = 0;
+    for (std::size_t i = tail.size() / 2; i < tail.size(); ++i)
+      if (std::abs(tail[i]) > std::abs(worst)) worst = tail[i];
+    // One LSB of the DAC is 256 here, so 64 is a quarter of the smallest step
+    // the hardware can make: comfortably below anything audible, and far below
+    // the offsets measured without the filter (up to -4352).
+    if (std::abs(worst) > 64) {
+      std::cout << "  po klavese " << std::hex << static_cast<unsigned>(app)
+                << std::dec << " zostava vychylka " << worst << " (DAC "
+                << static_cast<unsigned>(resting) << ")\n";
+      ok = false;
+    }
+  }
+  if (!exercised) {
+    std::cout << "  ziadna aplikacia nenechala DAC mimo stredu, test nic "
+                 "neoveril\n";
+    ok = false;
+  }
+  return ok;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
   if (argc != 4 ||
       (std::wstring(argv[3]) != L"com" && std::wstring(argv[3]) != L"bas" &&
-       std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power")) {
+       std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power" &&
+       std::wstring(argv[3]) != L"dc")) {
     std::wcerr
-        << L"usage: integration_test ROM DISK_FOLDER com|bas|kbd|power\n";
+        << L"usage: integration_test ROM DISK_FOLDER com|bas|kbd|power|dc\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -214,6 +283,12 @@ int wmain(int argc, wchar_t** argv) {
     return 2;
   }
   machine->Reset();
+
+  if (std::wstring(argv[3]) == L"dc") {
+    const bool passed = CheckSettlesToSilence(*machine);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=DC\n";
+    return passed ? 0 : 1;
+  }
 
   if (std::wstring(argv[3]) == L"power") {
     const bool passed = CheckPowerOff(*machine);
