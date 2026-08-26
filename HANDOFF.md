@@ -1333,6 +1333,10 @@ Reč sa teda nezmenila merateľne vôbec a zmizla len tá zložka, ktorá tam
 nemala čo robiť. Najväčší rozdiel jednej vzorky je 1683 (5,1 % rozsahu)
 a je to práve odobratie stojatého odstupu, nie skreslenie hlasu.
 
+**Potvrdené sluchom** (majiteľ, 26. 8. 2026): lupanie zmizlo. To je to
+podstatné, čo meranie samo povedať nevie — jednosmerná zložka je na
+grafe zjavná, ale či ju bolo počuť, rozhoduje ucho.
+
 Drží to `integration_test ROM DISK dc`: prejde štyri aplikácie, po každej
 nechá dosek deväť sekúnd hosťovského času a overí, že posledná polsekunda
 je v pásme ±64, teda štvrtine najmenšieho kroku, aký DAC vie urobiť. Ak
