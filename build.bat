@@ -11,26 +11,20 @@ if not exist "%MINGW64%\bin\g++.exe" (
   echo Nenasiel som g++ v %MINGW64%\bin. Nastavte premennu MINGW64.
   exit /b 1
 )
-
-if not exist build mkdir build
-if not exist bin mkdir bin
-
-set "CWARN=-Wall -Wextra -Wno-unused-parameter"
-set "CXXFLAGS=-std=c++20 -O2 %CWARN% -Isrc -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00"
-
-rem z80.c je C, nie C++.
-gcc -std=c11 -O2 %CWARN% -Isrc -c src\z80.c -o build\z80.o || exit /b 1
-
-for %%f in (machine virtual_disk text_codec audio_player diagnostics main) do (
-  g++ %CXXFLAGS% -c src\%%f.cpp -o build\%%f.o || exit /b 1
+if not exist "%MINGW64%\bin\mingw32-make.exe" (
+  echo Nenasiel som mingw32-make v %MINGW64%\bin. Nastavte premennu MINGW64.
+  exit /b 1
 )
 
-rem -municode kvoli wmain, staticke runtime kniznice preto, aby EXE bezalo
-rem aj mimo msys2 shellu.
-g++ -municode -static -static-libgcc -static-libstdc++ -s ^
-  -o bin\EurekaA4Emulator.exe ^
-  build\main.o build\machine.o build\virtual_disk.o build\text_codec.o ^
-  build\audio_player.o build\diagnostics.o build\z80.o ^
-  -lwinmm -lole32 -lshell32 -luuid || exit /b 1
+rem Sedem prekladovych jednotiek je na sebe nezavislych, takze sa prekladaju
+rem naraz. Na styroch jadrach je to zhruba dvojnasobok rychlosti oproti
+rem seriovemu prekladu. Vlastny pocet sa da vnutit premennou JOBS.
+if "%JOBS%"=="" set "JOBS=%NUMBER_OF_PROCESSORS%"
+if "%JOBS%"=="" set "JOBS=4"
+
+rem Cesta ide do make s lomkami dopredu: make si podla PATH moze vybrat sh
+rem a ten by backslashe zral ako escape sekvencie.
+mingw32-make -j%JOBS% MINGW64="%MINGW64:\=/%" all
+if errorlevel 1 exit /b 1
 
 echo Vytvorene: bin\EurekaA4Emulator.exe

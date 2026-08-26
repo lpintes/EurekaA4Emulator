@@ -5,23 +5,24 @@ cd /d "%~dp0"
 if "%MINGW64%"=="" set "MINGW64=C:\msys64\mingw64"
 set "PATH=%MINGW64%\bin;%PATH%"
 
-rem Testy sa linkuju proti tym istym objektom ako emulator, preto sa
-rem build.bat vola vzdy. Kedysi tu bola podmienka na existenciu
-rem build\machine.o a bola to pasca: pri zmenenom zdrojaku nechala
-rem stare .o, takze testy merali kod, ktory sa vobec neprelozil.
-rem build.bat preklada vsetko nanovo, zastaraly objekt tak nevznikne.
-call "%~dp0build.bat" || exit /b 1
-if not exist bin mkdir bin
+if not exist "%MINGW64%\bin\mingw32-make.exe" (
+  echo Nenasiel som mingw32-make v %MINGW64%\bin. Nastavte premennu MINGW64.
+  exit /b 1
+)
 
-set "CXXFLAGS=-std=c++20 -O2 -Wall -Wextra -Wno-unused-parameter -Isrc"
-set "OBJS=build\machine.o build\virtual_disk.o build\diagnostics.o build\text_codec.o build\z80.o"
-set "LDFLAGS=-static -static-libgcc -static-libstdc++"
+if "%JOBS%"=="" set "JOBS=%NUMBER_OF_PROCESSORS%"
+if "%JOBS%"=="" set "JOBS=4"
 
-rem codec_test a disk_test maju obycajny main, preto bez -municode;
-rem ostatne maju wmain.
-g++ %CXXFLAGS% %LDFLAGS% -o bin\codec_test.exe tests\codec_test.cpp build\text_codec.o || exit /b 1
-g++ %CXXFLAGS% %LDFLAGS% -o bin\disk_test.exe tests\disk_test.cpp build\virtual_disk.o || exit /b 1
-g++ %CXXFLAGS% %LDFLAGS% -municode -o bin\diag_probe.exe tests\diag_probe.cpp %OBJS% || exit /b 1
-g++ %CXXFLAGS% %LDFLAGS% -municode -o bin\integration_test.exe tests\integration_test.cpp %OBJS% || exit /b 1
+rem Ciel `tests` obsahuje aj emulator, aby jedno spustenie tejto davky dalo
+rem hotovy cely strom tak, ako to robila predtym.
+rem
+rem Kedysi tu bola podmienka na existenciu build\machine.o a bola to pasca:
+rem pri zmenenom zdrojaku nechala stare .o, takze testy merali kod, ktory sa
+rem vobec neprelozil. Riesilo sa to prekladom vsetkeho pri kazdom spusteni.
+rem Teraz to riesi make cez .d subory z gcc -MMD: vie o kazdej hlavicke, na
+rem ktorej ktory objekt zavisi, takze zastaraly objekt nevznikne a pritom sa
+rem nepreklada viac, nez treba.
+mingw32-make -j%JOBS% MINGW64="%MINGW64:\=/%" tests
+if errorlevel 1 exit /b 1
 
 echo Vytvorene: bin\codec_test.exe, bin\disk_test.exe, bin\diag_probe.exe, bin\integration_test.exe
