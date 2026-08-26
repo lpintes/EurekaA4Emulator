@@ -159,7 +159,7 @@ int wmain(int argc, wchar_t** argv) {
       machine->QueueKey(key);
       for (int round = 0; round < 3; ++round) {
         if (!RunUntilPrompt(*machine, budget)) break;
-        machine->QueueKey(0x1b);
+        machine->QueueText("\x1b");
       }
       std::printf("klaves %02X: %s\n", key,
                   Readable(machine->TakeSpeechInput()).c_str());
@@ -196,7 +196,7 @@ int wmain(int argc, wchar_t** argv) {
       const uint64_t deadline = machine->instructions() + 5000;
       while (machine->instructions() < deadline) {
         if (!machine->Step()) {
-          machine->QueueKey(0x1b);
+          machine->QueueText("\x1b");
           break;
         }
       }

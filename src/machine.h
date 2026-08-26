@@ -61,6 +61,9 @@ class EurekaMachine {
   // the user was instead of initialising from scratch.  A host that keeps the
   // RAM across runs has to keep this byte with it.
   uint8_t power_down_marker() const { return Peek(0xc45a); }
+  // Presses one of the twenty keys the machine has: the Eureka key codes of
+  // KB.LIB, all of which have bit 7 set.  Anything else is not a key on this
+  // machine and is ignored -- text is typed with QueueText.
   void QueueKey(uint8_t key);
   // Optional counterpart of QueueKey for hosts that see key releases: it ends
   // the emulated press early.  Without it a key still comes up on its own.
@@ -87,13 +90,6 @@ class EurekaMachine {
   std::vector<uint8_t> TakeConsoleOutput();
   std::vector<uint8_t> TakeSpeechInput();
   std::vector<int16_t> TakeAudio();
-  // Renders the cycles a parked CPU did not run.  Step() returns false while
-  // the BIOS waits for a key, which is most of the machine's life, but the
-  // real Eureka is only spinning there: the DAC still holds its last value
-  // and the filter behind it still runs.  Without this the audio stream dries
-  // up between utterances, and starting it again costs about 19 ms measured
-  // at the device -- paid at the front of every single thing the machine says.
-  void RenderIdle(uint32_t cpuCycles) { RenderAudio(cpuCycles); }
 
   uint64_t cycles() const { return cycles_; }
   uint64_t instructions() const { return instructions_; }
@@ -106,8 +102,7 @@ class EurekaMachine {
   uint8_t a() const { return cpu_.a; }
   bool zero_flag() const { return cpu_.zf; }
   std::size_t queued_keys() const {
-    return keys_.size() + firmwareKeys_.size() + membraneFrames_.size() +
-           csioRx_.size();
+    return membraneFrames_.size() + csioRx_.size();
   }
   // Moves the clock the RTC reports, in seconds, without touching the host's.
   // The Eureka's clock is the host clock, which is what a user wants and what
@@ -169,12 +164,6 @@ class EurekaMachine {
   uint8_t ReadMembraneKeyboard(uint8_t port);
   void PressMembraneKey(uint8_t key);
   bool MembraneBusy() const;
-  // True while a keypress is still on its way in through real hardware -- the
-  // keyboard rows or the serial port.  The machine has to keep running for it
-  // to arrive, so the BIOS console read must not park the CPU meanwhile.
-  bool HardwareInputBusy() const;
-  void NoteHardwareInput();
-  void InjectFirmwareKey();
   // Which of the ROM's three translation tables a scan code is looked up in.
   enum class ScanModifier { kNone, kShift, kAltGr };
   // What the ROM would make of one scan code held with one modifier, or 0 if
@@ -225,8 +214,6 @@ class EurekaMachine {
   uint64_t audioPhase_ = 0;
   std::vector<int16_t> audio_;
 
-  std::deque<uint8_t> keys_;
-  std::deque<uint8_t> firmwareKeys_;
   // One scanned state of the 20-key braille keyboard.  The rows are the three
   // read-only ports of Appendix H; the ROM decides which is which, and it
   // disagrees with the manual's prose: 1D41F masks 89h with 3Fh to get the six
@@ -241,11 +228,9 @@ class EurekaMachine {
   };
   std::deque<MembraneFrame> membraneFrames_;
   MembraneFrame membraneState_;
-  uint64_t hardwareInputUntil_ = 0;
   uint64_t membraneUntil_ = 0;
   uint64_t membraneMinUntil_ = 0;
   uint8_t membraneHeldKey_ = 0;
-  bool keyboardInitialized_ = false;
   bool poweredOff_ = false;
   std::vector<uint8_t> consoleOutput_;
   std::vector<uint8_t> speechInput_;

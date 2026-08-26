@@ -130,15 +130,11 @@ void EurekaMachine::Reset() {
   audioState_[0] = audioState_[1] = 0.0;
   couplingState_[0] = couplingState_[1] = 0.0;
   audio_.clear();
-  keys_.clear();
-  firmwareKeys_.clear();
   membraneFrames_.clear();
   membraneState_ = MembraneFrame();
-  hardwareInputUntil_ = 0;
   membraneUntil_ = 0;
   membraneMinUntil_ = 0;
   membraneHeldKey_ = 0;
-  keyboardInitialized_ = false;
   // A hard reset, which is what this is: RAM cleared above, so the firmware
   // finds no power-down marker in C45Ah and initialises from scratch.
   poweredOff_ = false;
@@ -417,27 +413,6 @@ bool EurekaMachine::MembraneBusy() const {
          membraneState_.row1 != 0 || membraneState_.row2 != 0;
 }
 
-bool EurekaMachine::HardwareInputBusy() const {
-  return cycles_ < hardwareInputUntil_ || MembraneBusy() || csioPending_ ||
-         !csioRx_.empty();
-}
-
-// Keeps the CPU awake for a moment after a key that the machine's own hardware
-// delivered.  The firmware answers such a key by starting to speak, but speech
-// is driven by the 75 Hz heartbeat, so it needs at least one tick -- 13.3 ms --
-// before anything comes out.  Measured: a scan code left the machine running
-// 1.9 ms before the console read parked it, which is not one tick, and the
-// announcement was silently dropped every single time.  A braille chord hid
-// this by holding the key rows down for 200 ms.
-//
-// Only for keys the firmware itself now owns.  Text that the emulator holds in
-// its own queue must NOT extend the window: there the firmware's own console
-// read would spin forever waiting for a key it cannot see, and both
-// application tests hang.
-void EurekaMachine::NoteHardwareInput() {
-  hardwareInputUntil_ = cycles_ + kCpuHz / 1000 * 100;
-}
-
 // Turns one Eureka key code into the physical presses that produce it.  The
 // codes are KB.LIB's: bits 7-6 select the cursor keypad (10) or a function key
 // (11), bit 5 is ALT -- which is physically the space bar on the braille
@@ -458,7 +433,6 @@ void EurekaMachine::PressMembraneKey(uint8_t key) {
     }
     return;
   }
-  NoteHardwareInput();
   const uint8_t kind = key & 0xc0;
   const uint8_t number = key & 0x0f;
   const bool alt = (key & 0x20) != 0;
@@ -519,7 +493,6 @@ void EurekaMachine::PressMembraneKey(uint8_t key) {
 // Neither is reachable while row 2 stays empty.
 void EurekaMachine::PressBraille(uint8_t dots, bool shift) {
   if (dots == 0) return;
-  NoteHardwareInput();
   MembraneFrame frame;
   frame.row0 = dots;
   frame.row2 = shift ? 0x40 : 0;
@@ -528,22 +501,6 @@ void EurekaMachine::PressBraille(uint8_t dots, bool shift) {
   MembraneFrame release;
   release.cycles = MsToCycles(kReleaseMs);
   membraneFrames_.push_back(release);
-}
-
-void EurekaMachine::InjectFirmwareKey() {
-  if (!keyboardInitialized_ || firmwareKeys_.empty() || Peek(0xc100) != 0xc3) return;
-  const uint8_t readIndex = Peek(0xc679) & 0x1f;
-  const uint8_t writeIndex = Peek(0xc67a) & 0x1f;
-  // Insert only when the ROM queue is empty. C678 is a key-type result flag,
-  // not a busy flag, and legitimately remains set after function keys.
-  if (readIndex != writeIndex) return;
-  const uint8_t next = static_cast<uint8_t>((writeIndex + 1) & 0x1f);
-  if (next == readIndex) return;
-  const uint16_t entry = static_cast<uint16_t>(0xc67b + writeIndex * 2);
-  Poke(entry, 0);  // ordinary key-down event
-  Poke(static_cast<uint16_t>(entry + 1), firmwareKeys_.front());
-  Poke(0xc67a, next);
-  firmwareKeys_.pop_front();
 }
 
 uint8_t EurekaMachine::ReadPort(z80* cpu, uint16_t port) {
@@ -1101,35 +1058,12 @@ bool EurekaMachine::InterceptBios() {
   }
   const uint16_t bc = (static_cast<uint16_t>(cpu_.b) << 8) | cpu_.c;
   switch (function) {
-    case 2:  // console status
-      // While a key is on its way through the keyboard ports the ROM's own
-      // queue is the one that knows about it, so let the ROM answer.
-      if (HardwareInputBusy()) return true;
-      cpu_.a = keys_.empty() ? 0 : 0xff;
-      ReturnFromCall();
-      return true;
-    case 3:  // console input
-      if (HardwareInputBusy()) {
-              return true;
-      }
-      // Answer only what the host actually typed.  While a key is on its way
-      // in through real hardware, or when there is nothing queued at all, the
-      // ROM is left to wait for the key itself.  It does that by spinning in
-      // its own event dispatcher (19B41), which is what the real machine does,
-      // and it is the only way it ever gets to read the input it produces for
-      // itself: a function key types its text into the ROM's own queue
-      // (fk_table, SYSRAM.A), and answering the read from here starved every
-      // one of them.  The same trap already caught scan codes once -- see
-      // HardwareInputBusy.
-      if (keys_.empty()) return true;
-      cpu_.a = keys_.front();
-      keys_.pop_front();
-      // H bit 0 distinguishes Eureka function/cursor key codes from ordinary
-      // text in the ROM console ABI.
-      cpu_.h = (cpu_.a & 0x80) != 0 ? 1 : 0;
-      keyboardInitialized_ = true;
-          ReturnFromCall();
-      return true;
+    // Console status (2) and console input (3) are deliberately NOT answered
+    // here.  The ROM waits for a key by spinning in its own event dispatcher
+    // at 19B41, exactly as the hardware does, and that is the only way it ever
+    // reads the input it produces for itself: a function key types its text
+    // into the ROM's own queue (fk_table, SYSRAM.A), and answering the read
+    // from here starved every one of them.
     case 4:  // console output: capture, then let the ROM feed screen and speech.
       // Captured at the stub only.  Taking it here as well doubled every
       // character on the host console -- "hotovo" arrived as "hhoottoovvoo".
@@ -1200,7 +1134,6 @@ void EurekaMachine::PowerDown() {
 
 bool EurekaMachine::Step() {
   if (poweredOff_) return false;
-  InjectFirmwareKey();
   if (!InterceptBios()) return false;
   if (cpu_.pc == 0x0103 && PhysicalAddress(cpu_.pc) == 0x0103)
     speechInput_.push_back(cpu_.a);
@@ -1214,21 +1147,14 @@ bool EurekaMachine::Step() {
 }
 
 void EurekaMachine::QueueKey(uint8_t key) {
-  // Eureka key codes with bit 7 set describe chords on the built-in 20-key
-  // keyboard, and the ROM does far more with them than hand them to the
-  // program: it decodes them in its heartbeat, and MODE, WHERE and the
-  // application keys act wherever they are pressed.  Handing them to a
-  // blocked BIOS console read instead made them dead inside BASIC and the
-  // music editor, so they always go on the real keyboard ports.
-  if ((key & 0x80) != 0) {
-    PressMembraneKey(key);
-  } else if (keyboardInitialized_) {
-    // Printable keys from a Windows keyboard enter the same ROM-owned queue
-    // as characters decoded from the optional IBM PC/XT keyboard interface.
-    firmwareKeys_.push_back(key);
-  } else {
-    keys_.push_back(key);
-  }
+  // Only the twenty keys the machine actually has.  They always go on the real
+  // keyboard ports, because the ROM does far more with them than hand them to
+  // the program: it decodes them in its heartbeat, and MODE, WHERE and the
+  // application keys act wherever they are pressed.  Text is not a key code
+  // and has no business here -- it is typed with QueueText, on the PC keyboard
+  // the ROM knows how to read.
+  if ((key & 0x80) == 0) return;
+  PressMembraneKey(key);
 }
 
 void EurekaMachine::ReleaseKey(uint8_t key) {
@@ -1250,7 +1176,6 @@ void EurekaMachine::ReleaseKey(uint8_t key) {
 }
 
 void EurekaMachine::QueueScanCode(uint8_t code) {
-  NoteHardwareInput();
   csioRx_.push_back(code);
 }
 

@@ -244,13 +244,13 @@ uint8_t SpecialKey(const KEY_EVENT_RECORD& key) {
   return code;
 }
 
-// How the host keyboard is presented to the machine.  The Eureka itself had
-// two keyboards, the braille one built in and the PC one on the serial port,
-// and the emulator can be either.  The third is not a keyboard at all: it is
-// the convenience the emulator adds on top, and it is deliberately not called
-// "the Eureka keyboard", because that name belongs to the braille one.
+// How the host keyboard is presented to the machine.  The Eureka had exactly
+// two keyboards -- the braille one built in and the optional PC one on the
+// serial port -- and so has the emulator.  There used to be a third, "default",
+// which handed text straight to the ROM's own queue; it was a shortcut past the
+// hardware and it is gone.  Everything the host types now arrives the way it
+// would have arrived on a real machine.
 enum class InputMode {
-  kDefault,  // the twenty keys, with text handed straight to the ROM's queue
   kBraille,  // the six dot keys, chorded
   kPc,       // the optional IBM PC keyboard on the serial port
 };
@@ -260,7 +260,7 @@ enum class InputMode {
 // does that itself from the pattern on its row 0, in whichever of its three
 // tables is currently selected, so this only presses keys.
 struct HostKeyboard {
-  InputMode mode = InputMode::kDefault;
+  InputMode mode = InputMode::kPc;
   uint8_t held = 0;   // dot keys physically down at this moment
   uint8_t chord = 0;  // every dot pressed since the current chord began
   bool chordShift = false;  // shift held at any point during that chord
@@ -340,11 +340,7 @@ void SendScanCode(EurekaMachine& machine, const KEY_EVENT_RECORD& key) {
 }
 
 const wchar_t* ModeName(InputMode mode) {
-  switch (mode) {
-    case InputMode::kBraille: return L"braillovská";
-    case InputMode::kPc: return L"externá PC";
-    default: return L"default";
-  }
+  return mode == InputMode::kBraille ? L"braillovská" : L"externá PC";
 }
 
 // With --diag, every key event is echoed with what the emulator made of it.
@@ -382,9 +378,7 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
       // A braille chord is finished by letting go, not by pressing: the dots
       // go down one at a time and only the whole pattern means anything, so
       // it is sent when the last finger comes up.
-      if (const uint8_t dot = host.mode == InputMode::kBraille
-                                  ? BrailleBit(key.wVirtualKeyCode)
-                                  : 0) {
+      if (const uint8_t dot = BrailleBit(key.wVirtualKeyCode)) {
         host.held &= static_cast<uint8_t>(~dot);
         // Shift belongs to the chord and is collected the same way the dots
         // are, on every event of it: let go of shift before the last dot comes
@@ -435,27 +429,25 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
       dump = true;
       continue;
     }
-    if (ctrl && shift && (key.wVirtualKeyCode == 'B' || key.wVirtualKeyCode == 'E')) {
-      const InputMode wanted = key.wVirtualKeyCode == 'B' ? InputMode::kBraille
-                                                          : InputMode::kPc;
+    // One key for the one thing there is to choose now that there are two
+    // keyboards instead of three.  Ctrl+K and not Ctrl+Shift+K, which is the
+    // shape of every other shortcut here: the owner picked it, knowing that
+    // the ROM does honour Ctrl+letter on the PC keyboard -- the decoder masks
+    // it to a control code at 1DE0E -- so the guest loses 0Bh in that mode.
+    // No ROM application was found to react to it.
+    if (ctrl && key.wVirtualKeyCode == 'K') {
       if (host.mode == InputMode::kPc) ReleaseModifiers(machine);
-      host.mode = host.mode == wanted ? InputMode::kDefault : wanted;
+      host.mode = host.mode == InputMode::kPc ? InputMode::kBraille
+                                              : InputMode::kPc;
       host.held = host.chord = host.arrows = host.arrowChord = 0;
       host.chordShift = false;
-      switch (host.mode) {
-        case InputMode::kBraille:
-          Print(L"\r\n[Braillovská klávesnica: F D S sú body 1 2 3, "
-                L"J K L body 4 5 6, medzerník je medzerník; shift robí veľké "
-                L"písmeno a so samotným medzerníkom je Escape]\r\n");
-          break;
-        case InputMode::kPc:
-          Print(L"\r\n[Externá klávesnica PC: píše sa po českej klávesnici, "
-                L"ako keby bola pripojená k Eureke]\r\n");
-          break;
-        case InputMode::kDefault:
-          Print(L"\r\n[Späť na default]\r\n");
-          break;
-      }
+      Print(host.mode == InputMode::kBraille
+                ? L"\r\n[Braillovská klávesnica: F D S sú body 1 2 3, "
+                  L"J K L body 4 5 6, medzerník je medzerník; shift robí "
+                  L"veľké písmeno a so samotným medzerníkom je Escape. "
+                  L"Písmená sa nepíšu, píše sa bodmi, tak ako na stroji]\r\n"
+                : L"\r\n[Externá klávesnica PC: píše sa po českej "
+                  L"klávesnici, ako keby bola pripojená k Eureke]\r\n");
       continue;
     }
     if (host.mode == InputMode::kPc) {
@@ -464,9 +456,9 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
     }
     // Auto-repeat resends key-down without a key-up, so a dot already in the
     // chord must not count as a second finger.
-    if (const uint8_t dot = host.mode == InputMode::kBraille && !ctrl
-                                ? BrailleBit(key.wVirtualKeyCode)
-                                : 0) {
+    // Ctrl is not a key on this keyboard, so Ctrl+letter is not a dot either;
+    // leaving it out also keeps the emulator's own shortcuts out of the chord.
+    if (const uint8_t dot = ctrl ? 0 : BrailleBit(key.wVirtualKeyCode)) {
       host.held |= dot;
       host.chord |= dot;
       if (shift) host.chordShift = true;
@@ -490,21 +482,15 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
       machine.QueueKey(special);
       continue;
     }
-    wchar_t ch = key.uChar.UnicodeChar;
-    if (!ch) {
-      switch (key.wVirtualKeyCode) {
-        case VK_RETURN: ch = L'\r'; break;
-        case VK_BACK: ch = L'\b'; break;
-        case VK_TAB: ch = L'\t'; break;
-        case VK_ESCAPE: ch = 0x1b; break;
-        default: break;
-      }
-    }
-    if (!ch && ctrl && key.wVirtualKeyCode >= 'A' && key.wVirtualKeyCode <= 'Z')
-      ch = static_cast<wchar_t>(key.wVirtualKeyCode - 'A' + 1);
-    if (!ch) continue;
-    const auto encoded = EncodeKamenicky(std::wstring_view(&ch, 1));
-    if (!encoded.empty()) machine.QueueKey(encoded.front());
+    // Nothing else on a braille keyboard is a key.  Text used to be handed
+    // straight to the ROM's queue from here, which no machine could do; who
+    // wants to write in this mode writes dots, as on the machine.  Saying so
+    // matters more here than anywhere else: on this machine a key that does
+    // nothing is indistinguishable from a key that never arrived, because both
+    // are silence.
+    if (trace)
+      TraceKey(key, host.mode,
+               L"ignorované, braillovská klávesnica text nepíše — píšte bodmi");
   }
   return true;
 }
@@ -529,8 +515,9 @@ void PrintUsage() {
         L"--no-disk spustí Eureku bez diskety a bez pýtania.\r\n"
         L"ROM sa hľadá v premennej A4ROM, vedľa EXE, o úroveň vyššie a\r\n"
         L"v aktuálnom priečinku.\r\n"
-        L"--braille a --pc štartujú rovno v tom režime písania, keby skratky\r\n"
-        L"Ctrl+Shift+B a Ctrl+Shift+E žral terminál.\r\n"
+        L"Štartuje sa v režime externej klávesnice PC; --braille štartuje\r\n"
+        L"rovno v braillovskom, keby skratku Ctrl+K žral terminál. --pc je\r\n"
+        L"odvtedy len výslovné potvrdenie predvoľby.\r\n"
         L"--diag zapne záznam zahodených zápisov, portov bez modelu a zmien\r\n"
         L"riadiacich latchov, a k tomu záznam každej klávesovej udalosti.\r\n"
         L"Výpis: Ctrl+Shift+D, aj pri ukončení.\r\n");
@@ -549,9 +536,9 @@ int wmain(int argc, wchar_t** argv) {
   bool noDisk = false;
   bool diagnostics = false;
   // Starting straight in a mode, without the shortcut.  A console host that
-  // keeps Ctrl+Shift+E for itself is otherwise indistinguishable from a mode
-  // that does not work, and both look like silence.
-  InputMode startMode = InputMode::kDefault;
+  // keeps Ctrl+K for itself is otherwise indistinguishable from a mode that
+  // does not work, and both look like silence.
+  InputMode startMode = InputMode::kPc;
   for (int index = 1; index < argc; ++index) {
     const std::wstring argument = argv[index];
     if ((argument == L"--help" || argument == L"-h")) {
@@ -670,11 +657,10 @@ int wmain(int argc, wchar_t** argv) {
         L"F9 je režim, F10 povie, kde ste; Shift+F9 stav batérie, "
         L"Shift+F10 sebekontrolu.\r\n"
         L"Píše sa v režime " + ModeName(host.mode) +
-        L". Ctrl+Shift+B prepne na braillovskú klávesnicu\r\n"
-        L"(F D S J K L), Ctrl+Shift+E na externú klávesnicu PC; tou istou "
-        L"skratkou späť na default.\r\n"
-        L"Ak skratky žerie terminál, dá sa štartovať aj s --braille alebo "
-        L"--pc.\r\n"
+        L". Ctrl+K prepína medzi externou klávesnicou PC\r\n"
+        L"a braillovskou (F D S J K L); braillovská píše len bodmi, tak ako "
+        L"stroj.\r\n"
+        L"Ak skratku žerie terminál, dá sa štartovať aj s --braille.\r\n"
         L"Shift+F7 spustí program z disku. Ctrl+Shift+R resetuje, "
         L"Ctrl+Shift+Q uloží disk a skončí.\r\n"
         L"Eureku vypnete tak ako naozaj: v hlavnom menu podržte všetky štyri "
@@ -688,9 +674,6 @@ int wmain(int argc, wchar_t** argv) {
   // Guest cycles the wall clock has earned so far.  Fractional because the
   // rate is nudged by a couple of percent to steer the audio buffer.
   long double guestClock = 0.0L;
-  // Cycles rendered while the CPU was parked.  They are guest time as far as
-  // the DAC is concerned even though no instruction ran.
-  uint64_t idleCycles = 0;
   bool running = true;
   while (running) {
     bool reset = false;
@@ -714,7 +697,6 @@ int wmain(int argc, wchar_t** argv) {
       audio.Open(EurekaMachine::kAudioHz);
       lastTick = Clock::now();
       guestClock = 0.0L;
-      idleCycles = 0;
       Print(L"\r\n[Eureka bola resetovaná]\r\n");
     }
 
@@ -739,26 +721,17 @@ int wmain(int argc, wchar_t** argv) {
     guestClock += static_cast<long double>(rate) * delta;
 
     const uint64_t target = static_cast<uint64_t>(guestClock);
+    // The CPU is never parked now, so it always runs the cycles the wall clock
+    // has earned: the ROM waits for a key by spinning in its own dispatcher,
+    // and the DAC and the filter behind it are fed by that spinning exactly as
+    // they are on the hardware.  RenderIdle used to paper over the gap and has
+    // no gap left to paper over.
     unsigned steps = 0;
-    bool blocked = false;
-    while (machine->cycles() + idleCycles < target && steps++ < 200000) {
-      if (!machine->Step()) {
-        blocked = true;
-        break;
-      }
-    }
-    // A real Eureka's CPU waits at console input, but it waits by spinning:
-    // the DAC keeps holding its last value and the filter behind it keeps
-    // running.  Rendering those cycles is what keeps the stream alive between
-    // utterances -- see EurekaMachine::RenderIdle.
-    if (blocked && target > machine->cycles() + idleCycles) {
-      const uint64_t shortfall = target - (machine->cycles() + idleCycles);
-      machine->RenderIdle(static_cast<uint32_t>(shortfall));
-      idleCycles += shortfall;
-    }
+    while (machine->cycles() < target && steps++ < 200000)
+      if (!machine->Step()) break;  // switched itself off
     // If the host could not keep up after all, forgive the debt rather than
     // carry it: catching up faster than real time would garble the speech.
-    const uint64_t done = machine->cycles() + idleCycles;
+    const uint64_t done = machine->cycles();
     const long double ceiling =
         static_cast<long double>(done) +
         static_cast<long double>(EurekaMachine::kCpuHz) / 4.0L;
