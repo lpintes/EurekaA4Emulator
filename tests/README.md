@@ -28,8 +28,12 @@ the emulator). The executables land in `bin\` next to the emulator.
   check that the host presses shift as a key and not as a flag it keeps to
   itself.  Last it types the same word again as IBM
   PC scan codes down the serial port, which exercises the reset handshake, the
-  CSI/O interrupt and the ROM's own Czech QWERTZ tables.  Needs no files on
-  the disk.
+  CSI/O interrupt and the ROM's own Czech QWERTZ tables.  Last it presses AltGr
+  and lets it go, then types the same key on its own: the right Alt is the one
+  modifier that lives behind an E0 prefix, and a break sent without that prefix
+  clears the left Alt bit instead and leaves the right one set for good, after
+  which every key is read through the AltGr table.  Expects 40h 88h -- '@' then
+  'ě'; a stuck AltGr shows up as a second '@'.  Needs no files on the disk.
 - `power` presses all four cursor keys and checks the machine switches itself
   off through pwr_stb;
 - `dc` checks the output settles to silence after speech, whatever the DAC is

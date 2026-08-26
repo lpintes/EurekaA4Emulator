@@ -409,6 +409,44 @@ slovensky nevedela písať ani skutočná Eureka. Že to vedel default, sa
 roky písalo aj sem a **nebola to pravda**; ako to bolo naozaj, je pri
 dvoch režimoch písania v sekcii 5.
 
+#### Dve pasce okolo AltGr (nájdené a opravené 26. 8. 2026)
+
+Hlásené z používania: po pravom Alte zostane pravý Alt akoby stlačený.
+Diagnostikované zo záznamu `--diag`, obe pasce zmerané, obe boli naše.
+
+**Prvá: Windows na pustení AltGr nehlási `ENHANCED_KEY`.** V zázname je
+to čierne na bielom — stlačenie príde so `stav=0109h` (`0100h` je
+`ENHANCED_KEY`), pustenie so `stav=0000h`. `SendScanCode` sa podľa toho
+príznaku rozhodoval, či predradiť `E0h`, takže poslal `E0 38` a späť už
+len holé `B8`. A holé `B8` ide v ROM druhou cestou: `AND 7Fh`, `DF05[38h]`
+= `F8h`, teda **ľavý** Alt, a zhodí bit 3. Bit 4, ktorý nastavilo `E0 38`,
+zostane navždy. Zmerané na `C670h`: po `E0 38` je `10h`, po holom `B8`
+stále `10h`, po `E0 B8` konečne `00h`.
+
+**Druhá: Windows k AltGr pridáva ľavý Ctrl.** Na rozloženiach, ktoré
+AltGr majú, sa robí ako Ctrl+Alt a hlási sa oboje. Skutočná klávesnica PC
+po drôte pošle **len pravý Alt**, takže ten Ctrl je artefakt hostiteľa
+a nesmie na drôt: so stlačeným Ctrl ROM na `1DE16` maskuje každý znak nad
+`3Fh` cez `AND 1Fh`. Zmerané: AltGr+`2` bez neho napíše `@`, s ním
+nepríde **nič** (`40h AND 1Fh` = `00h`).
+
+**Oprava nie je záplata na `E0`, je to zmena zdroja pravdy.** Modifikátory
+sa už nepreposielajú ako udalosti; `SendScanCode` ich preskakuje
+a `SyncModifiers` ich odvodzuje z `dwControlKeyState`, ktorý Windows hlási
+pri **každom** zázname. Rozdiel proti tomu, čo stroj drží, sa dopošle —
+najprv pustenia, potom stlačenia. Tým zaniká celá trieda týchto chýb,
+vrátane pustenia strateného pri strate zamerania okna; je to ten istý
+problém, kvôli ktorému existuje `ForgetStaleArrows` pre kurzory.
+
+Padla s tým aj tretia, menšia: skratka `Ctrl+K` sa spúšťala pri AltGr+K,
+lebo `ctrl` bol vtedy pravda. Skratky teraz čítajú ten istý `WantedModifiers`
+ako stroj, takže Ctrl z AltGr nevidia.
+
+Drží to `integration_test ROM DISK kbd`, časť `altgr`: v BASICu napíše
+AltGr+`2` a hneď za tým ten istý kláves sám, a čaká `40 88` — teda `@`
+a `ě`. Odskúšané mutáciou: keď sa pustenie pošle holým `B8`, príde `40 40`,
+lebo AltGr zostal visieť. Majiteľ opravu odskúšal aj ručne.
+
 ### Vypínanie stroja
 
 Eureka sa vypínala **štyrmi kurzorovými klávesmi naraz z hlavného menu**:
