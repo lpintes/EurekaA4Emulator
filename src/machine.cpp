@@ -511,11 +511,17 @@ void EurekaMachine::PressMembraneKey(uint8_t key) {
 // Unlike PressMembraneKey this keeps no held-key state.  A chord is one
 // deliberate act: the host collects the dots while the fingers are down and
 // calls once, when they come up, so there is no host repeat to swallow.
-void EurekaMachine::PressBraille(uint8_t dots) {
+//
+// Shift is the twentieth key and belongs to the chord, not beside it: the
+// decoder reads it off row 8Ch at 1D4F9 and 1D60C, so a shifted dot chord is
+// a capital letter (D72D) and shift with the bare space bar is Escape (1D52F).
+// Neither is reachable while row 2 stays empty.
+void EurekaMachine::PressBraille(uint8_t dots, bool shift) {
   if (dots == 0) return;
   NoteHardwareInput();
   MembraneFrame frame;
   frame.row0 = dots;
+  frame.row2 = shift ? 0x40 : 0;
   frame.cycles = MsToCycles(kPressMs);
   membraneFrames_.push_back(frame);
   MembraneFrame release;

@@ -59,6 +59,11 @@ bool CheckKeyboard(EurekaMachine& machine) {
 // can get wrong: the bit order, which runs in key order and not in dot number
 // order.  Reading the line back afterwards is what proves the letters arrived
 // as letters and in the right sequence.
+//
+// The first chord is shifted, which is why the word comes back capitalised.
+// Shift is the keyboard's twentieth key and sits on row 8Ch, not beside the
+// chord: the decoder reads it at 1D60C and sends the letter through D72D.  A
+// host that presses only the dot row can never make a capital letter at all.
 bool CheckBraille(EurekaMachine& machine) {
   static const uint8_t kAhoj[] = {
       0x04,  // dot 1       -> a
@@ -72,8 +77,10 @@ bool CheckBraille(EurekaMachine& machine) {
   machine.QueueKey(0xd0);  // Shift+F1, the word processor
   for (int step = 0; step < 8'000'000; ++step)
     if (!machine.Step() && machine.queued_keys() == 0) break;
+  bool shifted = true;  // only the first chord, so the word comes back "Ahoj"
   for (uint8_t dots : kAhoj) {
-    machine.PressBraille(dots);
+    machine.PressBraille(dots, shifted);
+    shifted = false;
     for (int step = 0; step < 8'000'000; ++step)
       if (!machine.Step() && machine.queued_keys() == 0) break;
   }
@@ -82,11 +89,30 @@ bool CheckBraille(EurekaMachine& machine) {
   for (int step = 0; step < 8'000'000; ++step)
     if (!machine.Step() && machine.queued_keys() == 0) break;
   const auto spoken = machine.TakeSpeechInput();
-  if (Contains(spoken, "ahoj")) return true;
+  if (Contains(spoken, "Ahoj")) return true;
   std::cout << "  braillovske akordy precitane ako \"";
   for (uint8_t byte : spoken)
     std::cout << (byte >= 0x20 && byte < 0x7f ? static_cast<char>(byte) : '.');
   std::cout << "\"\n";
+  return false;
+}
+
+// Shift with the bare space bar is Escape, decided at 1D52F: the decoder finds
+// no dots on row 89h, looks at row 8Ch bit 6 and emits 1Bh instead of a space.
+// It is the only key code on this machine that needs two rows held at once, so
+// it is also the sharpest check that the host presses shift as a key and not
+// as a flag it keeps to itself.
+bool CheckBrailleShiftSpace(EurekaMachine& machine) {
+  machine.Reset();
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step()) break;
+  machine.PressBraille(0x80, true);
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  const uint8_t seen = machine.debug_peek(0xc638);
+  if (seen == 0x1b) return true;
+  std::cout << "  shift plus medzernik dekodovany ako " << std::hex
+            << static_cast<unsigned>(seen) << std::dec << ", nie 1B\n";
   return false;
 }
 
@@ -499,7 +525,8 @@ int wmain(int argc, wchar_t** argv) {
 
   if (std::wstring(argv[3]) == L"kbd") {
     const bool keys = CheckKeyboard(*machine);
-    const bool braille = CheckBraille(*machine);
+    const bool braille =
+        CheckBraille(*machine) && CheckBrailleShiftSpace(*machine);
     const bool pc = CheckPcKeyboard(*machine);
     const bool passed = keys && braille && pc;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=KBD"

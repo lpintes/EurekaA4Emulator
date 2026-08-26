@@ -263,6 +263,7 @@ struct HostKeyboard {
   InputMode mode = InputMode::kDefault;
   uint8_t held = 0;   // dot keys physically down at this moment
   uint8_t chord = 0;  // every dot pressed since the current chord began
+  bool chordShift = false;  // shift held at any point during that chord
   uint8_t arrows = 0;       // cursor keys physically down at this moment
   uint8_t arrowChord = 0;   // every cursor key pressed since the first went down
   ULONGLONG arrowStamp = 0; // host time of the last cursor key event
@@ -385,9 +386,14 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
                                   ? BrailleBit(key.wVirtualKeyCode)
                                   : 0) {
         host.held &= static_cast<uint8_t>(~dot);
+        // Shift belongs to the chord and is collected the same way the dots
+        // are, on every event of it: let go of shift before the last dot comes
+        // up and this final record no longer carries it.
+        if ((key.dwControlKeyState & SHIFT_PRESSED) != 0) host.chordShift = true;
         if (host.held == 0 && host.chord != 0) {
-          machine.PressBraille(host.chord);
+          machine.PressBraille(host.chord, host.chordShift);
           host.chord = 0;
+          host.chordShift = false;
         }
         continue;
       }
@@ -435,10 +441,12 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
       if (host.mode == InputMode::kPc) ReleaseModifiers(machine);
       host.mode = host.mode == wanted ? InputMode::kDefault : wanted;
       host.held = host.chord = host.arrows = host.arrowChord = 0;
+      host.chordShift = false;
       switch (host.mode) {
         case InputMode::kBraille:
           Print(L"\r\n[Braillovská klávesnica: F D S sú body 1 2 3, "
-                L"J K L body 4 5 6, medzerník je medzerník]\r\n");
+                L"J K L body 4 5 6, medzerník je medzerník; shift robí veľké "
+                L"písmeno a so samotným medzerníkom je Escape]\r\n");
           break;
         case InputMode::kPc:
           Print(L"\r\n[Externá klávesnica PC: píše sa po českej klávesnici, "
@@ -461,6 +469,7 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
                                 : 0) {
       host.held |= dot;
       host.chord |= dot;
+      if (shift) host.chordShift = true;
       continue;
     }
     if (const uint8_t arrow = ArrowBit(key.wVirtualKeyCode)) {

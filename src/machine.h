@@ -67,8 +67,10 @@ class EurekaMachine {
   void ReleaseKey(uint8_t key);
   // Presses a braille chord on the dot keys: bit 0 is dot 3, bit 1 dot 2,
   // bit 2 dot 1, bit 3 dot 4, bit 4 dot 5, bit 5 dot 6, bit 7 the space bar.
+  // Shift is the keyboard's own twentieth key on row 8Ch and is part of the
+  // chord: it capitalises a letter and turns the bare space bar into Escape.
   // The machine turns the pattern into a character itself.
-  void PressBraille(uint8_t dots);
+  void PressBraille(uint8_t dots, bool shift = false);
   // Hands one IBM PC scan code to the optional QWERTY keyboard on the clocked
   // serial port: XT set 1, so a make code is below 80h, a break code is the
   // make code with bit 7 set, and E0h prefixes the grey keys.  The ROM does
