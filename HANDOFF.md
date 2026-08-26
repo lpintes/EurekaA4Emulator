@@ -974,7 +974,69 @@ parkovaní je fronta prázdna a procesor stojí na `D874`, teda znaky mizú
 inou cestou než cez makrá. Môže to byť aj artefakt sondy — tá podáva
 klávesy bez pustenia a bez ľudského tempa, na rozdiel od `main.cpp`.
 
-### 6.12 Uzavreté otázky
+### 6.12 Kapacita diskety je z manuálu, nie z odhadu
+
+Otázka znela, či `VirtualDisk` správne posúdi, že sa hostiteľský
+priečinok na disketu zmestí. Odpoveď dal DPB, ktorý firmvér vydáva na
+službu BDOS 31 (`eurekatech/TECHMAN1/BDOS.8`):
+
+| pole | hodnota | dôsledok |
+|---|---|---|
+| BSH / BLM | 4 / 15 | blok má 2048 B |
+| DSM | 399 | 400 blokov spolu |
+| DRM | 255 | 256 položiek adresára |
+| ALL | `11110000b` `00000000b` | prvé štyri bloky drží adresár (8 KiB) |
+| EXM | 0 | jedna položka = jeden extent = 8 blokov = 128 záznamov |
+| OFF | 0 | žiadna stopa nepatrí operačnému systému |
+| SPT | 40 | 40 záznamov po 128 B na stopu |
+
+Voľných teda zostáva **396 blokov = 792 KiB**, čo `BIOS.9` potvrdzuje
+inými slovami: „800 K total, 8 K directory, leaving 792K available for
+data storage". `DISKFREE.MAC` to potvrdzuje tretí raz — alokačný vektor
+má 50 bajtov, teda 400 bitov.
+
+Konštanty v `virtual_disk.cpp` tomu odpovedali presne a aritmetika
+kontroly tiež: bloky na súbor sú `ceil(veľkosť / 2048)` (blok v CP/M
+patrí vždy len jednému súboru) a položky adresára `ceil(záznamy / 128)`,
+najmenej jedna. Odmerané sondou: 396 blokov sa pripojí, 398 nie; 256
+položiek sa pripojí, 257 nie; export z úplne plnej diskety je bajt na
+bajt zhodný, takže blok 399 sa naozaj používa.
+
+Chyby boli inde — v tichých stratách okolo tej kontroly:
+
+1. **Nečitateľný súbor sa preskočil bez slova** (`if (!input) continue;`).
+   Overené zákazom čítania cez `icacls`: disketa sa pripojila a súbor na
+   nej jednoducho nebol. Na stroji to vyzerá presne ako stratený súbor.
+2. **Kontrola a import sa nezhodli na množine súborov.** Súbor, ktorému
+   zlyhalo `file_size`, sa do súčtu nezarátal, ale alokoval sa. Prejsť
+   mohla predbežná kontrola a spadnúť až tá strohá v cykle, bez čísel.
+3. **Prehľadávanie priečinka sa dalo ticho useknúť.** `if (ec) break`
+   zachytávalo len chybu konštruktora iterátora, ktorá sa nikdy
+   nevyhodnotila, a chyba pri posune iterátora v range-for by vyhodila
+   nezachytenú výnimku.
+4. **Podpriečinky mizli bez slova.** CP/M ich nepozná, ale používateľ to
+   musí počuť.
+
+Opravené: prehľadávanie je `ScanFolder` s `increment(ec)`, každé
+zlyhanie je pomenovaná chyba, podpriečinky zbiera
+`VirtualDisk::skipped_entries()` a `main.cpp` ich vypíše. Hlásenie
+o kapacite hovorí prebytok v blokoch aj v KiB a menuje tri najväčšie
+súbory; číslovky sa ohýbajú (1 blok, 2 bloky, 5 blokov), lebo to znie
+čítač obrazovky.
+
+Regresiu drží `tests/disk_test.cpp` (18 kontrol). Testovacie priečinky
+si generuje sám v `%TEMP%` — skutočný diskový priečinok je pohyblivý
+cieľ a test, ktorý ho číta, meria to, čo tam práve niekto nechal.
+Overené mutáciami: kontrola o dva bloky štedrejšia aj návrat tichého
+`continue` test zhodí.
+
+Otvorené, mimo tejto opravy: `BIOS.9` v úvode kapitoly píše, že logické
+sektory sú číslované **1 až 40**, kým `VirtualDisk::ReadRecord` berie
+0 až 39. Pre BDOS je nula správne — inak by test `com` nemohol prejsť —
+ale program, ktorý si volá `bios_setsec` sám, by mal u nás všetko
+posunuté o jeden záznam a sektor 40 by skončil chybou.
+
+### 6.13 Uzavreté otázky
 
 | bývalá otázka | výsledok |
 |---|---|
@@ -1046,6 +1108,7 @@ v `eurekatech/TECHMAN1/READ.COM`. Obidva integračné testy prechádzajú:
 ```
 integration_test ROM DISK_FOLDER bas   -> PASS
 integration_test ROM DISK_FOLDER com   -> PASS (196 BIOS čítaní)
+disk_test                              -> PASS (18 kontrol, bez ROM)
 ```
 
 `TP.COM` a `TPS.COM` (Turbo Pascal) sú zatiaľ nevyskúšané a boli by

@@ -436,6 +436,14 @@ bool PumpKeyboard(EurekaMachine& machine, HostKeyboard& host, bool& reset,
   return true;
 }
 
+// Slovak counts in three shapes -- 1 položku, 2 položky, 5 položiek -- and a
+// screen reader speaks the ending rather than letting the eye skip it.
+std::wstring CountItems(std::size_t number) {
+  const wchar_t* word = number == 1 ? L"položku"
+                        : (number >= 2 && number <= 4 ? L"položky" : L"položiek");
+  return std::to_wstring(number) + L" " + word;
+}
+
 void PrintUsage() {
   Print(L"Eureka A4 Emulator\r\n\r\n"
         L"Použitie: EurekaA4Emulator.exe [--rom A4ROM.DMP] [--disk PRIECINOK]\r\n"
@@ -552,6 +560,19 @@ int wmain(int argc, wchar_t** argv) {
       return 1;
     }
     diskDescription = disk.wstring();
+    // A subfolder cannot go on a CP/M diskette.  Said out loud, because from
+    // inside the machine an absent file looks exactly like a lost one.
+    const std::vector<std::wstring>& skipped = machine->disk().skipped_entries();
+    if (!skipped.empty()) {
+      std::wstring list;
+      for (const std::wstring& leaf : skipped) {
+        if (!list.empty()) list += L", ";
+        list += leaf;
+      }
+      Print(L"Upozornenie: " + CountItems(skipped.size()) +
+            L" som na disketu nedal, Eureka nepozná podpriečinky: " + list +
+            L"\r\n");
+    }
   }
   machine->diagnostics().set_enabled(diagnostics);
   machine->Reset();

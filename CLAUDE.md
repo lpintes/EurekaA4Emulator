@@ -71,14 +71,20 @@ pýta mingw DLL a mimo msys2 shellu sa nespustí.
 `z80.c` sa prekladá ako C, nie C++; `build.bat` to už rieši.
 
 Sonda a testy: `build-tests.bat`. Zostaví `bin\diag_probe.exe`,
-`bin\integration_test.exe` a `bin\codec_test.exe`, a linkuje ich proti
-objektom z `build\`. `build.bat` si volá **vždy**, takže objekty nikdy
+`bin\integration_test.exe`, `bin\codec_test.exe` a `bin\disk_test.exe`,
+a linkuje ich proti objektom z `build\`. `build.bat` si volá **vždy**, takže objekty nikdy
 nie sú staršie než zdrojáky. Kým tam bola podmienka na ich existenciu,
 testy sa dali zlinkovať proti kódu, ktorý sa nepreložil, a meranie
 ukazovalo správanie, ktoré už v zdrojáku nebolo.
 
-Pozor: `codec_test` má obyčajný `main`, takže sa prekladá **bez**
-`-municode`; s ním linker spadne na chýbajúcom `wWinMain`.
+Pozor: `codec_test` a `disk_test` majú obyčajný `main`, takže sa prekladajú
+**bez** `-municode`; s ním linker spadne na chýbajúcom `wWinMain`.
+
+`disk_test` beží bez ROM aj bez diskového priečinka — testovacie priečinky si
+generuje v `%TEMP%` a po sebe ich maže. Drží pravidlá kapacity diskety
+(396 blokov po 2 KiB, 256 položiek adresára) a to, že sa žiadny súbor
+nestratí potichu. Skutočný diskový priečinok na to nepoužívaj, mení sa pod
+rukami.
 
 ## Diagnostická sonda
 

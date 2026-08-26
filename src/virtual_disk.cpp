@@ -12,11 +12,22 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// Straight out of the Disk Parameter Block the firmware hands back (technical
+// manual, appendix on BDOS service 31): BSH 4 and BLM 15 make a block 2 KiB,
+// DSM 399 means 400 of them, DRM 255 means 256 directory entries, ALL reserves
+// the first four blocks for the 8 KiB directory and OFF 0 leaves no system
+// tracks.  Chapter 9 states the same capacity the other way round: 800 K in
+// total, 8 K directory, "leaving 792K available for data storage".
+constexpr unsigned kBlockSize = 2048;
 constexpr unsigned kDirectoryBytes = 8192;
 constexpr unsigned kDirectoryEntries = 256;
-constexpr unsigned kBlockSize = 2048;
-constexpr unsigned kFirstDataBlock = 4;
+constexpr unsigned kFirstDataBlock = kDirectoryBytes / kBlockSize;
 constexpr unsigned kLastBlock = 399;
+constexpr unsigned kAvailableBlocks = kLastBlock + 1 - kFirstDataBlock;
+// One directory entry holds one extent because EXM is 0: eight 16-bit block
+// numbers, so 16 KiB or 128 records, whichever runs out first.
+constexpr unsigned kRecordsPerEntry = 128;
+constexpr unsigned kRecordSizeBytes = VirtualDisk::kRecordSize;
 
 wchar_t FoldLatin(wchar_t ch) {
   switch (ch) {
@@ -67,6 +78,28 @@ std::string Trim(const uint8_t* begin, std::size_t length) {
   return value;
 }
 
+std::wstring Kibibytes(uint64_t blocks) {
+  return std::to_wstring(blocks * (kBlockSize / 1024)) + L" KiB";
+}
+
+// Slovak counts in three shapes -- 1 blok, 2 bloky, 5 blokov -- and this message
+// is read aloud by a screen reader, where a wrong ending is heard, not skimmed.
+std::wstring Count(uint64_t number, const wchar_t* one, const wchar_t* few,
+                   const wchar_t* many) {
+  return std::to_wstring(number) + L" " +
+         (number == 1 ? one : (number >= 2 && number <= 4 ? few : many));
+}
+
+unsigned BlocksFor(uint64_t size) {
+  return static_cast<unsigned>((size + kBlockSize - 1) / kBlockSize);
+}
+
+unsigned EntriesFor(uint64_t size) {
+  const uint64_t records = (size + kRecordSizeBytes - 1) / kRecordSizeBytes;
+  return static_cast<unsigned>(
+      std::max<uint64_t>(1, (records + kRecordsPerEntry - 1) / kRecordsPerEntry));
+}
+
 }  // namespace
 
 bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
@@ -79,8 +112,12 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
   folder_ = absolute;
   media_ = Media::kFolder;
   if (BuildImage(error)) return true;
+  // A refused diskette leaves nothing behind: the half-built file list would
+  // otherwise still be reported as if it were mounted.
   media_ = Media::kNone;
   folder_.clear();
+  imported_.clear();
+  skipped_entries_.clear();
   return false;
 }
 
@@ -90,6 +127,7 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
 void VirtualDisk::CreateRamDisk() {
   image_.fill(0xe5);
   imported_.clear();
+  skipped_entries_.clear();
   folder_.clear();
   media_ = Media::kRam;
   dirty_ = false;
@@ -138,66 +176,158 @@ uint64_t VirtualDisk::Hash(const uint8_t* data, std::size_t size) {
   return hash;
 }
 
+// Everything the host folder offers, in the order the diskette will show it.
+// Anything that cannot be looked at is an error rather than a quiet omission:
+// a file missing from the diskette is indistinguishable from a lost file, and
+// the machine gives its user no way to notice.
+bool VirtualDisk::ScanFolder(std::vector<SourceFile>& files, std::wstring& error) {
+  std::error_code ec;
+  fs::directory_iterator entry(folder_, ec);
+  if (ec) {
+    error = L"Priečinok " + folder_.wstring() + L" sa nedá prečítať.";
+    return false;
+  }
+  const fs::directory_iterator end;
+  while (entry != end) {
+    const fs::path path = entry->path();
+    const std::wstring leaf = path.filename().wstring();
+    const fs::file_status status = entry->status(ec);
+    if (ec) {
+      error = L"Položku " + leaf + L" v priečinku diskety sa nepodarilo "
+              L"preskúmať, preto som disketu nezostavil.";
+      return false;
+    }
+    // Our own bookkeeping (.eureka-trash and friends) belongs to the host, not
+    // to the diskette, and is not worth reporting as skipped.
+    if (!leaf.starts_with(L".eureka-")) {
+      if (fs::is_regular_file(status)) {
+        SourceFile file;
+        file.path = path;
+        file.size = entry->file_size(ec);
+        if (ec) {
+          error = L"Veľkosť súboru " + leaf + L" sa nedá zistiť, preto neviem "
+                  L"povedať, či sa priečinok na disketu zmestí.";
+          return false;
+        }
+        files.push_back(std::move(file));
+      } else {
+        // CP/M has no directories, so a subfolder cannot go on the diskette at
+        // all.  Recorded so that main() can say so out loud.
+        skipped_entries_.push_back(leaf);
+      }
+    }
+    entry.increment(ec);
+    if (ec) {
+      error = L"Prehľadávanie priečinka " + folder_.wstring() + L" sa prerušilo, "
+              L"disketu som nezostavil.";
+      return false;
+    }
+  }
+  std::sort(files.begin(), files.end(), [](const SourceFile& left, const SourceFile& right) {
+    return left.path.filename().wstring() < right.path.filename().wstring();
+  });
+  return true;
+}
+
+// Checked up front so the message can name the real limit.  A folder can sit
+// well under 800 KiB and still not fit: CP/M hands out 2 KiB blocks, so 258
+// melodies of a few hundred bytes each claim 258 blocks between them.
+bool VirtualDisk::CheckCapacity(const std::vector<SourceFile>& files,
+                                std::wstring& error) const {
+  uint64_t neededBlocks = 0;
+  uint64_t neededEntries = 0;
+  uint64_t totalBytes = 0;
+  for (const SourceFile& file : files) {
+    neededBlocks += BlocksFor(file.size);
+    neededEntries += EntriesFor(file.size);
+    totalBytes += file.size;
+  }
+  if (neededBlocks <= kAvailableBlocks && neededEntries <= kDirectoryEntries) return true;
+
+  error = L"Priečinok sa nezmestí na disketu Eureky.\r\n";
+  if (neededBlocks > kAvailableBlocks) {
+    error += L"Jeho obsah (" + Count(files.size(), L"súbor", L"súbory", L"súborov") +
+             L") zaberie " + Count(neededBlocks, L"blok", L"bloky", L"blokov") +
+             L" po 2 KiB, disketa má " + std::to_wstring(kAvailableBlocks) +
+             L", teda " + Kibibytes(kAvailableBlocks) + L". Prebytok je " +
+             Count(neededBlocks - kAvailableBlocks, L"blok", L"bloky", L"blokov") +
+             L", teda " + Kibibytes(neededBlocks - kAvailableBlocks) + L".\r\n";
+    if (totalBytes <= static_cast<uint64_t>(kAvailableBlocks) * kBlockSize) {
+      error += L"Aj jednobajtový súbor zaberie celý 2 KiB blok, preto sa "
+               L"priečinok nezmestí, hoci má dokopy " +
+               std::to_wstring((totalBytes + 1023) / 1024) + L" KiB.\r\n";
+    }
+
+    // The largest files are the ones worth moving out, and their names are the
+    // only part of this message the user can act on straight away.
+    std::vector<const SourceFile*> largest;
+    for (const SourceFile& file : files) largest.push_back(&file);
+    std::sort(largest.begin(), largest.end(),
+              [](const SourceFile* left, const SourceFile* right) {
+                return left->size > right->size;
+              });
+    largest.resize(std::min<std::size_t>(3, largest.size()));
+    if (!largest.empty()) {
+      error += L"Najväčšie súbory: ";
+      for (std::size_t i = 0; i < largest.size(); ++i) {
+        if (i) error += L", ";
+        error += largest[i]->path.filename().wstring() + L" (" +
+                 Kibibytes(BlocksFor(largest[i]->size)) + L")";
+      }
+      error += L".\r\n";
+    }
+  }
+  if (neededEntries > kDirectoryEntries) {
+    error += L"Jeho obsah (" + Count(files.size(), L"súbor", L"súbory", L"súborov") +
+             L") potrebuje " +
+             Count(neededEntries, L"položku", L"položky", L"položiek") +
+             L" adresára, disketa má " + std::to_wstring(kDirectoryEntries) +
+             L". Viac súborov na jednu disketu nejde ani vtedy, keď sú maličké; "
+             L"súbor nad 16 KiB si navyše vyžiada ďalšiu položku.\r\n";
+  }
+  error += L"Rozdeľte priečinok na viac priečinkov a striedajte ich ako diskety.";
+  return false;
+}
+
 bool VirtualDisk::BuildImage(std::wstring& error) {
   image_.fill(0xe5);
   imported_.clear();
+  skipped_entries_.clear();
+
+  std::vector<SourceFile> files;
+  if (!ScanFolder(files, error)) return false;
+  if (!CheckCapacity(files, error)) return false;
+
   std::unordered_map<std::string, bool> used;
   unsigned directoryIndex = 0;
   unsigned nextBlock = kFirstDataBlock;
-  std::error_code ec;
 
-  std::vector<fs::directory_entry> files;
-  for (const auto& entry : fs::directory_iterator(folder_, ec)) {
-    if (ec) break;
-    if (!entry.is_regular_file(ec)) continue;
-    const std::wstring leaf = entry.path().filename().wstring();
-    if (leaf.starts_with(L".eureka-")) continue;
-    files.push_back(entry);
-  }
-  std::sort(files.begin(), files.end(), [](const auto& left, const auto& right) {
-    return left.path().filename().wstring() < right.path().filename().wstring();
-  });
-
-  // Checked up front so the message can name the real limit.  A folder can sit
-  // well under 800 KiB and still not fit: CP/M hands out 2 KiB blocks, so 258
-  // melodies of a few hundred bytes each claim 258 blocks between them.
-  unsigned neededBlocks = 0;
-  unsigned neededEntries = 0;
-  for (const auto& entry : files) {
-    const std::uintmax_t size = entry.file_size(ec);
-    if (ec) { ec.clear(); continue; }
-    const unsigned records = static_cast<unsigned>((size + 127) / 128);
-    neededBlocks += static_cast<unsigned>((size + kBlockSize - 1) / kBlockSize);
-    neededEntries += std::max(1u, (records + 127) / 128);
-  }
-  const unsigned availableBlocks = kLastBlock + 1 - kFirstDataBlock;
-  if (neededBlocks > availableBlocks || neededEntries > kDirectoryEntries) {
-    error = L"Obsah priečinka sa nezmestí na disk Eureky. " +
-            std::to_wstring(files.size()) + L" súborov potrebuje " +
-            std::to_wstring(neededBlocks) + L" blokov po 2 KiB (k dispozícii " +
-            std::to_wstring(availableBlocks) + L") a " +
-            std::to_wstring(neededEntries) +
-            L" položiek adresára (k dispozícii " +
-            std::to_wstring(kDirectoryEntries) +
-            L"). Aj malý súbor zaberá celý 2 KiB blok, preto sa priečinok "
-            L"nezmestí, hoci má menej ako 800 KiB. Rozdeľte ho na viac "
-            L"priečinkov a striedajte ich ako diskety.";
-    return false;
-  }
-
-  for (const auto& entry : files) {
-    std::ifstream input(entry.path(), std::ios::binary);
-    if (!input) continue;
+  for (const SourceFile& file : files) {
+    const std::wstring leaf = file.path.filename().wstring();
+    std::ifstream input(file.path, std::ios::binary);
+    if (!input) {
+      error = L"Súbor " + leaf + L" sa nedá otvoriť, preto som disketu "
+              L"nezostavil. Bez tohto hlásenia by na nej jednoducho chýbal.";
+      return false;
+    }
     std::vector<uint8_t> data((std::istreambuf_iterator<char>(input)), {});
-    std::string cpmName = UniqueCpmName(MakeCpmName(entry.path()), used);
+    if (input.bad()) {
+      error = L"Pri čítaní súboru " + leaf + L" nastala chyba, disketu som "
+              L"nezostavil.";
+      return false;
+    }
+    std::string cpmName = UniqueCpmName(MakeCpmName(file.path), used);
     used[cpmName] = true;
 
-    const unsigned records = static_cast<unsigned>((data.size() + 127) / 128);
-    const unsigned blocks = static_cast<unsigned>((data.size() + kBlockSize - 1) / kBlockSize);
-    const unsigned extents = std::max(1u, (records + 127) / 128);
+    const unsigned records = static_cast<unsigned>((data.size() + kRecordSize - 1) / kRecordSize);
+    const unsigned blocks = BlocksFor(data.size());
+    const unsigned extents = EntriesFor(data.size());
+    // CheckCapacity has already ruled this out; it can only happen if the
+    // folder changed under us between the scan and the read.
     if (directoryIndex + extents > kDirectoryEntries ||
         nextBlock + blocks > kLastBlock + 1) {
-      error = L"Obsah priečinka sa nezmestí na 800 KiB disk Eureky.";
+      error = L"Priečinok sa počas pripájania zmenil a jeho obsah sa už na "
+              L"disketu nezmestí. Skúste emulátor spustiť znovu.";
       return false;
     }
 
@@ -216,7 +346,7 @@ bool VirtualDisk::BuildImage(std::wstring& error) {
       std::copy(type.begin(), type.end(), directory + 9);
       directory[12] = static_cast<uint8_t>(extentNumber & 0x1f);
       directory[14] = static_cast<uint8_t>(extentNumber >> 5);
-      const unsigned extentRecords = std::min(128u, remainingRecords);
+      const unsigned extentRecords = std::min(kRecordsPerEntry, remainingRecords);
       directory[15] = static_cast<uint8_t>(extentRecords);
       const unsigned extentBlocks = (extentRecords + 15) / 16;
       for (unsigned slot = 0; slot < extentBlocks; ++slot) {
@@ -232,7 +362,7 @@ bool VirtualDisk::BuildImage(std::wstring& error) {
       std::fill(image_.begin() + nextBlock * kBlockSize + data.size(),
                 image_.begin() + (nextBlock + blocks) * kBlockSize, 0x1a);
     }
-    imported_[cpmName] = {entry.path(), data.size(), Hash(data.data(), data.size())};
+    imported_[cpmName] = {file.path, data.size(), Hash(data.data(), data.size())};
     nextBlock += blocks;
   }
   dirty_ = false;
