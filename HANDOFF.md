@@ -288,6 +288,12 @@ vrátane číselného režimu aj akordy s medzerníkom, o ktorých nevieme.
 Doložené: štyri akordy napíšu v textovom procesore „ahoj" a `Home` to
 prečíta späť — presne to robí `integration_test … kbd`.
 
+**Kurzory sa v tomto režime chordujú tiež** a je to tak zámerne: kto píše
+na braillovej klávesnici, čaká, že sa aj kurzory budú správať ako na
+Eureke. Nie je to zvláštnosť tohto režimu — chordovanie je zapnuté všade
+okrem exterky, kde sa scancody prekladajú po jednom a chordovať sa
+nedajú (viď „Vypínanie stroja").
+
 ### Klávesnica IBM PC na sériovom porte
 
 `Ctrl+Shift+E` prepne hostiteľskú klávesnicu na tú, ktorá sa k Eureke
@@ -1037,6 +1043,46 @@ Nie opraviť skratku, ale odstrániť ju. Rozsah:
 Cenou je, že `ľ ĺ ŕ ô ä Ľ` sa nebude dať napísať. To je správne: česká ROM
 ich nemá v žiadnej tabuľke, takže ich nevedela napísať ani skutočná Eureka,
 a default bol jediné miesto, kde emulátor stroj zámerne prevyšoval.
+
+#### A čím sa pri tom stane braillovský režim
+
+Vyvstalo to 26. 8. 2026 pri chordovaní kurzorov a patrí to do tej istej
+práce, lebo dnes je braillovský režim doslova „default plus body". Keď
+default zanikne, treba rozhodnúť, čo z toho ostatného v ňom zostane.
+
+Braillova klávesnica Eureky má **presne dvadsať klávesov** (`IOPORT.H`):
+šesť bodov a medzerník na riadku `89h`, osem funkčných na `8Ah`, štyri
+kurzorové a shift na `8Ch`. Nič iné na nej nie je.
+
+Čo tým režimom dnes prejde a ako to obstojí:
+
+| čo | ide kam | je to na stroji? |
+|---|---|---|
+| body `F D S J K L` a medzerník | riadok `89h` ako akord | áno |
+| `F1`–`F10` vrátane Shift | riadok `8Ah`, F9/F10 ako akordy | áno |
+| kurzory vrátane akordov | riadok `8Ch` ako bitová množina | áno |
+| `Home` `End` `PgUp` `PgDn` `Insert` `Delete` | riadok `8Ch` | áno — sú to **kurzorové akordy**, Home je hore plus vľavo |
+| písmená, číslice, interpunkcia | vlastná fronta ROM (`C67B`) | **nie** |
+
+Prvé štyri riadky nie sú obchádzka: každý z nich sa premietne na kláves
+alebo akord, ktorý stroj naozaj má, a `Home` až `Delete` sú len pohodlný
+názov pre kurzorový akord. Tie zostávajú.
+
+Posledný riadok obchádzka **je** — a je to presne tá skratka, ktorú táto
+sekcia ruší. Takže **áno, majú sa ignorovať**: po zrušení defaultu nemá
+braillovský režim prepúšťať text. Kto chce v ňom písať, píše body, tak
+ako na stroji.
+
+Dve veci, ktoré pri tom nezabudnúť:
+
+- Ignorovanie musí byť **ignorovanie, nie tichý nezmysel**. Stlačené `a`
+  nemá urobiť nič — a keďže na tomto stroji je „nič" na nerozoznanie od
+  „kláves neprišiel", nech to aspoň pri `--diag` povie trasovanie
+  klávesov, ktoré tam už je.
+- S textom padne aj `Ctrl`+písmeno, lebo `BrailleBit` sa dnes preskakuje
+  práve pri stlačenom `Ctrl`. Nie je to strata: `Ctrl+C`, ktorý hlavné
+  menu testuje na 18149, sa na skutočnej klávesnici vyrába akordom, nie
+  ovládacím klávesom.
 
 #### Nedoriešené vedľa toho
 
