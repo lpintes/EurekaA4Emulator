@@ -76,7 +76,14 @@ class EurekaMachine {
   // make code with bit 7 set, and E0h prefixes the grey keys.  The ROM does
   // the whole translation itself, layout and modifiers included.
   void QueueScanCode(uint8_t code);
-  void QueueText(const std::string& ascii);
+  // Types text on that same keyboard.  The characters are in the machine's own
+  // charset (Kamenicky), and the keys they sit on come from the ROM's tables,
+  // not from a layout of ours -- see BuildKeyboardLayout.  A character with no
+  // key anywhere in them is refused: the call types *nothing*, returns false
+  // and leaves the offending byte in *unmapped.  Typing the rest of the line
+  // around it would leave the machine holding half a command and the caller
+  // chasing the failure somewhere else entirely.
+  bool QueueText(const std::string& text, uint8_t* unmapped = nullptr);
   std::vector<uint8_t> TakeConsoleOutput();
   std::vector<uint8_t> TakeSpeechInput();
   std::vector<int16_t> TakeAudio();
@@ -168,6 +175,17 @@ class EurekaMachine {
   bool HardwareInputBusy() const;
   void NoteHardwareInput();
   void InjectFirmwareKey();
+  // Which of the ROM's three translation tables a scan code is looked up in.
+  enum class ScanModifier { kNone, kShift, kAltGr };
+  // What the ROM would make of one scan code held with one modifier, or 0 if
+  // that combination produces no character at all.  It follows the decoder at
+  // 1DD63 branch for branch rather than just indexing a table, because the
+  // branches are where the layout really lives.
+  uint8_t TranslatedScanCode(uint8_t code, ScanModifier modifier) const;
+  // Runs the decoder backwards over every scan code and every modifier, so
+  // typing a character means pressing the key the ROM itself would have read
+  // it from.  Called once the image is loaded; the tables are in it.
+  void BuildKeyboardLayout();
 
   z80 cpu_{};
   std::array<uint8_t, kPhysicalSize> memory_{};
@@ -264,6 +282,20 @@ class EurekaMachine {
   uint8_t csioData_ = 0;
   bool csioPending_ = false;
   uint64_t csioReadyAt_ = 0;
+  // The keyboard the ROM expects, worked out from its own tables: for each
+  // character of the machine's charset, the scan code that types it and the
+  // modifier that has to be held down.  code 0 means the character is not on
+  // this keyboard at all.
+  struct TypedKey {
+    uint8_t code = 0;
+    ScanModifier modifier = ScanModifier::kNone;
+  };
+  std::array<TypedKey, 256> typedKeys_{};
+  // Positions of the two modifiers themselves, also taken from the tables and
+  // not assumed; 0 means the image has no such key and the characters that
+  // need it stay unreachable.
+  uint8_t shiftScanCode_ = 0;
+  uint8_t altGrScanCode_ = 0;
   // Reconstruction filter state; see RenderAudio.
   double audioState_[2] = {};
   double couplingState_[2] = {};

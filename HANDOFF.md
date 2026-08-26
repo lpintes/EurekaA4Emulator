@@ -1154,6 +1154,63 @@ Dve veci, ktoré pri tom nezabudnúť:
   menu testuje na 18149, sa na skutočnej klávesnici vyrába akordom, nie
   ovládacím klávesom.
 
+#### Hotové 26. 8. 2026: QueueText píše scancodmi
+
+Prvý krok rozsahu je spravený. `QueueText` už nesype znaky do fronty ROM;
+píše ich na emulovanej klávesnici PC, teda tou istou cestou, ktorou pôjde
+všetko po zrušení defaultu.
+
+Tabuľka sa **nikde nepíše ručne**. `BuildKeyboardLayout` ju pri načítaní
+obrátí z obrazu: prejde všetky scancody krát tri modifikátory a pre každý
+sa spýta `TranslatedScanCode`, čo by z toho ROM urobila. Tá ide po
+vetvách dekodéra na `1DD63`, nie len po indexe do tabuľky, lebo vo
+vetvách je polovica rozloženia:
+
+- `1DDCB` vyberá tabuľku podľa `C670h` — `DF05`, `DF5E` pri shifte
+  (bity 0–1), `DF98` pri pravom Alte (bit 4);
+- od scancodu `3Ah` vyššie sa modifikátor **vôbec nepozerá** (`1DD68`),
+  preto numerická klávesnica píše to isté so shiftom aj bez neho;
+- `56h` je jediný kláves, ktorého zhiftovaný znak dekodér **počíta**
+  namiesto hľadania (`1DD8C`), a preto jediné miesto, kde sú `<` a `>`;
+- hodnoty od `F0h` sú samotné modifikátory (`1DDE6`), `01h`–`03h` sú
+  mŕtve klávesy (`1DDED`) a od `80h` nad `3Ah` sú kódy Eureky, nie znaky.
+
+Kde sedí shift a pravý Alt sa tiež **hľadá**, nie predpokladá: shift je
+ten kláves, ktorého hodnota v `DF05` je `F1h`, a pravý Alt sa nájde
+v zozname dvojíc na `DFD6` podľa výsledku `10h`. Kópia tabuliek
+v zdrojáku by bola aj druhý názor navyše, aj kus ROM v repozitári.
+
+Čo sa tým dá napísať — **111 znakov**:
+
+- celá tlačiteľná ASCII, všetkých 95, vrátane `@ # $ ~ ^ & * { } [ ] ' \``
+  cez pravý Alt a `< >` z klávesu `56h`;
+- `08h` (backspace), `09h` (tab), `0Dh` (Enter) a `1Bh` (Escape);
+- dvanásť českých písmen `é č ě ž ů ý á í ú ň š ř`.
+
+To je presne to, čo 6.11 sľubovala: `ľ ĺ ŕ ô ä Ľ` medzi nimi nie sú,
+lebo v tabuľkách nie sú. Ani `0Ah` tam nie je — nový riadok nie je kláves.
+
+Overené cez ROM, nie proti vlastnej tabuľke: v BASICu sa napíše reťazec
+a porovná sa s tým, čo firmvér vypľul na konzolu. Sedia všetky štyri
+skupiny interpunkcie, obe písmenkové aj číslice, a dvanásť českých písmen
+sa vráti bajt na bajt (`82 87 88 91 96 98 A0 A1 A3 A4 A8 A9`).
+
+Znak, ktorý na klávesnici nie je, sa **neprepíše na nič podobné**:
+`QueueText` nenapíše z reťazca nič, vráti `false` a povie ktorý bajt to
+bol. Celý riadok alebo nič — polovica príkazu v stroji by test zhodila
+o tri kroky ďalej a na inom mieste. `integration_test` aj `diag_probe`
+to vypíšu a skončia.
+
+Deväť testov prechádza aj po zmene.
+
+#### Parkovanie: znovu overené 26. 8. 2026
+
+Tvrdenie „už v strome" platí. `biosWaiting_` v strome nie je,
+`InterceptBios` nemá ani jednu vetvu, ktorá by vrátila `false`, a `Step()`
+vráti `false` len po vypnutí stroja. Z toho ale plynie, že `RenderIdle`
+je už mŕtvy kód: `blocked` v hlavnej slučke `main.cpp` (753) nastane iba
+po vypnutí, a to sa zo slučky rovno vyskakuje. Ruší sa spolu s defaultom.
+
 #### Nedoriešené vedľa toho
 
 Meno súboru pri `SAVE` sa do jednoriadkového editora nedostane: pri

@@ -94,6 +94,7 @@ bool EurekaMachine::LoadRom(const fs::path& path, std::wstring& error) {
     return false;
   }
   romLoaded_ = true;
+  BuildKeyboardLayout();
   return true;
 }
 
@@ -1253,8 +1254,121 @@ void EurekaMachine::QueueScanCode(uint8_t code) {
   csioRx_.push_back(code);
 }
 
-void EurekaMachine::QueueText(const std::string& ascii) {
-  for (unsigned char ch : ascii) QueueKey(ch);
+// The three tables the scan code decoder picks between at 1DDCB, by what
+// C670h says is held down: nothing, either shift (bits 0-1) or the right Alt
+// (bit 4).  These are physical addresses into the loaded image, not a copy of
+// it kept here: the layout is Czech QWERTZ and the ROM is the only thing that
+// says so, so a copy would be a second opinion nobody asked for.
+constexpr uint32_t kScanTablePlain = 0x1df05;
+constexpr uint32_t kScanTableShift = 0x1df5e;
+constexpr uint32_t kScanTableAltGr = 0x1df98;
+// Pairs of (scan code, result) for the codes that arrive behind an E0h
+// prefix, searched at 1DD51.  The list starts one pair in and ends at a zero.
+constexpr uint32_t kScanTableExtended = 0x1dfd6;
+
+uint8_t EurekaMachine::TranslatedScanCode(uint8_t code, ScanModifier modifier)
+    const {
+  // 1DD4C: anything from 60h up is dropped before a table is even chosen.
+  if (code == 0 || code >= 0x60) return 0;
+  if (code >= 0x3a) {
+    // 1DD68 sends these straight to the plain table: above the letters the
+    // decoder never looks at a modifier table at all, which is why the numeric
+    // keypad types the same character shifted or not.
+    if (modifier == ScanModifier::kAltGr) return 0;  // dropped at 1DD85
+    const uint8_t value = memory_[kScanTablePlain + code];
+    // 10h and 04h are the two extended modifiers (1DD74, 1DD79), 01h is caps
+    // lock (1DD7E) and 80h and up is an Eureka key code, not a character
+    // (1DD88).
+    if (value == 0 || value == 0x10 || value == 0x04 || value == 0x01 ||
+        value >= 0x80)
+      return 0;
+    // The one key whose shifted character the decoder computes instead of
+    // looking it up (1DD8C), and so the only place '<' and '>' live.
+    if (value == 0x3c)
+      return modifier == ScanModifier::kShift ? 0x3e : 0x3c;
+    return value;
+  }
+  const uint32_t table = modifier == ScanModifier::kAltGr   ? kScanTableAltGr
+                         : modifier == ScanModifier::kShift ? kScanTableShift
+                                                            : kScanTablePlain;
+  const uint8_t value = memory_[table + code];
+  // 1DDE6: F0h and up are the modifier keys themselves.  1DDED: 01h to 03h go
+  // to the dead-key handler and put nothing in the queue.
+  if (value == 0 || value >= 0xf0 || value < 0x04) return 0;
+  return value;
+}
+
+void EurekaMachine::BuildKeyboardLayout() {
+  typedKeys_.fill(TypedKey{});
+  // Where the modifiers sit is read out of the tables too, by what they do
+  // rather than by where a PC keyboard usually keeps them: F1h is the left
+  // shift flag (1DDE6 hands F0h and up to C670h, and bit 0 is what 1DDD5
+  // tests), and the extended list is the only thing that says E0 38 is the
+  // right Alt that selects the third table (1DD51 -> 10h -> bit 4).
+  shiftScanCode_ = 0;
+  for (unsigned code = 1; code < 0x3a; ++code)
+    if (memory_[kScanTablePlain + code] == 0xf1) {
+      shiftScanCode_ = static_cast<uint8_t>(code);
+      break;
+    }
+  altGrScanCode_ = 0;
+  for (uint32_t at = kScanTableExtended + 2; memory_[at] != 0; at += 2)
+    if (memory_[at + 1] == 0x10 && memory_[at] < 0x80) {
+      altGrScanCode_ = memory_[at];
+      break;
+    }
+
+  // Strongest modifier first and highest scan code first, so the weakest and
+  // lowest one wins the character in the end: '+' comes out as the unshifted
+  // 1 key (02h) rather than the keypad (4Eh), which is what a host typing a
+  // line of text means by it.
+  const ScanModifier order[] = {ScanModifier::kAltGr, ScanModifier::kShift,
+                                ScanModifier::kNone};
+  for (ScanModifier modifier : order) {
+    if (modifier == ScanModifier::kShift && shiftScanCode_ == 0) continue;
+    if (modifier == ScanModifier::kAltGr && altGrScanCode_ == 0) continue;
+    for (unsigned code = 0x5f; code >= 1; --code) {
+      const uint8_t ch = TranslatedScanCode(static_cast<uint8_t>(code), modifier);
+      if (ch == 0) continue;
+      typedKeys_[ch] = TypedKey{static_cast<uint8_t>(code), modifier};
+    }
+  }
+}
+
+bool EurekaMachine::QueueText(const std::string& text, uint8_t* unmapped) {
+  for (unsigned char ch : text) {
+    if (typedKeys_[ch].code != 0) continue;
+    if (unmapped != nullptr) *unmapped = ch;
+    return false;
+  }
+  for (unsigned char ch : text) {
+    const TypedKey key = typedKeys_[ch];
+    switch (key.modifier) {
+      case ScanModifier::kShift:
+        QueueScanCode(shiftScanCode_);
+        break;
+      case ScanModifier::kAltGr:
+        QueueScanCode(0xe0);
+        QueueScanCode(altGrScanCode_);
+        break;
+      case ScanModifier::kNone:
+        break;
+    }
+    QueueScanCode(key.code);
+    QueueScanCode(static_cast<uint8_t>(key.code | 0x80));
+    switch (key.modifier) {
+      case ScanModifier::kShift:
+        QueueScanCode(static_cast<uint8_t>(shiftScanCode_ | 0x80));
+        break;
+      case ScanModifier::kAltGr:
+        QueueScanCode(0xe0);
+        QueueScanCode(static_cast<uint8_t>(altGrScanCode_ | 0x80));
+        break;
+      case ScanModifier::kNone:
+        break;
+    }
+  }
+  return true;
 }
 
 std::vector<uint8_t> EurekaMachine::TakeConsoleOutput() {

@@ -471,6 +471,23 @@ bool CheckAlarm(EurekaMachine& machine) {
   return ok;
 }
 
+// Typing goes on the keys the ROM's own tables put the characters on, so a
+// character that is on none of them cannot be typed at all.  That has to be
+// said out loud: dropping it silently, or worse typing whatever is near it,
+// would leave the machine holding a command nobody wrote, and the failure
+// would then surface as a puzzling wrong answer three steps later.
+bool Type(EurekaMachine& machine, const std::string& text) {
+  uint8_t unmapped = 0;
+  if (machine.QueueText(text, &unmapped)) return true;
+  std::cout << "  znak " << std::hex << static_cast<unsigned>(unmapped)
+            << std::dec << "h";
+  if (unmapped >= 0x20 && unmapped < 0x7f)
+    std::cout << " ('" << static_cast<char>(unmapped) << "')";
+  std::cout << " nie je v ziadnej z tabuliek DF05, DF5E a DF98, takze \""
+            << text << "\" sa neda napisat" << std::endl;
+  return false;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -544,6 +561,7 @@ int wmain(int argc, wchar_t** argv) {
   std::vector<uint8_t> console;
   uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
   unsigned fed = 0;
+  bool typed = true;
   uint64_t runStarted = 0;
   constexpr uint64_t kLimit = 60'000'000;
   while (machine->instructions() < kLimit) {
@@ -555,8 +573,13 @@ int wmain(int argc, wchar_t** argv) {
     if (fed < kSteps && machine->cycles() > lastOut + kQuiet) {
       lastOut = machine->cycles();
       if (fed == 0) machine->QueueKey(basic ? 0xc5 : 0xd6);
-      else if (fed == 1) machine->QueueText(basic ? "LOAD \"BEEP\"\r" : "READ\r");
-      else { machine->QueueText("RUN\r"); runStarted = machine->instructions(); }
+      else if (fed == 1)
+        typed = Type(*machine, basic ? "LOAD \"BEEP\"\r" : "READ\r");
+      else {
+        typed = Type(*machine, "RUN\r");
+        runStarted = machine->instructions();
+      }
+      if (!typed) break;
       ++fed;
     }
     // A machine that has switched itself off never executes again, so the
@@ -572,13 +595,13 @@ int wmain(int argc, wchar_t** argv) {
   const auto audio = machine->TakeAudio();
   // The console is checked by content, not by length.  A byte count passed
   // happily while every character was being emitted twice ("hhoottoovvoo").
-  const bool passed = basic
+  const bool passed = typed && (basic
       ? fed >= 3 && machine->debug_bios_reads() >= 60 &&
             Contains(speech, "hotovo") && Contains(console, "hotovo") &&
             Contains(console, "RUN") && runStarted != 0 && audio.size() > 200000
       : fed >= 2 && machine->debug_bios_reads() >= 150 &&
             Contains(speech, "Read which file?") &&
-            Contains(console, "Read which file?");
+            Contains(console, "Read which file?"));
   std::cout << (passed ? "PASS" : "FAIL")
             << " mode=" << (basic ? "BAS" : "COM")
             << " instructions=" << machine->instructions()

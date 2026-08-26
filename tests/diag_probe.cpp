@@ -125,7 +125,17 @@ int wmain(int argc, wchar_t** argv) {
         std::string text;
         for (wchar_t ch : token)
           text.push_back(ch == L'~' ? '\r' : static_cast<char>(ch));
-        machine->QueueText(text);
+        // Say it out loud when a character has no key on the keyboard the ROM
+        // expects.  Typing on regardless would put a different line into the
+        // machine than the one the sequence asked for, and the answer printed
+        // below would then be an answer to a question nobody posed.
+        uint8_t unmapped = 0;
+        if (!machine->QueueText(text, &unmapped)) {
+          std::printf("%-10ls -> [znak %02Xh nie je v tabulkach DF05, DF5E "
+                      "ani DF98, nedal sa napisat]\n",
+                      token.c_str(), unmapped);
+          return 1;
+        }
       }
       const bool blocked = RunUntilPrompt(*machine, budget);
       std::printf("%-10ls -> %s%s\n", token.c_str(),
@@ -172,7 +182,10 @@ int wmain(int argc, wchar_t** argv) {
     machine->QueueKey(0xd7);          // Shift+F8, format disk
     RunUntilPrompt(*machine, budget);
     std::string spoken = Readable(machine->TakeSpeechInput());
-    machine->QueueText("Y");
+    if (!machine->QueueText("Y")) {
+      std::printf("nedalo sa napisat \"Y\"\n");
+      return 1;
+    }
 
     bool found = false;
     for (int slice = 0; slice < 20000 && !found && !machine->powered_off();
