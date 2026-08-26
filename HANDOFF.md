@@ -1333,9 +1333,14 @@ Reč sa teda nezmenila merateľne vôbec a zmizla len tá zložka, ktorá tam
 nemala čo robiť. Najväčší rozdiel jednej vzorky je 1683 (5,1 % rozsahu)
 a je to práve odobratie stojatého odstupu, nie skreslenie hlasu.
 
-**Potvrdené sluchom** (majiteľ, 26. 8. 2026): lupanie zmizlo. To je to
-podstatné, čo meranie samo povedať nevie — jednosmerná zložka je na
-grafe zjavná, ale či ju bolo počuť, rozhoduje ucho.
+**Potvrdené sluchom** (majiteľ, 26. 8. 2026): lupanie zmizlo **a reč znie
+rovnako**. To je to podstatné, čo meranie samo povedať nevie — jednosmerná
+zložka je na grafe zjavná, ale či ju bolo počuť, rozhoduje ucho.
+
+Druhá polovica toho potvrdenia je kalibrácia pre každého, kto by tú
+frekvenciu chcel meniť: pri 30 Hz **nie je hlas počuteľne dotknutý**.
+Kto ju posunie nahor a bude sa pýtať, odkiaľ vie, že už zobral basy, má
+tu záchytný bod.
 
 Drží to `integration_test ROM DISK dc`: prejde štyri aplikácie, po každej
 nechá dosek deväť sekúnd hosťovského času a overí, že posledná polsekunda
