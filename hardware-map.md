@@ -126,7 +126,41 @@ OUT (88h),A     ; vzorka na DAC
 - `/` a `*` sa dedia medzi príkazmi, hlasy sa pred každým príkazom nulujú
 - CR (0Dh) oddeľuje príkazy vnútri reťazca, prázdny reťazec ukončuje melódiu
 - `&` sa rozvinie na `!%T`, `$` na `!%T77:78` (rutiny 0D59F a 0D58F)
-- `!%P` = softvérové nastavenie výšky reči, `!%E` = ďalší parameter
+- `!%P` = softvérové nastavenie výšky reči
+- `!%E<n>` = jeden z očíslovaných hotových zvukov rečového obvodu, nie tón
+
+### Kliky (`!%E` a klikové kódy `SPCHAR`)
+
+Kapitola `SPEECH.14` manuálu to pomenúva zo strany volania: `SPCHAR`
+berie okrem kódu znaku aj **klikové kódy 10–19**, desať zvukov, ktoré
+stroj používa na ozvučenie klávesnice. Sedem z nich sú obyčajné tóny
+v jazyku vyššie, tri sú `!%E`:
+
+| kód | rozvinie sa na | čo to je |
+|---|---|---|
+| 10 | `!%T750/10*1` | malé písmeno |
+| 11 | `!%T1000/10*1` | veľké písmeno |
+| 12 | `!%T600/10*1` | číslica |
+| 13 | `!%T600/10*2` | interpunkcia |
+| 14 | `!%T750/20*0` | skratka |
+| 15 | `!%E0` | prefix |
+| 16 | `!%T300/40*5` | zlá skratka |
+| 17 | `!%E2` | funkčné klávesy |
+| 18 | `!%E2` | kurzorové klávesy |
+| 19 | `!%T150/120*5` | chyba |
+
+`!%E` je teda **o vrstvu nižšie než klik**: klik je kód pre `SPCHAR`,
+`!%E<n>` je hotový zvuk, z ktorého sú tri z tých desiatich poskladané.
+Vlastný číselník `!%E` je širší než tie dve čísla — zmerané v textovom
+procesore vydá `E1` šípka hore aj dole na okraji textu a `E7` sa pridá
+vždy, keď sa kurzor nemá kam pohnúť (`!%e2 !%e7 !%e2` pri šípke vpravo na
+konci riadka). `E2` sedí na manuál presne: je to klik kurzorových
+klávesov. Čo presne je `E1` a `E7`, rozhodne až obsluha návestia v ROM.
+
+BASIC má aj kľúčové slovo `CLICK` (tabuľka kľúčových slov od `0C134`,
+`CLICK` na `0C1EF` v tvare `CLIC`+`CBh`, token `ADh`; vedľa neho `SOUND`
+`ABh`, `OFF` `ACh`, `PITCH` `AEh`). Či berie tie isté kódy 10–19, nie je
+overené — obsluha príkazu zatiaľ nie je nájdená.
 
 ## Bity riadiacich latchov
 
