@@ -386,6 +386,28 @@ Ostatných 55 akordov s medzerníkom padne na spoločnú vetvu (1D591)
 a nerobí nič. Samotný medzerník píše medzeru; **medzerník so shiftom
 je Escape** (1D52F) — to je odvodené z kódu, nie zmerané.
 
+### Kto číta riadky priamo, mimo dekodéra
+
+Dekodér na 1D4F3 nie je jediný odberateľ. Dve slučky, ktoré nesmú
+čakať na heartbeat, si riadky čítajú samy — a preto ich **kláves
+podstrčený do fronty ROM na `C67B` neprebudí**.
+
+- **Rečový syntetizátor**, vzorková slučka 005DD–00676. Po `OUT (88h),A`
+  na 0063D prečíta všetky tri riadky (`89h`, `8Ah`, `8Ch`) a porovná ich
+  s tieňom naposledy nasnímaného stavu na `C62E`–`C630`. Čokoľvek navyše
+  ukončí dávku a nastaví `C620h` = `FFh`. `SYSRAM.A` ten bajt volá
+  **`spabrt`**, teda *space abort*.
+- **Prehrávač melódií**, slučka 10EFF–10F6B. Raz za takt skladby prečíta
+  `8Ch` (10F13, proti vlastnému tieňu na `B0F5h`) a `89h` (10F1C, kde
+  stačí čokoľvek nenulové). **Riadok `8Ah` nečíta**, takže funkčné
+  klávesy skladbu neukončia. Medzerník má vlastnú vetvu: `CP 80h` na
+  10F94 rozozná medzerník bez bodov a podľa toho sa 10F6E rozhodne, či
+  uloží pozíciu v skladbe.
+
+Prehrávač si pri každom takte zároveň prepíše `countdown` (`C66Ch`,
+autovypnutie) na `57E4h` — 22 500 sedemdesiatpätín, teda päť minút —
+takže stroj sa počas hrania nevypne.
+
 ### Poradie bitov v braillovom riadku
 
 Bity idú v poradí klávesov zľava doprava, nie podľa čísel bodov:

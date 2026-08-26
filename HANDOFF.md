@@ -676,57 +676,103 @@ Test to nechytil, lebo kontroloval `console.size() >= 40`, a zdvojený
 výstup ten limit spĺňal ľahšie než správny. `integration_test` teraz
 kontroluje obsah (`hotovo`, `RUN`, `Read which file?`), nie dĺžku.
 
-### 6.9 Hudba v hudobnom editore sa nedá prerušiť
+### 6.9 Hudba sa nedá prerušiť — medzerník vyriešený
 
 Hlásené **majiteľom skutočného stroja z ostrého používania**, nie
-z merania. Upresnené 25. 8. 2026 — pôvodné znenie („hranie sa nedá
-zastaviť") je pravdivé len sčasti:
+z merania. Rozpadá sa to na dve veci a prvá je od 26. 8. 2026 hotová.
 
-- **Medzerníkom sa hranie zastaviť nedá.** Toto je isté a platí vždy.
-  Manuál pritom naznačuje, že by skladbu mal ukončiť **ľubovoľný**
-  kláves. Je to najtvrdší bod, od ktorého sa dá začať.
-- **Úplná nemožnosť prerušiť skladbu čímkoľvek je pravda, ale nie za
-  každých okolností.** Stroj sa do toho stavu dá dostať, presné kroky
-  na reprodukciu zatiaľ nikto nemá. Je to teda skôr stav, do ktorého
-  emulátor občas spadne, než trvalá vlastnosť prehrávania.
-- **Po čase občas prestanú fungovať aj šípky mimo hudby** — napríklad
-  do adresára disku sa dá vojsť, ale nedá sa v ňom listovať. Opäť bez
-  postupu na vyvolanie. Ak sú tie dva javy jeden, hľadá sa niečo, čo
-  umŕtvi klávesnicu **naprieč aplikáciami** (zaseknutý stav dekodéra
-  ROM alebo fronty emulátora), nie chyba prehrávacej slučky editora.
+#### Medzerník: vyriešené, je to znovu default režim
 
-Čo je k tomu už známe, aby sa to znovu neodvodzovalo:
+**Zmerané 26. 8. 2026.** Hudobný editor (`F7`) prehrá po otvorení znelku,
+ktorá trvá asi **6,3 s** hosťovského času a potom skončí sama. Meria sa
+efektívna hodnota výstupu v okne 2,5–3,0 s po stlačení `F7`, teda hlboko
+vnútri znelky, a kláves sa posiela v prvej sekunde:
+
+| kadiaľ kláves ide | čo sa stlačí | RMS v okne | zastaví? |
+|---|---|---|---|
+| `PressBraille` → riadok `89h` | medzerník sám | **0** | áno |
+| `PressMembraneKey` → riadok `8Ch` | šípka hore | **0** | áno |
+| `PressMembraneKey` → riadok `8Ah` | `F4` | 5000 | nie |
+| vlastná fronta ROM (`C67B`) | medzerník v defaulte | 5028 | nie |
+| vlastná fronta ROM (`C67B`) | písmeno v defaulte | 5000 | nie |
+| sériová klávesnica PC (scan `39h`) | medzerník | 5000 | nie |
+
+Prečo to tak je, je v ROM čierne na bielom. Prehrávacia slučka sa raz za
+takt pozrie na klávesnicu takto:
+
+```
+10F10  LD HL,B0F5h
+10F13  IN A,(8Ch)      ; kurzory a shift
+10F16  AND (HL)        ; proti uloženému (invertovanému) stavu
+10F17  JR NZ,10F94h    ; nový kurzorový kláves -> koniec
+10F1C  IN A,(89h)      ; body a medzerník
+10F1E  OR A
+10F1F  JR NZ,10F94h    ; čokoľvek na riadku 0 -> koniec
+```
+
+Sú to **priame čítania portov**, nie dotaz do fronty. Medzerník má
+v `10F94` dokonca vlastnú vetvu: `CP 80h` rozozná `89h` = `80h`, teda
+medzerník bez bodov, a podľa toho sa v `10F6E` rozhodne, či sa pozícia
+v skladbe uloží (`LD (B0A9h),HL`) alebo nie. **ROM medzerník čaká.**
+
+Takže emulátor ho nedoručí, nie že by ho ROM nečítala. V default režime
+ide písmeno aj medzerník do **vlastnej fronty ROM na `C67B`**
+(`QueueKey` → `firmwareKeys_` → `InjectFirmwareKey`), a na `89h` sa
+neobjaví nikdy. To je **tá istá skratka, ktorú ruší 6.11** — tretí
+príznak jednej príčiny, vedľa hladujúcich funkčných klávesov a ukladania
+v BASICu.
+
+Dve veci, ktoré z toho merania plynú a nie sú chyba:
+
+- **Riadok funkčných klávesov `8Ah` sa v slučke nečíta vôbec**, takže
+  `F1`–`F8` znelku neukončia ani na skutočnom stroji. Tvrdenie manuálu,
+  že skladbu ukončí „ľubovoľný kláves", platí pre riadky `89h` a `8Ch`,
+  nie pre funkčné.
+- **Externá klávesnica PC znelku tiež nezastaví**, a to je verné.
+  Sériová klávesnica ide cez dekodér ROM do tej istej fronty `C67B`;
+  žiadny jej kláves sa na membránových portoch neobjaví. Na skutočnom
+  stroji to teda nešlo tiež.
+
+Ostáva teda jediný správny spôsob, a je to ten, ktorý má stroj: kláves
+na braillovej klávesnici — hociktorý bod, medzerník alebo kurzor.
+
+**Do zrušenia defaultu je obchádzka braillovský režim** (`Ctrl+Shift+B`),
+kde medzerník ide na `89h` a znelku zastaví.
+
+Drží to `integration_test ROM DISK hudba`. Beží dvakrát to isté okno,
+raz s medzerníkom a raz bez ničoho: bez druhého behu by test prešiel aj
+na znelke, ktorá dohrala sama. Odskúšané mutáciou — keď sa medzerník
+pošle do fronty ROM namiesto na riadok, test spadne s RMS 5028.
+
+#### Umŕtvená klávesnica po čase — otvorené
+
+Toto je druhá, samostatná vec a postup na reprodukciu stále nikto nemá:
+
+- **Úplná nemožnosť prerušiť skladbu čímkoľvek** — stroj sa do toho stavu
+  dá dostať, ale nie na povel. Je to teda skôr stav, do ktorého emulátor
+  občas spadne, než trvalá vlastnosť prehrávania.
+- **Po čase občas prestanú fungovať aj šípky mimo hudby** — do adresára
+  disku sa dá vojsť, ale nedá sa v ňom listovať. Ak sú tie dva javy
+  jeden, hľadá sa niečo, čo umŕtvi klávesnicu **naprieč aplikáciami**
+  (zaseknutý stav dekodéra ROM alebo fronty emulátora), nie chyba
+  prehrávacej slučky editora.
+
+Čo je k tomu známe, aby sa to znovu neodvodzovalo:
 
 - **Nesúvisí to s dĺžkou stlačenia.** Tá je v cykloch hosťa
   (`kPressMs` = 120 ms) a rámce klávesnice sa posúvajú až pri čítaní
   portu `89h`, takže je nezávislá od toho, ako často beží hostiteľská
-  slučka. Oprava slučky zo 63 na 352 Hz (sekcia 6.1) teda toto
-  pravdepodobne **nerieši** — zrýchlila len príchod klávesu do
-  emulátora zo 16 ms na 2,8 ms.
-- **Klávesnica je počas hudby snímaná často, nie zriedka.** Obsluha
-  generátora tónov na `00642` skenuje klávesnicu rýchlosťou DAC, teda
-  tisíckrát za sekundu. Práve preto sa kedysi počítanie skenov namiesto
-  času ukázalo ako chyba.
-- Predchádzajúca oprava hudobného editora (sekcia 5, bod 2) riešila
-  iný jav — že sa kláves *stratil*. Tento je, že sa neprejaví.
-
-Kadiaľ ísť — v tomto poradí, lebo prvý krok je jediný spoľahlivo
-reprodukovateľný:
-
-1. **Medzerník počas hrania.** Zistiť, **čo presne prehrávacia slučka
-   editora pýta** — či stav konzoly cez BIOS, alebo priamo porty
-   membrány, a ktorý kláves vôbec hranie ukončuje. Sonda to vie ukázať
-   bez hádania: `diag_probe ROM DISK seq … kC6` otvorí editor, `trace`
-   zaznamená porty. Kým to nie je zmerané, nedá sa rozlíšiť, či
-   emulátor kláves nedoručí, alebo či ho ROM v tej slučke nečíta.
-   Pozor na to, že medzerník je zároveň ALT (sekcia 5) — je teda
-   pravdepodobnejším kandidátom na zvláštne zaobchádzanie než ostatné
-   klávesy.
-2. **Umŕtvená klávesnica po čase.** Prejav mimo hudby (šípky v adresári)
-   dáva jednoduchší terén: dosť dlhý `seq` s opakovanými šípkami
-   a porovnanie, či ROM prestane čítať porty, alebo emulátor prestane
-   vydávať. Bez postupu na vyvolanie je to však beh naslepo, takže sa
-   oplatí až po bode 1.
+  slučka.
+- **Klávesnica je počas hudby snímaná často, nie zriedka** — slučka sa
+  na porty pozrie raz za takt skladby.
+- Predchádzajúca oprava hudobného editora (sekcia 5, bod 2) riešila iný
+  jav — že sa kláves *stratil*.
+- Stojí za pozretie **`C598h`/`C599h`**: `10F21` ich porovnáva a pri
+  nezhode zo slučky vyskočí cez `CALL NZ,F172h`. Sú to jediné dva bajty,
+  ktoré prehrávač číta a nikde v ROM sa nezapisujú absolútnou adresou,
+  takže sa do nich píše cez ukazovateľ a kto ich plní, zatiaľ nevieme.
+  Ak je to počítadlo udalostí klávesnice, je to druhá cesta von zo
+  slučky a možný kandidát na zaseknutie.
 
 ### 6.10 Hudba v emulátore hrá o 14,5 % pomalšie
 
@@ -1442,20 +1488,21 @@ python tools\strings_kam.py 8 0xd000 0xe000
 
 Poradie podľa pomeru prínos/námaha:
 
-1. **Medzerník počas hrania nezastaví skladbu** (6.9). Z chýb hlásených
-   z ostrého používania je to jediná, ktorá sa dá spoľahlivo vyvolať,
-   takže sa dá aj zmerať. Ostatné body ďalej dole sú vylepšenia.
+1. **Zrušiť default režim a s ním zachytávanie vstupu** (6.11). Teraz je
+   to jednoznačne prvé: sú z toho už **tri** hlásené chyby — hladujúce
+   funkčné klávesy, ukladanie v BASICu a medzerník, ktorý nezastaví
+   hudbu (6.9). Rozhodnuté a overené, že to všetky tri rieši. Zásah do
+   `main.cpp`, `machine.cpp` aj testov naraz, s ručným odskúšaním.
+   Parkovanie a `RenderIdle` tým zaniknú.
 2. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
    percent zle započítaných cyklov v obsluhe generátora tónov. Pozor na
    páku 8 : 1 — tempo reaguje osemkrát citlivejšie než cena obsluhy.
-3. **Zrušiť default režim a s ním zachytávanie vstupu** (6.11). Rozhodnuté
-   a overené, že to rieši funkčné klávesy aj ukladanie. Zásah do `main.cpp`,
-   `machine.cpp` aj testov naraz, s ručným odskúšaním. Parkovanie
-   a `RenderIdle` tým zaniknú.
-4. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
-   reprodukciu; bez neho je to beh naslepo. Pozor: kým nebol modelovaný
-   vypínací strob, päť minút nečinnosti stroj potichu zabilo, takže časť
-   starších pozorovaní „po čase prestane reagovať" môže byť práve toto.
+3. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
+   reprodukciu; bez neho je to beh naslepo. Prvá stopa, ktorá sa dá
+   sledovať bez neho, sú `C598h`/`C599h` (viď 6.9). Pozor: kým nebol
+   modelovaný vypínací strob, päť minút nečinnosti stroj potichu zabilo,
+   takže časť starších pozorovaní „po čase prestane reagovať" môže byť
+   práve toto.
 5. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
    Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
    používa.
@@ -1482,6 +1529,7 @@ integration_test ROM DISK_FOLDER kbd   -> PASS (klávesy, braille, PC)
 integration_test ROM DISK_FOLDER power -> PASS (vypnutie štyrmi kurzormi)
 integration_test ROM DISK_FOLDER dc    -> PASS (výstup po reči sadne na ticho)
 integration_test ROM DISK_FOLDER rtc   -> PASS (budík sa nastaví a zazvoní)
+integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
 disk_test                              -> PASS (18 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 ```
