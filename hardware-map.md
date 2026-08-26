@@ -58,6 +58,36 @@ Dekodér s výberom po 8 portoch: 80, 88, 90, 98, A0, A8, B0, B8.
 vypínač: takto sa Eureka vypína štyrmi kurzorovými klávesmi z hlavného
 menu aj po nečinnosti.
 
+V celej ROM je naň **jediný prístup**, `IN A,(B8h)` na 1D144, a hneď za
+ním `JR $-2` — firmvér čaká, kým napájanie naozaj zhasne. Cesta k nemu:
+
+- Kód klávesu je **8Fh**, v `KB.LIB` `k_udlr` (alias `k_spare3`), teda
+  `k_keypad` plus všetky štyri bity kurzorov. Testuje sa naň jediné
+  miesto v ROM, `CP 8Fh` na 18154, a to je slučka **hlavného menu** —
+  inde chord nič nerobí.
+- Vetva na 18178 povie „konec", nastaví `C66Ch` na 1 a zatočí sa
+  navždy. `C66Ch` je odpočítavadlo nečinnosti; dekrementuje ho heartbeat
+  na 1D0B0 a pri nule skočí na rutinu vypnutia 1D132. Nekonečná slučka
+  nevadí, lebo obsluha prerušenia sa už nevráti.
+- Reload je `57E4h` = 22500 tikov, teda pri 75 Hz **presne 5 minút**
+  (0AA19, 0D477, 10F0D, 19395, 19C64). Pri `08CAh` (2250 tikov = 30 s
+  pred koncom) sa volá `CCFEh` — výstražná znelka.
+- Rutina 1D132 pred strobom uloží do `C45Ah` hodnotu `FFh`. To je značka
+  „vypnuté čisto": boot ju číta na 180CB a skočí na `CFD9h` namiesto
+  plnej inicializácie na 180D2, potom ju na 180D6 zmaže. Preto sa stroj
+  po zapnutí vracal tam, kde ho používateľ nechal — `GLOSSARY.TXT`
+  dodáva, že napájanie RAM ani hodín sa nikdy neodpájalo.
+
+**Z externej klávesnice PC sa vypnúť nedalo.** Bajt `8Fh` nie je ani
+v jednej zo štyroch prekladových tabuliek ROM (1DF05 základná, 1DF5E
+shift, 1DF98 pravý Alt, 1DFD6 rozšírená pre `E0h`) a scancody sa
+prekladajú po jednom, nikdy sa nezlučujú. Chordovať sa dá len na
+membráne, kde ROM číta celý riadok `8Ch` naraz. Jediný výskyt bajtu
+`8Fh` v pásme obsluhy klávesnice (1DE9A) patrí tabuľke skladania
+diakritiky: `A` + čiarka = `Á`, lebo `8Fh` je v Kamenických práve `Á`.
+To je aj dôvod pre `BIT 0,H` pred `CP 8Fh` — odlišuje kód klávesu od
+znaku.
+
 Disketová radič potvrdený protokolom seek na 19806h:
 `IN A,(99h)` (aktuálna stopa) → `OUT (9Bh),A` (cieľová) → príkaz 14h.
 Formátovanie: DMA kanál 1, 7000 bajtov (jedna DD stopa) do 9Bh, príkaz F0h/F2h.

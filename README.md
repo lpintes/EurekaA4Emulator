@@ -17,6 +17,11 @@ ako v Eureke.
 Ukončenie a bezpečné uloženie disku: `Ctrl+Shift+Q`. Reset:
 `Ctrl+Shift+R`. Nápoveda k prepínačom: `--help`.
 
+Eureku možno vypnúť aj tak, ako sa vypínala naozaj: v hlavnom menu
+podržte **všetky štyri kurzorové klávesy naraz**. Stroj zahlási „konec“
+a zhasne, disk sa pritom uloží. Vypne sa aj sám po piatich minútach
+nečinnosti a tridsať sekúnd vopred to ohlási tónmi.
+
 Keď emulátor spustíte zo správcu súborov, dostane vlastné okno konzoly,
 ktoré by s ním na konci zaniklo. Preto pred skončením počká na kláves,
 aby sa dala prečítať posledná hláška — pri chybe aj pri normálnom
@@ -71,6 +76,10 @@ HD64180; spustiteľný `.COM` musí byť určený pre EurekaDOS/CP/M 2.2.
 
 - `F1` až `F10`, kurzory, Home, End, Page Up/Down, Insert a Delete sa mapujú
   na pôvodné kódy Eureky; fungujú aj kombinácie Shift a Alt.
+- Kurzorové klávesy sú na Eureke **jedna klávesnica, nie štyri klávesy**:
+  ROM ich číta ako množinu naraz stlačených. Preto sa dajú aj chordovať —
+  podržte dva a viac naraz a Eureka dostane ich kombináciu, keď posledný
+  pustíte. Všetky štyri sú príkaz „vypni sa“.
 - Bežný Unicode text z Windows sa prevádza do presnej znakovej sady
   Kamenických/KEYBCS2 (často nazývanej CP895), nie do CP852.
 - Podporované sú české a slovenské písmená vrátane `č ď ľ ĺ ň ô ŕ ř š ť ž`.

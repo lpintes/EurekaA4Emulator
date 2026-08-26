@@ -344,6 +344,73 @@ klávesnice PC (`DF05`, `DF5E`, `DF98`) ani v braillových (`D7A0`,
 nevedela; default je teda jediné miesto, kde emulátor stroj zámerne
 prevyšuje.
 
+### Vypínanie stroja
+
+Eureka sa vypínala **štyrmi kurzorovými klávesmi naraz z hlavného menu**:
+zahlásila „konec" a zhasla. Emulátor to teraz robí tiež. Celá cesta
+v ROM je rozpísaná v `hardware-map.md` pri porte `B8h`; sem patrí, čo
+z nej plynie pre model.
+
+- Kód klávesu je **8Fh** (`k_udlr` v `KB.LIB`) a jediný test naň je
+  `CP 8Fh` na 18154, v slučke hlavného menu. Inde chord nerobí nič.
+- Vypnutie ide cez **odpočítavadlo nečinnosti** `C66Ch`. Chord ho
+  nastaví na 1, takže vypne najbližší tik heartbeatu; bez klávesu
+  odpočíta reload `57E4h` = 22500 tikov = **presne 5 minút** a 30 sekúnd
+  vopred zahrá výstražnú znelku. Je to teda **jeden mechanizmus**, nie
+  dva.
+- Samotný vypínač je `IN A,(B8h)` na 1D144 s `JR $-2` za ním. Kým bol
+  port bez modelu, emulátor v tej dvojici inštrukcií točil navždy,
+  s vypnutými prerušeniami: ticho, hluchý a s vyťaženým jadrom.
+
+Čo robí emulátor teraz: `Step()` vráti `false` a stroj **stojí celý**,
+ako keď zhasne napájanie. RAM ani hodiny sa nemažú — na skutočnom stroji
+majú vlastné napájanie, ktoré sa nikdy neodpájalo (`GLOSSARY.TXT`), a
+práve preto vie firmvér nadviazať tam, kde používateľ skončil. `main.cpp`
+počká, kým dohrá „konec" (`AudioPlayer::Close()` volá `waveOutReset` a
+inak by koncovku odrezal), zapíše disk a skončí.
+
+**Pozor pre každého, kto píše slučku okolo `Step()`.** Vypnutý stroj už
+neprikročí, takže `cycles()` ani `instructions()` sa nehýbu a slučka
+tvaru „bež, kým nevyprší rozpočet" sa **zacyklí**. `RunUntilPrompt`
+v sonde aj v integračnom teste to už ošetrujú.
+
+Ako sa to dá vyvolať z hostiteľa: kurzorové klávesy sú **jedna
+klávesnica, nie štyri klávesy** — ROM ich číta ako bitovú množinu na
+riadku `8Ch`. `main.cpp` preto jeden kurzor pošle hneď (aby navigácia
+zostala okamžitá a typematic ROM ďalej opakoval), ale keď na ňom pristane
+druhý prst, čaká na pustenie posledného a pošle zjednotenie — presne ako
+braillovský akord. Že sa ten prvý kláves stihol vydať sám, nie je chyba:
+na skutočnej membráne vyzerajú prsty dopadnuté o viac než jeden sken
+rovnako.
+
+Jedna poistka tam je zámerne: keď okno stratí zameranie uprostred
+stlačenia, pustenie klávesu dostane niekto iný a emulátor by ten kurzor
+navždy považoval za držaný — a tým by umŕtvil všetky ďalšie jednotlivé
+šípky. Sada stlačených sa preto zabudne, ak z nej dve sekundy nič
+nepríde. Windows držaný kláves opakuje asi tridsaťkrát za sekundu, takže
+skutočne držaný prst sa tak nikdy nestratí, a dve sekundy sú zároveň nad
+najdlhším oneskorením prvého opakovania, aké Windows ponúka — pomaly
+skladaný akord sa teda nerozpadne.
+
+V režime **externej klávesnice PC** sa stroj vypnúť nedá, a je to tak
+správne — skutočná Eureka to tiež nevedela, `8Fh` nie je ani v jednej
+z jej štyroch prekladových tabuliek scancodov.
+
+Drží to `integration_test ROM DISK power`: stlačí 8Fh, počká na „konec",
+a overí, že stroj stojí, že `C45Ah` je `FFh` a že sa počítadlá naozaj
+zastavili. Odskúšané mutáciou — keď sa `B8h` vráti k `return 0xff`,
+test spadne na dvoch z tých kontrol.
+
+#### Otvorené vedľa toho: znaky nad 7Fh sa stláčajú ako akordy
+
+`QueueKey` posiela každý bajt s bitom 7 do `PressMembraneKey`. Znak `Á`
+je v Kamenických **8Fh**, takže napísať ho v režime **default** v hlavnom
+menu znamená stlačiť štyri kurzory a stroj sa vypne; ostatné akcentované
+znaky sa podobne stlačia ako nejaký iný akord namiesto toho, aby sa
+napísali. Je to ďalší dôvod pre už rozhodnuté zrušenie defaultu (6.11)
+a zároveň to spochybňuje tvrdenie, že default je jediná cesta, ako
+napísať `ľ ĺ ŕ ô ä Ľ` — treba to preveriť, kým sa ten režim ruší.
+
 ### Diagnostika
 
 `--diag` zapne záznam: zahodené zápisy pod `kRamBase`, externé porty bez
@@ -1038,20 +1105,33 @@ posunuté o jeden záznam a sektor 40 by skončil chybou.
 
 ### 6.13 Časové funkcie nefungujú
 
-**Zatiaľ len zápis pre záznam, nie diagnóza.** Hlásené 26. 8. 2026:
-nefungujú funkcie viazané na čas — **budík, odbíjanie hodín, diár
-a automatické vypnutie pri nečinnosti**. Nie je jasné, či ide o jeden
-spoločný mechanizmus (napr. niečo, čo v ROM porovnáva RTC s uloženým
-časom udalosti a nespúšťa sa), alebo o štyri nezávislé chyby ako
-v sekcii 5 (funkčné klávesy). Netestované sondou, bez trasovania.
+Hlásené 26. 8. 2026: nefungujú funkcie viazané na čas — **budík,
+odbíjanie hodín, diár a automatické vypnutie pri nečinnosti**.
 
-Súvis so sekciou 6.11 je pravdepodobný a stojí za prvé overenie:
-zaparkovanie procesora pri čakaní na kláves zastavovalo aj heartbeat
-a teda aj tikanie časovačov, kým sa v 6.11 nezrušilo. Ak niektorá z
-týchto funkcií závisí od heartbeatu alebo od prerušenia, ktoré počas
-parkovania nechodilo, mohla sa touto opravou už čiastočne alebo úplne
-vyriešiť — treba overiť sondou (`diag_probe … boot` alebo `seq` s F2
-pre hodiny a kalendár) skôr než sa hľadá nová príčina.
+**Jedna zo štyroch je vyriešená a bola inde, než sa hľadalo.**
+Automatické vypnutie po nečinnosti sa 26. 8. 2026 zmeralo: ROM ho
+vyvolá **načas a správne**. Odpočítavadlo `C66Ch` dobehne na nulu, 30
+sekúnd vopred zaznie výstražná znelka a firmvér vydá vypínací strob.
+Nefungoval až posledný krok — port `B8h` bol v emulátore prázdny.
+Zmerané sondou v scratchpade: stroj sa vypol po **303,66 s** hosťovského
+času bez jediného klávesu. Opravené, viď „Vypínanie stroja" v sekcii 5.
+
+Z toho plynú dve veci pre zvyšné tri:
+
+1. **Domnienka o parkovaní zo sekcie 6.11 bola správna.** Kým sa
+   parkovalo, heartbeat pri čakaní na kláves stál a `C66Ch` neodpočítaval
+   vôbec. Zrušenie parkovania to rozbehlo — a keďže strob nebol
+   modelovaný, urobilo to z ticha regresiu: emulátor po piatich minútach
+   nečinnosti potichu zomrel. Ak budík, odbíjanie alebo diár závisia od
+   heartbeatu rovnako, môžu byť **už opravené** a treba to overiť skôr,
+   než sa hľadá nová príčina.
+2. **Netreba predpokladať jednu spoločnú príčinu.** Vypnutie po
+   nečinnosti nešlo cez porovnávanie RTC s uloženým časom, ale cez
+   obyčajné odpočítavadlo v heartbeate. Budík a diár pracujú s `190h`–
+   `197h` (čas najbližšieho budíka) a `290h`/`291h`, teda inou cestou;
+   merať sa musia zvlášť.
+
+Zvyšné tri sú stále netestované sondou a bez trasovania.
 
 ### 6.14 Uzavreté otázky
 
@@ -1064,6 +1144,35 @@ pre hodiny a kalendár) skôr než sa hľadá nová príčina.
 | RTC — mapovanie registrov | emulátor bol **správne**; navrhovaná oprava by hodiny rozbila |
 | adresný priestor | maska zmenená na `0x7ffff`, 19 bitov HD64180 |
 | ktorý akord je Insert a ktorý Delete | `KB.LIB` mal pravdu: `8Dh` a `8Eh`. Rozhodla vlastná tabuľka ROM pre klávesnicu PC (`DF05`, scancode `52h` → `8Dh`, `53h` → `8Eh`). Emulátor držal variant z `KB.H` a bol opravený. |
+
+### 6.15 Zachovanie RAM medzi behmi — rozhodnuté, nespravené
+
+**Rozhodnuté 26. 8. 2026:** obsah RAM sa bude ukladať do súboru
+(pracovne `RAM.dat`) a ďalšie spustenie emulátora nebude tvrdý reset, ale
+zapnutie. Tvrdý reset zostane, ale ako **voľba**, nie ako jediná cesta.
+
+Je to model hardvéru, nie pohodlie. Skutočná Eureka RAM ani hodiny nikdy
+neodpájala od napájania (`GLOSSARY.TXT`), takže vypnutie bolo pohotovostný
+stav a stroj sa po zapnutí vrátil tam, kde používateľ skončil.
+
+Čo pre to už je hotové a čo bude treba:
+
+- Vypnutie je modelované a `EurekaMachine::PowerDown()` je jediné miesto,
+  kde stroj zastane — tam patrí uloženie.
+- Firmvér má na to **vlastnú značku**: `C45Ah` je pri vypnutí `FFh`
+  a boot ju číta na 180CB. Sprístupňuje ju `power_down_marker()`.
+  Ak sa RAM obnoví aj s tou hodnotou, ROM sa sama rozhodne pokračovať;
+  ak sa RAM vynuluje, urobí plnú inicializáciu. **Nič sa nemusí
+  obchádzať.**
+- `Reset()` dnes RAM vymaže, a preto je to tvrdý reset. Zapnutie
+  s obnovenou RAM bude iná cesta než `Reset()`, nie jeho parameter —
+  `Reset()` totiž vracia aj MMU, časovače a periférie do stavu po zapnutí,
+  čo treba oboje.
+- Otvorené: čo s obsahom, ktorý vznikol pri inej ROM alebo inom
+  priečinku disku. Uložená RAM je plná ukazovateľov do FCB a do
+  adresára, takže obnoviť ju nad iným diskom nie je bezpečné; súbor by
+  si mal niesť aspoň MD5 ROM a identitu disku a pri nezhode ponúknuť
+  tvrdý štart.
 
 ## 7. Nástroje
 
@@ -1105,15 +1214,23 @@ Poradie podľa pomeru prínos/námaha:
    `machine.cpp` aj testov naraz, s ručným odskúšaním. Parkovanie
    a `RenderIdle` tým zaniknú.
 4. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
-   reprodukciu; bez neho je to beh naslepo.
-5. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+   reprodukciu; bez neho je to beh naslepo. Pozor: kým nebol modelovaný
+   vypínací strob, päť minút nečinnosti stroj potichu zabilo, takže časť
+   starších pozorovaní „po čase prestane reagovať" môže byť práve toto.
+5. **Zvyšné tri časové funkcie** (6.13) — budík, odbíjanie a diár. Jedna
+   zo štyroch sa už vyriešila zrušením parkovania, takže prvý krok je
+   overiť, či sa tieto tri nespravili samy.
+6. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
+   Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
+   používa.
+7. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-6. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+8. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-7. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+9. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-8. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+10. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
    rozhodne otázku 6.3.
 
 ### Čím sa dá testovať
@@ -1125,8 +1242,14 @@ v `eurekatech/TECHMAN1/READ.COM`. Obidva integračné testy prechádzajú:
 ```
 integration_test ROM DISK_FOLDER bas   -> PASS
 integration_test ROM DISK_FOLDER com   -> PASS (196 BIOS čítaní)
+integration_test ROM DISK_FOLDER kbd   -> PASS (klávesy, braille, PC)
+integration_test ROM DISK_FOLDER power -> PASS (vypnutie štyrmi kurzormi)
 disk_test                              -> PASS (18 kontrol, bez ROM)
+codec_test                             -> PASS (bez ROM)
 ```
+
+Pozor: `com` potrebuje `READ.COM` v priečinku disku a bez neho zlyhá.
+Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`.
 
 `TP.COM` a `TPS.COM` (Turbo Pascal) sú zatiaľ nevyskúšané a boli by
 podstatne tvrdším testom EurekaDOS.
