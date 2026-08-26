@@ -33,6 +33,13 @@ the emulator). The executables land in `bin\` next to the emulator.
   alarm, the chime and the diary were dead together.  Needs no files on the
   disk.  Typing here goes down the serial port, and the ROM's keyboard table is
   Czech QWERTZ -- the digits need shift.
+- `hudba` opens the music composer, which plays its jingle on entry, and checks
+  that the space bar stops it.  The player's own stop test reads the keyboard
+  rows directly (8Ch at 10F13, 89h at 10F1C) and never looks at the ROM's key
+  queue, so only a key that reaches the rows silences the tune.  The same
+  window is measured twice, once with the space bar pressed and once with
+  nothing pressed at all: without the second run the check would pass just as
+  happily on a tune that had ended by itself.  Needs no files on the disk.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
 A genuine `READ.COM` ships with the Technical Manual's development disk and is

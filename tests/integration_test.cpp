@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <ctime>
 #include <iostream>
 #include <memory>
@@ -266,6 +267,72 @@ bool CheckSettlesToSilence(EurekaMachine& machine) {
   return ok;
 }
 
+// The music composer's jingle, and what does and does not silence it.
+//
+// The player's own stop test is at 10F13 and 10F1C: it reads rows 8Ch and 89h
+// straight off the keyboard and takes any bit it finds as "stop".  It never
+// looks at the ROM's key queue, so a character handed to that queue -- which
+// is what the emulator's default mode and the serial keyboard both do -- is
+// invisible to it and the tune plays on.  A key that reaches the rows stops it.
+//
+// Two runs, because one proves nothing: the same window is measured with the
+// space bar pressed on row 89h and with nothing pressed at all.  Without the
+// second the check would pass just as happily on a tune that ended by itself.
+bool CheckMusicStops(EurekaMachine& machine) {
+  // Measured: the jingle runs about 6.3 s of guest time from the F7 press, so
+  // pressing at 1 s and looking at 2.5-3.0 s is well inside it either way.
+  const uint64_t kPressAt = EurekaMachine::kCpuHz;
+  const uint64_t kWindowFrom = EurekaMachine::kCpuHz * 5 / 2;
+  const uint64_t kWindowTo = EurekaMachine::kCpuHz * 3;
+
+  double level[2] = {0, 0};
+  for (int run = 0; run < 2; ++run) {
+    const bool press = run == 0;
+    machine.Reset();
+    for (int step = 0; step < 8'000'000; ++step)
+      if (!machine.Step()) break;
+    machine.TakeAudio();
+    machine.QueueKey(0xc6);  // F7, the music composer, which plays on entry
+    const uint64_t started = machine.cycles();
+    bool pressed = false;
+    double sum = 0;
+    std::size_t samples = 0;
+    while (machine.cycles() < started + kWindowTo) {
+      if (press && !pressed && machine.cycles() > started + kPressAt) {
+        machine.PressBraille(0x80);  // the space bar alone, row 89h bit 7
+        pressed = true;
+      }
+      const bool measuring = machine.cycles() >= started + kWindowFrom;
+      for (int16_t sample : machine.TakeAudio()) {
+        if (!measuring) continue;
+        sum += static_cast<double>(sample) * sample;
+        ++samples;
+      }
+      machine.TakeSpeechInput();
+      machine.TakeConsoleOutput();
+      if (!machine.Step() && machine.powered_off()) break;
+    }
+    level[run] = samples ? std::sqrt(sum / samples) : 0.0;
+  }
+
+  bool ok = true;
+  // One LSB of the DAC is 256 in these units, so 64 is a quarter of the
+  // smallest step the hardware can take; with the space bar it measures 0.
+  if (level[0] > 64) {
+    std::cout << "  medzernik na riadku 89h hranie nezastavil, RMS "
+              << level[0] << "\n";
+    ok = false;
+  }
+  // Measured without the press: around 5000.  A tune that is not playing here
+  // would make the check above pass without proving anything.
+  if (level[1] < 1000) {
+    std::cout << "  znelka v okne nehrala ani bez klavesu, RMS " << level[1]
+              << " -- test nic neoveril\n";
+    ok = false;
+  }
+  return ok;
+}
+
 // Runs a fixed stretch of instructions, draining what the machine produces so
 // the buffers cannot grow without bound.  Pacing on silence, the way the other
 // checks here do, does not work in the clock application: it says nothing at
@@ -384,9 +451,10 @@ int wmain(int argc, wchar_t** argv) {
   if (argc != 4 ||
       (std::wstring(argv[3]) != L"com" && std::wstring(argv[3]) != L"bas" &&
        std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power" &&
-       std::wstring(argv[3]) != L"dc" && std::wstring(argv[3]) != L"rtc")) {
-    std::wcerr
-        << L"usage: integration_test ROM DISK_FOLDER com|bas|kbd|power|dc|rtc\n";
+       std::wstring(argv[3]) != L"dc" && std::wstring(argv[3]) != L"rtc" &&
+       std::wstring(argv[3]) != L"hudba")) {
+    std::wcerr << L"usage: integration_test ROM DISK_FOLDER "
+                  L"com|bas|kbd|power|dc|rtc|hudba\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -397,6 +465,12 @@ int wmain(int argc, wchar_t** argv) {
     return 2;
   }
   machine->Reset();
+
+  if (std::wstring(argv[3]) == L"hudba") {
+    const bool passed = CheckMusicStops(*machine);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=HUDBA\n";
+    return passed ? 0 : 1;
+  }
 
   if (std::wstring(argv[3]) == L"rtc") {
     const bool passed = CheckAlarm(*machine);
