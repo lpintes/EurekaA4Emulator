@@ -903,6 +903,10 @@ v emulátore to lupne pri nábehu a zoberie polovicu odstupu od orezania
 všetkému, čo príde potom. Overenie zo sekcie 6.1, že držaná hodnota je
 stred stupnice, platí **pre parkovanie po reči, nie po hudbe**.
 
+Doplnené 26. 8. 2026: nie je to zvláštnosť editora. Rovnaké to je po
+každej aplikácii, len s inou hodnotou, a príčina je jedna — chýbajúca
+hornopriepusť. Viď **6.16**; tam sa to aj opraví, tento odsek zanikne.
+
 ### 6.11 Funkčné klávesy hladujú: emulátor odreže ROM od jej vlastnej fronty
 
 Hlásené z používania: v BASICu `F1` (run), `F2` (list) aj `F5` (save)
@@ -1125,13 +1129,52 @@ Z toho plynú dve veci pre zvyšné tri:
    nečinnosti potichu zomrel. Ak budík, odbíjanie alebo diár závisia od
    heartbeatu rovnako, môžu byť **už opravené** a treba to overiť skôr,
    než sa hľadá nová príčina.
-2. **Netreba predpokladať jednu spoločnú príčinu.** Vypnutie po
-   nečinnosti nešlo cez porovnávanie RTC s uloženým časom, ale cez
-   obyčajné odpočítavadlo v heartbeate. Budík a diár pracujú s `190h`–
-   `197h` (čas najbližšieho budíka) a `290h`/`291h`, teda inou cestou;
-   merať sa musia zvlášť.
+2. **Nebola to jedna príčina so zvyškom.** Vypnutie po nečinnosti nešlo
+   cez porovnávanie RTC s uloženým časom, ale cez obyčajné odpočítavadlo
+   v heartbeate. Budík a diár idú inou cestou — a tá je nižšie.
 
-Zvyšné tri sú stále netestované sondou a bez trasovania.
+Overené 26. 8. 2026 aj z druhej strany: majiteľ výstražnú znelku
+tridsať sekúnd pred vypnutím **počul**, takže celá cesta cez `C66Ch`
+funguje od začiatku do konca. Nezhoda zostáva jediná a je otvorená:
+majiteľ má dojem, že stroj pri tom päťminútovom vypnutí povie **„konec"**.
+Meranie hovorí opak — za celých 320 sekúnd prešla do rečového engine iba
+tá znelka a nič viac, a v ROM je „konec" viazané výhradne na vetvu
+`CP 8Fh` na 18154. Ak sa dojem potvrdí, chýba v tej ceste ešte niečo.
+
+#### Zvyšné tri stoja na RTC prerušení, ktoré sa nemodeluje
+
+**Diagnóza z 26. 8. 2026, oprava nespravená.** Je to jeden spoločný
+mechanizmus, nie tri chyby.
+
+Manuál (`IOPORT.H`, `rtc_mask`, port `290h` na zápis):
+
+| bit masky | udalosť, ktorá vyvolá prerušenie |
+|---|---|
+| 0 | čas a dátum sa zhodujú s registrami `rtc_ram_*` (`190h`–`197h`) |
+| 1–6 | periodicky každú stotinu, desatinu, sekundu, minútu, **hodinu**, deň |
+
+Bit 0 **je** budík. Hodinový bit je odbíjanie. `rtc_status` (čítanie
+z `290h`) hlási, ktorá udalosť nastala, bit 7 hlási prerušenie bez ohľadu
+na povolenie v `rtc_command`, a **register sa čítaním nuluje**.
+`rtc_command` (`291h`) má v bite 4 povolenie, aby RTC pri budíku zdvihol
+svoju prerušovaciu linku; `rtc_default` je `00001100b`.
+
+Emulátor má na to `case 0x0290: return 0;` (`machine.cpp`). Stav sa nikdy
+nenastaví a RTC prerušenie sa negeneruje vôbec — modelované sú len tri
+vnútorné zdroje Z180 (časovač 0, časovač 1, CSI/O). Že to nie je mŕtvy
+kód, je doložené trasovaním: ROM ten register naozaj pollne, na `PC CF63h`,
+a vždy dostane nulu.
+
+Pri oprave pozor na aliasing, ktorý tam dnes je a zatiaľ nevadí: zápisy na
+`290h`/`291h` idú do `io_[0x90]` a `io_[0x91]`, teda **do tých istých
+buniek ako hodinové registre `90h` a `91h`**. Kým sa maska nečíta, je to
+neškodné; potom by sa nastavenie hodín a maska prerušenia navzájom
+prepisovali.
+
+Čo bude treba: maska, stavový register s nulovaním pri čítaní, periodické
+udalosti odvodené od toho istého hostiteľského času ako `ReadRtc`, zhoda
+s `rtc_ram_*` a externé prerušenie do jadra. A až potom sa dá povedať, či
+tie tri funkcie ožijú — je to najpravdepodobnejšia príčina, nie dokázaná.
 
 ### 6.14 Uzavreté otázky
 
@@ -1173,6 +1216,49 @@ stav a stroj sa po zapnutí vrátil tam, kde používateľ skončil.
   adresára, takže obnoviť ju nad iným diskom nie je bezpečné; súbor by
   si mal niesť aspoň MD5 ROM a identitu disku a pri nezhode ponúknuť
   tvrdý štart.
+
+### 6.16 Lupanie: chýba väzobný kondenzátor
+
+**Zmerané 26. 8. 2026, oprava nespravená.** Hlásené z ostrého používania:
+pri zvýšenej hlasitosti počuť počas nečinnosti **nepravidelné lupanie**.
+
+Podstatná časť diagnózy je v tom, kedy sa to *nedeje*: po čerstvom boote
+je výstup **absolútne digitálne ticho**, tridsať sekúnd bez jedinej
+nenulovej vzorky. Objaví sa to až keď stroj predtým prehovorí — a práve
+to bola stopa, bez ktorej sa to nedalo nájsť.
+
+DAC totiž drží **poslednú vzorku reči** a tá je tam, kde ju veta náhodou
+nechala. Zmerané v pokoji po návrate z aplikácie:
+
+| po klávese | DAC v pokoji | výstupná vzorka |
+|---|---|---|
+| F1 záznamník | 128 | 0 |
+| F3 kalkulátor | 131 | +768 |
+| F7 hudobný editor | 111 | −4352 |
+| F10 kde som | 135 | +1792 |
+
+V jednom behu bolo 28 sekúnd po sebe presne +2560 na každej vzorke.
+
+`RenderAudio` má dolnopriepustný rekonštrukčný filter (6.1), ale **žiadnu
+hornopriepusť**. Skutočný stroj má za výstupom väzobný kondenzátor —
+každý zosilňovač ho má, inak by reproduktor trvale ťahal jednosmerný
+prúd — a ten jednosmernú zložku odstráni a každý skok nechá odznieť.
+U nás prejde rovno na výstup.
+
+Lupanie z toho vzniká tak, že konštantná jednosmerná zložka je sama osebe
+nepočuteľná, ale len čo sa zvukový prúd na okamih preruší alebo dobehne,
+výstup skočí z tej hodnoty na nulu a späť. Tie prerušenia sú nepravidelné,
+a tak je aj lupanie.
+
+Vysvetľuje to zároveň vedľajší nález zo 6.10 (hudobný editor nechá DAC
+na 65): nie je to zvláštnosť editora, je to všeobecná vlastnosť a editor
+bol len najkrikľavejší prípad.
+
+Oprava je jednopólová hornopriepusť rádovo 20–30 Hz, teda **modelovanie
+hardvéru, nie kozmetika** — ten istý argument, akým sa do modelu dostala
+dolnopriepusť. Na rozdiel od jej medznej frekvencie tu nie je čo
+kalibrovať počúvaním; hodnota musí byť len dosť nízko, aby nezobrala
+basy reči.
 
 ## 7. Nástroje
 
@@ -1217,20 +1303,23 @@ Poradie podľa pomeru prínos/námaha:
    reprodukciu; bez neho je to beh naslepo. Pozor: kým nebol modelovaný
    vypínací strob, päť minút nečinnosti stroj potichu zabilo, takže časť
    starších pozorovaní „po čase prestane reagovať" môže byť práve toto.
-5. **Zvyšné tri časové funkcie** (6.13) — budík, odbíjanie a diár. Jedna
-   zo štyroch sa už vyriešila zrušením parkovania, takže prvý krok je
-   overiť, či sa tieto tri nespravili samy.
-6. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
+5. **Lupanie a jednosmerná zložka** (6.16). Zmerané, príčina istá,
+   oprava je malá: hornopriepusť do `RenderAudio`. Odstráni aj vedľajší
+   nález zo 6.10. Najlepší pomer prínos/námaha z celého zoznamu.
+6. **RTC prerušenie** (6.13) — odblokuje naraz budík, odbíjanie aj diár.
+   Diagnóza je hotová a doložená manuálom; je to najväčší kus práce
+   z tejto trojice, ale aj najviac funkcií naraz.
+7. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
    Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
    používa.
-7. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+8. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-8. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+9. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-9. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+10. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-10. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+11. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
    rozhodne otázku 6.3.
 
 ### Čím sa dá testovať
