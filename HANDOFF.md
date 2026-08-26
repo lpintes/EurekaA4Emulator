@@ -1036,7 +1036,24 @@ sektory sú číslované **1 až 40**, kým `VirtualDisk::ReadRecord` berie
 ale program, ktorý si volá `bios_setsec` sám, by mal u nás všetko
 posunuté o jeden záznam a sektor 40 by skončil chybou.
 
-### 6.13 Uzavreté otázky
+### 6.13 Časové funkcie nefungujú
+
+**Zatiaľ len zápis pre záznam, nie diagnóza.** Hlásené 26. 8. 2026:
+nefungujú funkcie viazané na čas — **budík, odbíjanie hodín, diár
+a automatické vypnutie pri nečinnosti**. Nie je jasné, či ide o jeden
+spoločný mechanizmus (napr. niečo, čo v ROM porovnáva RTC s uloženým
+časom udalosti a nespúšťa sa), alebo o štyri nezávislé chyby ako
+v sekcii 5 (funkčné klávesy). Netestované sondou, bez trasovania.
+
+Súvis so sekciou 6.11 je pravdepodobný a stojí za prvé overenie:
+zaparkovanie procesora pri čakaní na kláves zastavovalo aj heartbeat
+a teda aj tikanie časovačov, kým sa v 6.11 nezrušilo. Ak niektorá z
+týchto funkcií závisí od heartbeatu alebo od prerušenia, ktoré počas
+parkovania nechodilo, mohla sa touto opravou už čiastočne alebo úplne
+vyriešiť — treba overiť sondou (`diag_probe … boot` alebo `seq` s F2
+pre hodiny a kalendár) skôr než sa hľadá nová príčina.
+
+### 6.14 Uzavreté otázky
 
 | bývalá otázka | výsledok |
 |---|---|
