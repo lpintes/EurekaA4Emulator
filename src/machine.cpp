@@ -184,6 +184,15 @@ void EurekaMachine::Reset() {
   cpu_.userdata = this;
 }
 
+void EurekaMachine::CopyStateFrom(const EurekaMachine& other) {
+  if (this == &other) return;
+  *this = other;
+  // The copy brought the other machine's userdata with it, and it points at
+  // the other machine.  Left alone, every memory and port callback would run
+  // against the machine we copied from.
+  cpu_.userdata = this;
+}
+
 uint32_t EurekaMachine::PhysicalAddress(uint16_t logical) const {
   const uint16_t bankStart = static_cast<uint16_t>(cbar_ & 0x0f) << 12;
   const uint16_t common1Start = static_cast<uint16_t>(cbar_ & 0xf0) << 8;

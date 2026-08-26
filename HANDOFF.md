@@ -255,6 +255,22 @@ vie hostiteľská klávesnica vyrobiť, a porovná ich s tým, čo dekodér ROM
 zapísal na C638h. Bez neho sa prehodený riadok nijako neprejaví — nič
 nezahlási chybu, len sa deje niečo iné.
 
+Každý kód musí začať na stroji, ktorého sa nič iné nedotklo, a nie je to
+opatrnosť pre opatrnosť: **tie klávesy konajú**. Kým boli kurzory na
+porte 89h, dekódovali sa ako braillove body a aplikácia urobila, čo bod
+znamená — šípka vľavo bola bod 3, čiže v adresári disku „opouštím
+adresář". Jedna zle dekódovaná klávesa tak odniesla stroj tam, kde sa
+ďalšia nedala dekódovať vôbec, a jedna chyba sa vrátila ako
+tridsaťosem. Tá izolácia je to, vďaka čomu je regresia čitateľná.
+
+Získavala sa ale rebootom, čo stálo 8M inštrukcií na klávesu, spolu asi
+300M a dve tretiny celého behu `kbd`. Teraz sa bootuje raz a pred každou
+klávesou sa stav obnoví z kópie (`EurekaMachine::CopyStateFrom`).
+Zmerané: všetkých 38 kódov sa dekóduje rovnako, `kbd` spadol z 63 s na
+9,4 s. Jediná vec, ktorú kópia neprenesie, je `cpu_.userdata` — ukazuje
+na stroj a musí ukazovať na ten, ktorý stav prevzal; inak by callbacky
+obnoveného stroja siahali do snímky.
+
 ### Dva režimy písania
 
 Toľko, koľko mal stroj klávesníc. Prepína sa medzi nimi `Ctrl+K`:

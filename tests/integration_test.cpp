@@ -33,11 +33,27 @@ bool CheckKeyboard(EurekaMachine& machine) {
       0xc8, 0xc9,              // F9 and F10, chords of space and braille dots
       0xd0, 0xd1, 0xd2, 0xd3, 0xd4, 0xd5, 0xd6, 0xd7, 0xd8, 0xd9,
   };
+  // Each key has to be pressed on a machine nothing else has touched, and
+  // that is not caution for its own sake: these keys act.  Before the cursor
+  // keys moved to port 8Ch they decoded as braille dots and the application
+  // did what the dot meant -- left arrow was dot 3, which in the disk
+  // directory is "leave the directory" (06d62c1).  One wrongly decoded key
+  // therefore carried the machine somewhere the next key could not be decoded
+  // at all, and a single fault came back as thirty-eight.  The isolation is
+  // what keeps a regression readable.
+  //
+  // Getting it by rebooting cost 8M instructions per key, about 300M in all
+  // and two thirds of the whole kbd run.  One boot and a copy of it does the
+  // same thing: measured, all 38 keys decode identically either way.
+  machine.Reset();
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step()) break;
+  auto booted = std::make_unique<EurekaMachine>();
+  booted->CopyStateFrom(machine);
+
   bool ok = true;
   for (uint8_t code : kCodes) {
-    machine.Reset();
-    for (int step = 0; step < 8'000'000; ++step)
-      if (!machine.Step()) break;
+    machine.CopyStateFrom(*booted);
     machine.QueueKey(code);
     uint8_t seen = 0;
     for (int step = 0; step < 6'000'000 && seen != code; ++step) {

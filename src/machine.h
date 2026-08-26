@@ -46,6 +46,17 @@ class EurekaMachine {
   bool DiskSettled() const;
   void Reset();
 
+  // Replaces this machine's whole state with a copy of another's: memory,
+  // CPU, ports, disk, queues, everything.  Every member is a value type, so
+  // the copy is memberwise; the one thing it cannot carry across is
+  // cpu_.userdata, which has to point at whichever machine now owns the
+  // state -- the same fixup Reset does at 184.
+  //
+  // This is for tests that need a machine in a known state without paying for
+  // a boot to get there.  CheckKeyboard presses 38 keys and each one has to
+  // start from the same place, which used to mean 38 boots.
+  void CopyStateFrom(const EurekaMachine& other);
+
   // False only once the machine has switched itself off.  The CPU is never
   // parked otherwise: the ROM waits for a key by spinning in its own event
   // dispatcher, exactly as the hardware does, so nothing here has to guess
