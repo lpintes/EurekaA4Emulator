@@ -46,11 +46,21 @@ class EurekaMachine {
   bool DiskSettled() const;
   void Reset();
 
-  // Always true now: the CPU is never parked.  The ROM waits for a key by
-  // spinning in its own event dispatcher, exactly as the hardware does, so
-  // nothing here has to guess when the machine is idle.  The value is kept
-  // because a cheap suspend would want it back.
+  // False only once the machine has switched itself off.  The CPU is never
+  // parked otherwise: the ROM waits for a key by spinning in its own event
+  // dispatcher, exactly as the hardware does, so nothing here has to guess
+  // when the machine is idle.
   bool Step();
+
+  // True once the firmware has touched pwr_stb (port B8h) and the machine has
+  // cut its own power.  Nothing runs after that until Reset(); on the real
+  // Eureka the power supply is off and only RAM and the clock stay alive.
+  bool powered_off() const { return poweredOff_; }
+  // What the firmware left in C45Ah on the way out.  FFh means it powered down
+  // deliberately (1D141), and the boot code reads it at 180CB to resume where
+  // the user was instead of initialising from scratch.  A host that keeps the
+  // RAM across runs has to keep this byte with it.
+  uint8_t power_down_marker() const { return Peek(0xc45a); }
   void QueueKey(uint8_t key);
   // Optional counterpart of QueueKey for hosts that see key releases: it ends
   // the emulated press early.  Without it a key still comes up on its own.
@@ -99,6 +109,8 @@ class EurekaMachine {
   Diagnostics& diagnostics() { return diag_; }
 
  private:
+  void PowerDown();
+
   static uint8_t ReadMemory(void* context, uint16_t logical);
   static void WriteMemory(void* context, uint16_t logical, uint8_t value);
   static uint8_t ReadPort(z80* cpu, uint16_t port);
@@ -189,6 +201,7 @@ class EurekaMachine {
   uint64_t membraneMinUntil_ = 0;
   uint8_t membraneHeldKey_ = 0;
   bool keyboardInitialized_ = false;
+  bool poweredOff_ = false;
   std::vector<uint8_t> consoleOutput_;
   std::vector<uint8_t> speechInput_;
   uint16_t biosTrack_ = 0;

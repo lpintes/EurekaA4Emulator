@@ -72,7 +72,9 @@ bool RunUntilPrompt(EurekaMachine& machine, uint64_t budget) {
   while (machine.instructions() < deadline) {
     if (!machine.TakeConsoleOutput().empty()) lastOut = machine.cycles();
     if (machine.cycles() > lastOut + quiet) return true;
-    machine.Step();
+    // A machine that touched pwr_stb has stopped for good: the counters freeze,
+    // so the budget below would never run out and the probe would spin.
+    if (!machine.Step() && machine.powered_off()) return true;
   }
   return false;
 }
@@ -173,7 +175,8 @@ int wmain(int argc, wchar_t** argv) {
     machine->QueueText("Y");
 
     bool found = false;
-    for (int slice = 0; slice < 20000 && !found; ++slice) {
+    for (int slice = 0; slice < 20000 && !found && !machine->powered_off();
+         ++slice) {
       const uint64_t deadline = machine->instructions() + 5000;
       while (machine->instructions() < deadline) {
         if (!machine->Step()) {

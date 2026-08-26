@@ -110,6 +110,9 @@ void EurekaMachine::Reset() {
   membraneMinUntil_ = 0;
   membraneHeldKey_ = 0;
   keyboardInitialized_ = false;
+  // A hard reset, which is what this is: RAM cleared above, so the firmware
+  // finds no power-down marker in C45Ah and initialises from scratch.
+  poweredOff_ = false;
   consoleOutput_.clear();
   speechInput_.clear();
   biosTrack_ = 0;
@@ -489,7 +492,15 @@ uint8_t EurekaMachine::ReadPortInner(z80* cpu, uint16_t port) {
     case 0x9a: return machine->fdcSector_;
     case 0x9b: return machine->ReadFdcData();
     case 0xa8: return machine->ReadInputBuffer();
-    case 0xb8: return 0xff;
+    // pwr_stb: the strobe that cuts the main supply.  IOPORT.LIB calls it R/W
+    // and says any access switches the machine off, so the value returned here
+    // never matters -- the firmware never looks at it.  It reads the port at
+    // 1D144 and then spins on JR $-2 waiting for the power to go, which is why
+    // ignoring this used to leave the emulator in a two-instruction loop with
+    // interrupts disabled: silent, deaf and burning a core.
+    case 0xb8:
+      machine->PowerDown();
+      return 0xff;
     default:
       if (machine->diag_.enabled())
         machine->diag_.NotePortRead(cpu->pc, port, machine->io_[low]);
@@ -567,6 +578,10 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
         machine->diag_.NoteLatch(cpu->pc, low, previous, value);
       break;
     case 0x88: machine->dac_ = value; break;
+    // The strobe answers to a write just as it does to a read.  This ROM only
+    // ever reads it (1D144 is the single access in the whole image), but the
+    // port is documented R/W and a program loaded from disk may well write it.
+    case 0xb8: machine->PowerDown(); break;
     case 0x98: machine->StartFdcCommand(value); break;
     case 0x99: machine->fdcTrack_ = value; break;
     case 0x9a: machine->fdcSector_ = value; break;
@@ -1025,7 +1040,28 @@ bool EurekaMachine::InterceptBios() {
   }
 }
 
+// Switches the machine off the way the strobe does on the hardware: the CPU
+// stops mid-instruction and stays stopped.  RAM and the real time clock are
+// deliberately left alone -- on the real Eureka their supply is separate and
+// never cut (GLOSSARY.TXT), which is the whole reason the firmware can resume
+// where the user was.  Everything the host has to do about it -- draining the
+// sound, writing the disk back, one day saving the RAM -- belongs to the
+// caller, because only it knows whether the machine is being emulated
+// interactively or driven by a test.
+void EurekaMachine::PowerDown() {
+  if (poweredOff_) return;
+  poweredOff_ = true;
+  // The DAC holds whatever the last sample was, and with the CPU stopped
+  // nothing will ever move it again.  Parking it at mid-scale keeps the tail
+  // of the announcement from ending on a step to a DC offset.
+  dac_ = 0x80;
+  membraneFrames_.clear();
+  membraneState_ = MembraneFrame{};
+  membraneHeldKey_ = 0;
+}
+
 bool EurekaMachine::Step() {
+  if (poweredOff_) return false;
   InjectFirmwareKey();
   if (!InterceptBios()) return false;
   if (cpu_.pc == 0x0103 && PhysicalAddress(cpu_.pc) == 0x0103)

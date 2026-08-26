@@ -603,7 +603,9 @@ int wmain(int argc, wchar_t** argv) {
         L"Ak skratky žerie terminál, dá sa štartovať aj s --braille alebo "
         L"--pc.\r\n"
         L"Shift+F7 spustí program z disku. Ctrl+Shift+R resetuje, "
-        L"Ctrl+Shift+Q uloží disk a skončí.\r\n\r\n");
+        L"Ctrl+Shift+Q uloží disk a skončí.\r\n"
+        L"Vypne sa aj sama po piatich minútach nečinnosti, tridsť sekúnd "
+        L"vopred to ohlási tónmi.\r\n\r\n");
 
   using Clock = std::chrono::steady_clock;
   PreciseTimer timer;
@@ -691,6 +693,28 @@ int wmain(int argc, wchar_t** argv) {
     if (!output.empty()) Print(DecodeKamenicky(output.data(), output.size()));
     audio.Submit(machine->TakeAudio());
 
+    // The machine switched itself off: the four cursor keys from the Main Menu,
+    // or five minutes of nobody touching it.  It says "konec" first, and that
+    // announcement is still inside the sound device when the strobe fires --
+    // AudioPlayer::Close() calls waveOutReset and would throw it away -- so
+    // wait for it to play out before leaving the loop.  Two seconds is a
+    // ceiling for a device that stops reporting progress, not a pause.
+    if (machine->powered_off()) {
+      const auto until = Clock::now() + std::chrono::seconds(2);
+      while (audio.Ready() && audio.QueuedMs() > 1.0 && Clock::now() < until)
+        timer.Wait(5.0);
+      // C45Ah is FFh here: the firmware's own marker that this was a clean
+      // power-down, read back at 180CB so the machine resumes where the user
+      // was instead of initialising.  Once the host keeps RAM across runs, it
+      // is this byte that makes the difference between switching on and a
+      // hard reset -- which is what Ctrl+Shift+R does today.
+      Print(L"\r\n[Eureka sa vypla. Na skutočnom stroji by RAM aj hodiny "
+            L"zostali pod napätím a ďalšie zapnutie by pokračovalo tam, kde "
+            L"ste skončili.]\r\n");
+      running = false;
+      break;
+    }
+
     // Written back once the guest has finished with the disk, not on a clock:
     // an export taken mid-update would see a half-written directory.
     if (machine->DiskSettled() && !machine->FlushDisk(error)) {
@@ -721,7 +745,7 @@ int wmain(int argc, wchar_t** argv) {
     }
   }
   if (diagnostics) Print(machine->diagnostics().Report());
-  Print(L"\r\nEureka A4 bola vypnutá.\r\n");
+  Print(L"\r\nEmulátor skončil.\r\n");
   HoldConsole();
   CoUninitialize();
   return 0;

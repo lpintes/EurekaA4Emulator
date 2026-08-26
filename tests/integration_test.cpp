@@ -138,13 +138,72 @@ bool CheckPcKeyboard(EurekaMachine& machine) {
   return false;
 }
 
+// The four cursor keys at once (8Fh, k_udlr) are the Eureka's off switch, and
+// the inactivity timeout takes the same road.  Both end at a single instruction
+// -- IN A,(B8h) at 1D144 -- so the whole thing is checked here from the outside:
+// the machine says "konec", stops executing, and leaves FFh in C45Ah, which is
+// the marker its own boot code reads at 180CB to resume instead of initialise.
+// Without this the strobe can go back to being a no-op and nothing would say
+// so: an emulator that ignores it just spins in the two instructions after it,
+// with interrupts off, which is silence and looks like any other hang.
+bool CheckPowerOff(EurekaMachine& machine) {
+  machine.Reset();
+  const uint64_t kQuiet = EurekaMachine::kCpuHz / 2;
+  uint64_t lastOut = EurekaMachine::kCpuHz * 3;
+  bool pressed = false;
+  std::vector<uint8_t> spoken;
+  for (uint64_t step = 0; step < 40'000'000; ++step) {
+    if (!machine.TakeConsoleOutput().empty()) lastOut = machine.cycles();
+    const auto said = machine.TakeSpeechInput();
+    spoken.insert(spoken.end(), said.begin(), said.end());
+    if (!pressed && machine.cycles() > lastOut + kQuiet) {
+      machine.QueueKey(0x8f);
+      pressed = true;
+    }
+    if (!machine.Step()) break;
+  }
+  const auto said = machine.TakeSpeechInput();
+  spoken.insert(spoken.end(), said.begin(), said.end());
+
+  bool ok = true;
+  if (!pressed) {
+    std::cout << "  stroj sa neustalil, klaves sa vobec nestlacil\n";
+    ok = false;
+  }
+  if (!Contains(spoken, "konec")) {
+    std::cout << "  nepovedal \"konec\"\n";
+    ok = false;
+  }
+  if (!machine.powered_off()) {
+    std::cout << "  stroj bezi dalej, pwr_stb sa neozval\n";
+    ok = false;
+  }
+  if (machine.power_down_marker() != 0xff) {
+    std::cout << "  C45Ah je " << std::hex
+              << static_cast<unsigned>(machine.power_down_marker())
+              << " namiesto ff\n" << std::dec;
+    ok = false;
+  }
+  // The counters must be frozen: everything that drives this machine loops on
+  // them, so a Step() that still burned a cycle would turn every such loop into
+  // a spin instead of an end.
+  const uint64_t cycles = machine.cycles();
+  for (int step = 0; step < 1000; ++step) machine.Step();
+  if (machine.cycles() != cycles) {
+    std::cout << "  vypnuty stroj este tika\n";
+    ok = false;
+  }
+  return ok;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
   if (argc != 4 ||
       (std::wstring(argv[3]) != L"com" && std::wstring(argv[3]) != L"bas" &&
-       std::wstring(argv[3]) != L"kbd")) {
-    std::wcerr << L"usage: integration_test ROM DISK_FOLDER com|bas|kbd\n";
+       std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power")) {
+    std::wcerr
+        << L"usage: integration_test ROM DISK_FOLDER com|bas|kbd|power\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -155,6 +214,16 @@ int wmain(int argc, wchar_t** argv) {
     return 2;
   }
   machine->Reset();
+
+  if (std::wstring(argv[3]) == L"power") {
+    const bool passed = CheckPowerOff(*machine);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=POWER"
+              << " vypnute=" << (machine->powered_off() ? "ano" : "nie")
+              << " C45A=" << std::hex
+              << static_cast<unsigned>(machine->power_down_marker()) << std::dec
+              << "\n";
+    return passed ? 0 : 1;
+  }
 
   if (std::wstring(argv[3]) == L"kbd") {
     const bool keys = CheckKeyboard(*machine);
@@ -191,7 +260,10 @@ int wmain(int argc, wchar_t** argv) {
       else { machine->QueueText("RUN\r"); runStarted = machine->instructions(); }
       ++fed;
     }
-    machine->Step();
+    // A machine that has switched itself off never executes again, so the
+    // instruction and cycle counters stop moving: without this the loop's own
+    // deadlines can never come due and the test hangs instead of failing.
+    if (!machine->Step() && machine->powered_off()) break;
     if (basic && runStarted && machine->instructions() > runStarted + 5'000'000)
       break;
     if (!basic && fed >= kSteps && machine->cycles() > lastOut + 3 * kQuiet) break;
