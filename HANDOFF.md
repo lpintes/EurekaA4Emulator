@@ -163,8 +163,8 @@ Prompt „ano nebo ne?" odpovedá na **`Y`**, nie na `a` — na `0x19FD1` je
    nerobí. Doplnená podmienka `x_ != 1`.
 2. **`OTIM`/`OTDM` posielal B na horný bajt adresy.** Na Z180 tam patrí
    nula; tento stroj horný bajt dekóduje (hodiny na `0190h`/`0290h`).
-3. **DMA kanál 1 sa neemuloval** (obsluha `DSTAT` testovala len bit 6).
-4. **DMA obchádzalo ochranu pamäte** a mohlo natrvalo poškodiť obraz ROM,
+2. **DMA kanál 1 sa neemuloval** (obsluha `DSTAT` testovala len bit 6).
+3. **DMA obchádzalo ochranu pamäte** a mohlo natrvalo poškodiť obraz ROM,
    ktorý `Reset()` neobnovuje.
 
 ### Opravené po získaní manuálu
@@ -192,11 +192,11 @@ Track — kód, ktorý bol napísaný, ale nikdy nespustený. Vyžiadalo si to
    overovacom čítaní vyzeral ako radič čakajúci na dáta, takže druhý
    Write Track opäť prišiel o obsah. `FdcWantsDma()` teraz porovnáva smer
    prenosu z DCNTL s tým, či radič zapisuje.
-5. **Čítacie príkazy držali BUSY, kým buffer niekto nevyprázdnil.**
+4. **Čítacie príkazy držali BUSY, kým buffer niekto nevyprázdnil.**
    Skutočný WD177x sektor dočíta aj bez obsluhy DRQ — nastaví Lost Data,
    ale BUSY zhasne. Firmvér po formáte overuje stopu bez DMA, takže na
    starom modeli visel na 19EF3. Čítania teraz končia stavom DRQ bez BUSY.
-6. **Krokovacie príkazy (`20h`–`70h`) sa neemulovali.** Formát chodí po
+5. **Krokovacie príkazy (`20h`–`70h`) sa neemulovali.** Formát chodí po
    disku Step In (`50h`), nie seekom, takže sa všetkých 160 stôp
    zapisovalo na stopu 0. Doplnené vrátane príznaku U a smeru kroku.
 
@@ -255,30 +255,43 @@ vie hostiteľská klávesnica vyrobiť, a porovná ich s tým, čo dekodér ROM
 zapísal na C638h. Bez neho sa prehodený riadok nijako neprejaví — nič
 nezahlási chybu, len sa deje niečo iné.
 
-### Tri režimy písania
+### Dva režimy písania
 
-Emulátor sa prepína medzi troma a nazývajú sa takto — pozor na to, že
-„klávesnica Eureky" nie je názov žiadneho z nich, lebo tou je práve tá
-braillovská:
+Toľko, koľko mal stroj klávesníc. Prepína sa medzi nimi `Ctrl+K`:
 
-| režim | prepína | čo je pod rukami |
-|---|---|---|
-| **default** | (štartový) | dvadsať klávesov verne, text skratkou do fronty ROM |
-| **braillovská klávesnica** | `Ctrl+Shift+B` | default plus body na `F D S J K L` a medzerníku |
-| **externá klávesnica PC** | `Ctrl+Shift+E` | úplne všetko ide scancodmi po sériovom porte |
+| režim | čo je pod rukami |
+|---|---|
+| **externá klávesnica PC** (štartový) | všetko ide scancodmi po sériovom porte, ROM si prekladá sama |
+| **braillovská klávesnica** | dvadsať klávesov: body na `F D S J K L`, medzerník, funkčné, kurzory, shift |
 
-Tou istou skratkou sa ide späť na default.
+**Default zanikol 26. 8. 2026** (6.11). Nebol to režim stroja, bola to
+obchádzka: text z neho išiel skratkou do fronty ROM, čo skutočná Eureka
+nevedela urobiť, a keď sa zrušilo parkovanie, prestal fungovať aj tak.
+Štartuje sa v **exterke**, teda v stave „Eureka s pripojenou klávesnicou".
 
-**Rozhodnuté 25. 8. 2026: default sa ruší.** Nie je to režim stroja, je to
-obchádzka — Eureka mala dve klávesnice, vlastnú braillovskú a voliteľnú PC
-na sériovom porte, tretia neexistovala. Zostanú dva režimy a štartovým bude
-**exterka**, teda stav „Eureka s pripojenou klávesnicou". Dôvod aj postup
-sú v 6.11.
+Cena, ktorú 6.11 za to priznávala — že sa nebude dať napísať
+`ľ ĺ ŕ ô ä Ľ` — **žiadna cena nebola**. Preverené pred zrušením, ako si
+tá poznámka pýtala: v Kamenických majú tie znaky kódy `8C 8D AA 93 84 9C`,
+teda všetky nad `7Fh`, a staré `QueueKey` posielalo každý taký bajt do
+`PressMembraneKey`. Napísať sa nedali nikdy — stlačili sa ako akord.
+Napísať `ä` znamenalo šípku vľavo a napísať `Á` (`8Fh`) štyri kurzory
+naraz, teda vypnutie stroja.
+
+`Ctrl+K` a nie `Ctrl+Shift+K` je rozhodnutie majiteľa, spravené s vedomím,
+že ROM na exterke Ctrl+písmeno **rešpektuje**: dekodér ho na `1DE0E`
+maskuje cez `AND 1Fh` na riadiaci znak, takže hosťovi tým v tom režime
+zaniká `0Bh`. Zmerané, že sa písmeno nenapíše: `a`, `b`, Ctrl+K, `c`, `d`
+dá riadok „abcd". Žiadna aplikácia ROM na to viditeľne nereaguje.
 
 ### Braillovská klávesnica
 
-`Ctrl+Shift+B` prepne písanie na šesť bodových klávesov: `F D S` sú
+`Ctrl+K` prepne písanie na šesť bodových klávesov: `F D S` sú
 body 1, 2, 3 a `J K L` body 4, 5, 6, medzerník zostáva medzerníkom.
+**Písmená sa v tomto režime nepíšu** — kto v ňom chce písať, píše bodmi,
+tak ako na stroji. Stlačené `a` neurobí nič a pri `--diag` to trasovanie
+klávesov povie, lebo inak je „nič" na nerozoznanie od „kláves neprišiel".
+S textom padlo aj Ctrl+písmeno, a nie je to strata: na tejto klávesnici
+riadiaci kláves nie je, riadiace znaky sa na nej robia akordom.
 Akord sa zbiera, kým sú prsty dole, a vydá sa naraz pri pustení
 posledného — to je perkinsovské správanie a `ReleaseKey` ho umožňuje.
 
@@ -342,7 +355,7 @@ a je opravený.
 
 ### Klávesnica IBM PC na sériovom porte
 
-`Ctrl+Shift+E` prepne hostiteľskú klávesnicu na tú, ktorá sa k Eureke
+`Ctrl+K` prepne hostiteľskú klávesnicu na tú, ktorá sa k Eureke
 pripájala zvonku. Emulátor **neprekladá zase nič**: Windows dáva
 v `wVirtualScanCode` rovno scancode XT sady 1 a príznak `ENHANCED_KEY`
 je na drôte prefix `E0h`, takže je to vodič, nie tabuľka.
@@ -382,19 +395,19 @@ Dve veci, na ktorých to stálo:
   doručená okamžite by v ňom zmizla a stroj by usúdil, že klávesnica
   nie je. Emulátor ju dá o 30 ms, čo je hlboko pod timeoutom asi 180 ms
   na 18847.
-- **Stroj nesmie byť zaparkovaný.** `InterceptBios` zastavuje CPU, keď
-  aplikácia čaká na kláves. Scancode ale potrebuje, aby procesor bežal
-  — inak sa prerušenie nemá kedy vyvolať. Preto `HardwareInputBusy()`:
-  kým je vstup na ceste cez skutočný hardvér, parkovanie sa vypína.
+- **Stroj nesmie byť zaparkovaný.** Kým `InterceptBios` zastavoval CPU
+  na čakaní na kláves, scancode nemal ako doraziť — prerušenie sa nemalo
+  kedy vyvolať. Riešil to `HardwareInputBusy()`, ktorý parkovanie vypínal,
+  kým bol vstup na ceste cez hardvér. Parkovanie aj tá poistka zanikli
+  spolu s defaultom; procesor beží stále, tak ako na stroji.
 
-Zostáva jediná skratka: text v režime **default** ide priamo do fronty
-ROM na `C67B`. Je to zámerné a má to jeden konkrétny dôvod — je to
-**jediný spôsob, ako napísať `ľ ĺ ŕ ô ä Ľ`**. Overené: v tabuľkách
-klávesnice PC (`DF05`, `DF5E`, `DF98`) ani v braillových (`D7A0`,
-`D7E0`, `D820`) tie znaky nie sú, sú tam len české `é č ě ž ů ý á í ú
-ň š ř`. Je to česká ROM, takže skutočná Eureka slovensky písať
-nevedela; default je teda jediné miesto, kde emulátor stroj zámerne
-prevyšuje.
+Skratka, ktorá tu roky stála, je preč aj s režimom. Slovenské
+`ľ ĺ ŕ ô ä Ľ` sa napísať nedá — v tabuľkách klávesnice PC (`DF05`,
+`DF5E`, `DF98`) ani v braillových (`D7A0`, `D7E0`, `D820`) tie znaky nie
+sú, sú tam len české `é č ě ž ů ý á í ú ň š ř`. Je to česká ROM, takže
+slovensky nevedela písať ani skutočná Eureka. Že to vedel default, sa
+roky písalo aj sem a **nebola to pravda**; ako to bolo naozaj, je pri
+dvoch režimoch písania v sekcii 5.
 
 ### Vypínanie stroja
 
@@ -453,15 +466,19 @@ a overí, že stroj stojí, že `C45Ah` je `FFh` a že sa počítadlá naozaj
 zastavili. Odskúšané mutáciou — keď sa `B8h` vráti k `return 0xff`,
 test spadne na dvoch z tých kontrol.
 
-#### Otvorené vedľa toho: znaky nad 7Fh sa stláčajú ako akordy
+#### Uzavreté: znaky nad 7Fh sa stláčali ako akordy
 
-`QueueKey` posiela každý bajt s bitom 7 do `PressMembraneKey`. Znak `Á`
-je v Kamenických **8Fh**, takže napísať ho v režime **default** v hlavnom
-menu znamená stlačiť štyri kurzory a stroj sa vypne; ostatné akcentované
-znaky sa podobne stlačia ako nejaký iný akord namiesto toho, aby sa
-napísali. Je to ďalší dôvod pre už rozhodnuté zrušenie defaultu (6.11)
-a zároveň to spochybňuje tvrdenie, že default je jediná cesta, ako
-napísať `ľ ĺ ŕ ô ä Ľ` — treba to preveriť, kým sa ten režim ruší.
+Preverené 26. 8. 2026, tesne pred zrušením defaultu, ako si táto poznámka
+pýtala — a dopadlo to opačne, než znel predpoklad. Staré `QueueKey`
+posielalo každý bajt s bitom 7 do `PressMembraneKey`, takže **žiadny
+akcentovaný znak sa v defaulte nikdy nenapísal**: `ä` (`84h`) bola šípka
+vľavo, `Á` (`8Fh`) štyri kurzory naraz, teda vypnutie stroja, a `ľ ĺ ŕ ô Ľ`
+(`8C 8D AA 93 9C`) nejaký iný kurzorový akord.
+
+Tvrdenie, že default je jediná cesta k `ľ ĺ ŕ ô ä Ľ`, teda nebolo len
+neúplné, bolo nesprávne. Cesta k nim neexistovala. `QueueKey` dnes berie
+už len kódy klávesov, text ide výhradne cez `QueueText`, a otázka tým
+zaniká.
 
 ### Diagnostika
 
@@ -610,12 +627,13 @@ robí obe bezpečnými.
   bloku a tlčenie na 30 ms, keby sa bloky niekedy zmenšili.
 - Pri prekročení stropu sa prebytok **zahodí**, nevyčká. Pôvodný
   `Sleep(1)` v cykle zmrazil celú hlavnú slučku aj s klávesnicou.
-- `EurekaMachine::RenderIdle()` dorenderuje cykly, ktoré zaparkovaný
-  procesor neodbehol. Nie je to trik: skutočná Eureka tam len točí
-  čakaciu slučku, DAC drží poslednú hodnotu a filter za ním beží ďalej.
-  Overené, že tá držaná hodnota je stred stupnice — jedna sekunda
-  nečinnosti má priemer 0,0 a rozsah 0 až 29, takže sa do výstupu
-  netlačí jednosmerná zložka a nástup reči neluplne.
+- `EurekaMachine::RenderIdle()` dorenderúval cykly, ktoré zaparkovaný
+  procesor neodbehol. **So zrušením defaultu (6.11) zanikol**, lebo zanikla
+  aj medzera, ktorú lepil: procesor beží stále a čakaciu slučku ROM točí
+  naozaj, tak ako na stroji. Meranie, ktoré ho vtedy obhájilo, platí ďalej
+  — držaná hodnota je stred stupnice, jedna sekunda nečinnosti má priemer
+  0,0 a rozsah 0 až 29, takže sa do výstupu netlačí jednosmerná zložka
+  a nástup reči neluplne.
 
 Čo z toho plynie pre ďalšieho: **latencia sa prakticky nezmenila**
 (22,6 → 23,0 ms). Získalo sa, že je odteraz **zvolená a stabilná**
@@ -782,8 +800,9 @@ Dve veci, ktoré z toho merania plynú a nie sú chyba:
 Ostáva teda jediný správny spôsob, a je to ten, ktorý má stroj: kláves
 na braillovej klávesnici — hociktorý bod, medzerník alebo kurzor.
 
-**Do zrušenia defaultu je obchádzka braillovský režim** (`Ctrl+Shift+B`),
-kde medzerník ide na `89h` a znelku zastaví.
+Po zrušení defaultu (26. 8. 2026) to platí v oboch režimoch, ktoré zostali:
+v braillovskom ide medzerník na `89h` priamo, na exterke ho tam dostane
+dekodér ROM. Znelku zastaví.
 
 Drží to `integration_test ROM DISK hudba`. Beží dvakrát to isté okno,
 raz s medzerníkom a raz bez ničoho: bez druhého behu by test prešiel aj
@@ -999,7 +1018,7 @@ Kým nie je druhé, nezávislé meranie, je to hypotéza, nie výsledok.
 #### Vedľajší nález: jednosmerná zložka v hudobnom editore
 
 Keď editor dohrá a čaká na kláves, ROM nechá DAC na hodnote **65**
-namiesto stredných 128. `RenderIdle` ju drží ďalej, takže výstup má
+namiesto stredných 128. Výstup ju drží ďalej, takže má
 konštantnú jednosmernú zložku −49 % rozsahu — overené, od 10. do 25.
 sekundy je každá vzorka presne −16128. Skutočný stroj to nemá kam pustiť,
 v emulátore to lupne pri nábehu a zoberie polovicu odstupu od orezania
@@ -1110,7 +1129,7 @@ Cena je hostiteľský procesor: 30 s hosťovského času v nečinnosti stálo
 **Prvý krok je už v strome.** Zachytávanie console input odpovedá len na to,
 čo hostiteľ naozaj napísal, inak nechá čakať ROM; `biosWaiting_` a parkovanie
 sú preč a testy aj sonda podávajú klávesy podľa ticha. Kým nezanikne default,
-treba emulátor spúšťať s **`--pc`** (alebo hneď dať `Ctrl+Shift+E`).
+bolo treba emulátor spúšťať s **`--pc`**; dnes je exterka štartový režim.
 
 #### Prečo to samo o sebe nestačí: default režim
 
@@ -1124,35 +1143,45 @@ Pokus posielať aj default do fronty ROM (`C67B`) neuspel: vstup sa dostal
 dnu, ale hromadný text sa rozsypal a BASIC hlásil `chyba 26`. Nepomohlo ani
 spomalenie vkladania pod tempo heartbeatu.
 
-#### Rozhodnutý koniec: default sa ruší
+#### Hotové 26. 8. 2026: default zrušený
 
-Nie opraviť skratku, ale odstrániť ju. Rozsah:
+Nie opraviť skratku, ale odstrániť ju. Spravené celé:
 
-- `main.cpp` — zrušiť default, štartovať v exterke, `Ctrl+Shift+B` bude
-  prepínať medzi dvoma režimami namiesto troch
+- `main.cpp` — dva režimy namiesto troch, štartuje sa v exterke, prepína
+  `Ctrl+K` (jedna skratka namiesto `Ctrl+Shift+B` a `Ctrl+Shift+E`; voľbu
+  aj s jej cenou rozhodol majiteľ, viď sekciu 5). Braillovský režim už
+  neprepúšťa text a pri `--diag` to trasovanie klávesov povie. Zanikol aj
+  `RenderIdle` v hlavnej slučke — parkovanie, ktoré ním bolo treba
+  zaplátať, tam už nie je.
 - `machine.cpp` — preč so zachytávaním konzolového vstupu (funkcie 2 a 3),
-  s `keys_`, `keyboardInitialized_`, `biosWaiting_` aj parkovaním
-- testy — `QueueText` musí písať scancodmi. Tabuľku **neodhadovať**:
-  obrátiť ROM-ové `DF05`, `DF5E` a `DF98`. Znak, ktorý sa v nich nenájde,
-  nech test ohlási nahlas, nie potichu napíše nezmysel. Pacing podľa ticha.
-- `HANDOFF.md` — sekcia 5 sa stane dvoma režimami, 6.1 stratí dôvod pre
-  `RenderIdle`
+  s `keys_`, `firmwareKeys_`, `keyboardInitialized_`, `InjectFirmwareKey`,
+  `HardwareInputBusy`, `NoteHardwareInput` aj `RenderIdle`. `QueueKey`
+  berie už len kódy klávesov (bit 7), text ide výhradne cez `QueueText`.
+- testy — `QueueText` píše scancodmi, tabuľka je obrátená z ROM (viď nižšie).
+  Escape v sonde sa píše ako znak, nie ako kód klávesu.
 
-Cenou je, že `ľ ĺ ŕ ô ä Ľ` sa nebude dať napísať. To je správne: česká ROM
-ich nemá v žiadnej tabuľke, takže ich nevedela napísať ani skutočná Eureka,
-a default bol jediné miesto, kde emulátor stroj zámerne prevyšoval.
+Deväť testov prechádza. `--help` aj úvodná hláška hovoria o dvoch režimoch.
+**Majiteľ to 26. 8. 2026 odskúšal ručne a funguje** — to je tá časť, na
+ktorú testy nesiahajú, lebo `main.cpp` nepokrývajú.
+
+Cena, ktorú táto sekcia priznávala — že sa nebude dať napísať
+`ľ ĺ ŕ ô ä Ľ` — **žiadna cena nebola**. Preverené pred zrušením: tie znaky
+majú v Kamenických kódy nad `7Fh` a staré `QueueKey` posielalo každý taký
+bajt do `PressMembraneKey`, takže sa nikdy nenapísali, len stlačili ako
+akord. Podrobne v sekcii 5 a v uzavretej poznámke „znaky nad 7Fh".
 
 #### A čím sa pri tom stane braillovský režim
 
-Vyvstalo to 26. 8. 2026 pri chordovaní kurzorov a patrí to do tej istej
-práce, lebo dnes je braillovský režim doslova „default plus body". Keď
-default zanikne, treba rozhodnúť, čo z toho ostatného v ňom zostane.
+Vyvstalo to 26. 8. 2026 pri chordovaní kurzorov a patrilo to do tej istej
+práce, lebo braillovský režim bol dovtedy doslova „default plus body".
+So zánikom defaultu bolo treba rozhodnúť, čo z toho ostatného v ňom
+zostane. Rozhodnuté a spravené:
 
 Braillova klávesnica Eureky má **presne dvadsať klávesov** (`IOPORT.H`):
 šesť bodov a medzerník na riadku `89h`, osem funkčných na `8Ah`, štyri
 kurzorové a shift na `8Ch`. Nič iné na nej nie je.
 
-Čo tým režimom dnes prejde a ako to obstojí:
+Čo tým režimom prechádzalo a ako to obstálo:
 
 | čo | ide kam | je to na stroji? |
 |---|---|---|
@@ -1166,10 +1195,9 @@ Prvé štyri riadky nie sú obchádzka: každý z nich sa premietne na kláves
 alebo akord, ktorý stroj naozaj má, a `Home` až `Delete` sú len pohodlný
 názov pre kurzorový akord. Tie zostávajú.
 
-Posledný riadok obchádzka **je** — a je to presne tá skratka, ktorú táto
-sekcia ruší. Takže **áno, majú sa ignorovať**: po zrušení defaultu nemá
-braillovský režim prepúšťať text. Kto chce v ňom písať, píše body, tak
-ako na stroji.
+Posledný riadok obchádzka **bola** — presne tá skratka, ktorú táto sekcia
+zrušila. Text sa teda ignoruje: braillovský režim už neprepúšťa písmená.
+Kto chce v ňom písať, píše body, tak ako na stroji.
 
 Dve veci, ktoré pri tom nezabudnúť:
 
@@ -1177,16 +1205,16 @@ Dve veci, ktoré pri tom nezabudnúť:
   nemá urobiť nič — a keďže na tomto stroji je „nič" na nerozoznanie od
   „kláves neprišiel", nech to aspoň pri `--diag` povie trasovanie
   klávesov, ktoré tam už je.
-- S textom padne aj `Ctrl`+písmeno, lebo `BrailleBit` sa dnes preskakuje
-  práve pri stlačenom `Ctrl`. Nie je to strata: `Ctrl+C`, ktorý hlavné
-  menu testuje na 18149, sa na skutočnej klávesnici vyrába akordom, nie
-  ovládacím klávesom.
+- S textom padlo aj `Ctrl`+písmeno, lebo `BrailleBit` sa pri stlačenom
+  `Ctrl` preskakuje. Nie je to strata: `Ctrl+C`, ktorý hlavné menu testuje
+  na 18149, sa na skutočnej klávesnici vyrába akordom, nie ovládacím
+  klávesom. Navyše `Ctrl+K` je odteraz prepínač režimu emulátora.
 
 #### Hotové 26. 8. 2026: QueueText píše scancodmi
 
 Prvý krok rozsahu je spravený. `QueueText` už nesype znaky do fronty ROM;
-píše ich na emulovanej klávesnici PC, teda tou istou cestou, ktorou pôjde
-všetko po zrušení defaultu.
+píše ich na emulovanej klávesnici PC, teda tou istou cestou, ktorou od
+zrušenia defaultu chodí všetko ostatné.
 
 Tabuľka sa **nikde nepíše ručne**. `BuildKeyboardLayout` ju pri načítaní
 obrátí z obrazu: prejde všetky scancody krát tri modifikátory a pre každý
@@ -1233,11 +1261,11 @@ Deväť testov prechádza aj po zmene.
 
 #### Parkovanie: znovu overené 26. 8. 2026
 
-Tvrdenie „už v strome" platí. `biosWaiting_` v strome nie je,
-`InterceptBios` nemá ani jednu vetvu, ktorá by vrátila `false`, a `Step()`
-vráti `false` len po vypnutí stroja. Z toho ale plynie, že `RenderIdle`
-je už mŕtvy kód: `blocked` v hlavnej slučke `main.cpp` (753) nastane iba
-po vypnutí, a to sa zo slučky rovno vyskakuje. Ruší sa spolu s defaultom.
+Tvrdenie „už v strome" platilo. `biosWaiting_` v strome nebol,
+`InterceptBios` nemal ani jednu vetvu, ktorá by vrátila `false`, a `Step()`
+vracia `false` len po vypnutí stroja. Z toho plynulo, že `RenderIdle` je už
+mŕtvy kód: `blocked` v hlavnej slučke `main.cpp` nastal iba po vypnutí,
+a to sa zo slučky rovno vyskakuje. Zanikol spolu s defaultom.
 
 #### Nedoriešené vedľa toho
 
@@ -1699,41 +1727,41 @@ python tools\strings_kam.py 8 0xd000 0xe000
 
 Poradie podľa pomeru prínos/námaha:
 
-1. **Zrušiť default režim a s ním zachytávanie vstupu** (6.11). Teraz je
-   to jednoznačne prvé: sú z toho už **tri** hlásené chyby — hladujúce
-   funkčné klávesy, ukladanie v BASICu a medzerník, ktorý nezastaví
-   hudbu (6.9). Rozhodnuté a overené, že to všetky tri rieši. Zásah do
-   `main.cpp`, `machine.cpp` aj testov naraz, s ručným odskúšaním.
-   Parkovanie a `RenderIdle` tým zaniknú.
-2. **GUI** (6.18) — vlastné okno, nastavenia, prepínanie a obľúbené
-   diskety. Najväčšia položka tohto zoznamu, a ide **až za bodom 1**:
-   obe prepisujú tú istú časť `main.cpp`, a 6.11 je väčšinou mazanie,
-   takže GUI ho zdedí hotové namiesto toho, aby tú skratku rušilo
-   druhýkrát.
-3. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
+**Hotové 26. 8. 2026: default zrušený** (6.11), a s ním parkovanie,
+zachytávanie konzolového vstupu aj `RenderIdle`. Malo to riešiť tri hlásené
+chyby — hladujúce funkčné klávesy, ukladanie v BASICu a medzerník, ktorý
+nezastaví hudbu. Deväť testov prechádza a majiteľ to odskúšal aj ručne.
+
+1. **GUI** (6.18) — vlastné okno, nastavenia, prepínanie a obľúbené
+   diskety. Najväčšia položka tohto zoznamu. Dedí `main.cpp` už bez tej
+   skratky, tak ako bolo zamýšľané: prepínanie režimu je dnes jediné
+   `Ctrl+K` a rodina `Ctrl+*` pre GUI je rozbehnutá. Pozor pri nej na to,
+   že ROM na exterke Ctrl+písmeno rešpektuje (`1DE0E`), takže každá ďalšia
+   taká skratka berie hosťovi jeden riadiaci znak.
+2. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
    percent zle započítaných cyklov v obsluhe generátora tónov. Pozor na
    páku 8 : 1 — tempo reaguje osemkrát citlivejšie než cena obsluhy.
-4. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
+3. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
    reprodukciu; bez neho je to beh naslepo. Prvá stopa, ktorá sa dá
    sledovať bez neho, sú `C598h`/`C599h` (viď 6.9). Pozor: kým nebol
    modelovaný vypínací strob, päť minút nečinnosti stroj potichu zabilo,
    takže časť starších pozorovaní „po čase prestane reagovať" môže byť
    práve toto. Časť z toho môže spadnúť aj s GUI — `WM_KILLFOCUS`
    nahradí dvojsekundový limit v `ForgetStaleArrows`.
-5. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
+4. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
    Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
    používa. Oplatí sa rozhodnúť naraz s uchovaním nastavení (6.18).
-6. **Výmena diskety za behu** (6.17) — vecne vyriešené, EurekaDOS sa
+5. **Výmena diskety za behu** (6.17) — vecne vyriešené, EurekaDOS sa
    preloguje sám. Zostáva cesta v kóde a stráženie, aby sa nevymieňalo
    uprostred zápisu.
-7. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
+6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
-8. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
+7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
-9. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
+8. **Zahodené zápisy na 1C1FA** (6.2) — krátke, ale treba disassemblovať
    cestu adresára disku.
-10. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
+9. **Sériová relácia** — odblokuje `B0h` bit 7, `A8h` bity 2 a 5 a
     rozhodne otázku 6.3.
 
 ### Čím sa dá testovať

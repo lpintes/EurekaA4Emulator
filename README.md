@@ -17,6 +17,27 @@ ako v Eureke.
 Ukončenie a bezpečné uloženie disku: `Ctrl+Shift+Q`. Reset:
 `Ctrl+Shift+R`. Nápoveda k prepínačom: `--help`.
 
+## Dve klávesnice
+
+Eureka mala dve klávesnice a emulátor môže byť ktoroukoľvek z nich.
+Prepína sa `Ctrl+K`:
+
+- **externá klávesnica PC** — takto sa štartuje. Píše sa normálne;
+  emulátor posiela scancody po sériovom porte a ROM si ich prekladá sama.
+  Pozor, ROM čaká **českú** klávesnicu: `z` a `y` sú prehodené,
+  nezhiftovaná číselná rada dáva `ěščřžýáíé` a číslice sú až so shiftom.
+- **braillovská klávesnica** — dvadsať klávesov, ktoré stroj naozaj mal.
+  `F D S` sú body 1, 2, 3 a `J K L` body 4, 5, 6, medzerník je medzerník;
+  akord sa vydá pri pustení posledného prsta. Shift patrí do akordu: robí
+  veľké písmeno a so samotným medzerníkom je Escape. **Písmená sa v tomto
+  režime nepíšu** — píše sa bodmi, tak ako na stroji.
+
+V oboch režimoch fungujú `F1`–`F10` so shiftom, kurzory aj ich akordy
+(`Home`, `End`, `PgUp`, `PgDn`, `Insert`, `Delete`).
+
+Ak by `Ctrl+K` žral terminál, dá sa štartovať rovno v braillovskom režime
+prepínačom `--braille`.
+
 Eureku možno vypnúť aj tak, ako sa vypínala naozaj: v hlavnom menu
 podržte **všetky štyri kurzorové klávesy naraz**. Stroj zahlási „konec“
 a zhasne, disk sa pritom uloží. Vypne sa aj sám po piatich minútach
@@ -140,7 +161,11 @@ Prepínač `--diag` zapne záznam hardvérových prístupov, ktoré model neobsl
 - externé porty bez modelu;
 - interné registre Z180, ktoré sa len ukladajú a nemajú správanie;
 - zmeny troch riadiacich latchov po jednotlivých bitoch;
-- kruhový záznam posledných 512 udalostí.
+- kruhový záznam posledných 512 udalostí;
+- záznam každej klávesovej udalosti aj s tým, čo z nej emulátor urobil.
+  To je jediný spôsob, ako odlíšiť kláves, ktorý sa zámerne ignoruje —
+  napríklad písmeno v braillovskom režime — od klávesu, ktorý vôbec
+  neprišiel. Oboje je inak ticho.
 
 Výpis: `Ctrl+Shift+D` počas behu, a tiež pri ukončení. Bez `--diag` nemá
 záznam žiadnu réžiu.
