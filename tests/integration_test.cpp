@@ -16,13 +16,26 @@ bool Contains(const std::vector<uint8_t>& data, const std::string& needle) {
          data.end();
 }
 
+// Boots the machine once and hands back a copy of that state.  Every check
+// that starts from a plain boot re-enters it instead of booting again, which
+// is 8M instructions each.  CheckPcKeyboard is the exception and has to keep
+// its own Reset -- see there.
+std::unique_ptr<EurekaMachine> BootedSnapshot(EurekaMachine& machine) {
+  machine.Reset();
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step()) break;
+  auto snapshot = std::make_unique<EurekaMachine>();
+  snapshot->CopyStateFrom(machine);
+  return snapshot;
+}
+
 // Every key code the host keyboard can produce, pressed one at a time and
 // checked against what the ROM made of it.  Nothing on the machine's ports
 // carries a key code: it scans a twenty-key braille keyboard and works the
 // code out at D4B0, so a row read from the wrong port or a press too short for
 // the 75 Hz scan turns a cursor key into a braille letter with no error
 // anywhere.  C638 is where the decoder leaves its answer (1D513).
-bool CheckKeyboard(EurekaMachine& machine) {
+bool CheckKeyboard(EurekaMachine& machine, const EurekaMachine& booted) {
   static const uint8_t kCodes[] = {
       0x81, 0x82, 0x84, 0x88,  // the four cursor keys
       0x85, 0x86, 0x89, 0x8a,  // home, end, page up, page down
@@ -43,17 +56,11 @@ bool CheckKeyboard(EurekaMachine& machine) {
   // what keeps a regression readable.
   //
   // Getting it by rebooting cost 8M instructions per key, about 300M in all
-  // and two thirds of the whole kbd run.  One boot and a copy of it does the
-  // same thing: measured, all 38 keys decode identically either way.
-  machine.Reset();
-  for (int step = 0; step < 8'000'000; ++step)
-    if (!machine.Step()) break;
-  auto booted = std::make_unique<EurekaMachine>();
-  booted->CopyStateFrom(machine);
-
+  // and two thirds of the whole kbd run.  Re-entering one booted state does
+  // the same thing: measured, all 38 keys decode identically either way.
   bool ok = true;
   for (uint8_t code : kCodes) {
-    machine.CopyStateFrom(*booted);
+    machine.CopyStateFrom(booted);
     machine.QueueKey(code);
     uint8_t seen = 0;
     for (int step = 0; step < 6'000'000 && seen != code; ++step) {
@@ -80,16 +87,14 @@ bool CheckKeyboard(EurekaMachine& machine) {
 // Shift is the keyboard's twentieth key and sits on row 8Ch, not beside the
 // chord: the decoder reads it at 1D60C and sends the letter through D72D.  A
 // host that presses only the dot row can never make a capital letter at all.
-bool CheckBraille(EurekaMachine& machine) {
+bool CheckBraille(EurekaMachine& machine, const EurekaMachine& booted) {
   static const uint8_t kAhoj[] = {
       0x04,  // dot 1       -> a
       0x16,  // dots 1,2,5  -> h
       0x15,  // dots 1,3,5  -> o
       0x1a,  // dots 2,4,5  -> j
   };
-  machine.Reset();
-  for (int step = 0; step < 8'000'000; ++step)
-    if (!machine.Step()) break;
+  machine.CopyStateFrom(booted);
   machine.QueueKey(0xd0);  // Shift+F1, the word processor
   for (int step = 0; step < 8'000'000; ++step)
     if (!machine.Step() && machine.queued_keys() == 0) break;
@@ -118,10 +123,9 @@ bool CheckBraille(EurekaMachine& machine) {
 // It is the only key code on this machine that needs two rows held at once, so
 // it is also the sharpest check that the host presses shift as a key and not
 // as a flag it keeps to itself.
-bool CheckBrailleShiftSpace(EurekaMachine& machine) {
-  machine.Reset();
-  for (int step = 0; step < 8'000'000; ++step)
-    if (!machine.Step()) break;
+bool CheckBrailleShiftSpace(EurekaMachine& machine,
+                            const EurekaMachine& booted) {
+  machine.CopyStateFrom(booted);
   machine.PressBraille(0x80, true);
   for (int step = 0; step < 8'000'000; ++step)
     if (!machine.Step() && machine.queued_keys() == 0) break;
@@ -142,6 +146,10 @@ bool CheckPcKeyboard(EurekaMachine& machine) {
   // The layout the ROM expects is Czech QWERTZ, so these are the positions of
   // a, h, o, j on it; 47h is Home, which speaks the line back.
   static const uint8_t kAhoj[] = {0x1e, 0x23, 0x18, 0x24};
+  // This is the one check that cannot re-enter the shared booted state: its
+  // boot is the thing under test.  The two break codes below have to be
+  // waiting before the first instruction runs, and by the time a snapshot
+  // exists the ROM has long since decided whether a keyboard is there.
   machine.Reset();
   // Two break codes before the machine has run one instruction, which is what
   // really happens: the Enter that launched the emulator and the Escape before
@@ -194,9 +202,8 @@ bool CheckPcKeyboard(EurekaMachine& machine) {
 // Typed here in BASIC, which echoes: AltGr with the "2" key of the Czech
 // layout is '@', and the same key on its own is 'ě' (88h in Kamenicky).  So a
 // stuck AltGr shows up as a second '@' where the letter should be.
-bool CheckAltGr(EurekaMachine& machine) {
-  machine.Reset();
-  for (int step = 0; step < 8'000'000; ++step) machine.Step();
+bool CheckAltGr(EurekaMachine& machine, const EurekaMachine& booted) {
+  machine.CopyStateFrom(booted);
   machine.QueueKey(0xc5);  // F6, Eureka BASIC
   for (int step = 0; step < 12'000'000; ++step) machine.Step();
   machine.TakeConsoleOutput();
@@ -590,11 +597,12 @@ int wmain(int argc, wchar_t** argv) {
   }
 
   if (std::wstring(argv[3]) == L"kbd") {
-    const bool keys = CheckKeyboard(*machine);
-    const bool braille =
-        CheckBraille(*machine) && CheckBrailleShiftSpace(*machine);
+    const auto booted = BootedSnapshot(*machine);
+    const bool keys = CheckKeyboard(*machine, *booted);
+    const bool braille = CheckBraille(*machine, *booted) &&
+                         CheckBrailleShiftSpace(*machine, *booted);
     const bool pc = CheckPcKeyboard(*machine);
-    const bool altgr = CheckAltGr(*machine);
+    const bool altgr = CheckAltGr(*machine, *booted);
     const bool passed = keys && braille && pc && altgr;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=KBD"
               << " klavesy=" << (keys ? "ok" : "chyba")

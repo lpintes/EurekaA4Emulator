@@ -266,10 +266,25 @@ tridsaťosem. Tá izolácia je to, vďaka čomu je regresia čitateľná.
 Získavala sa ale rebootom, čo stálo 8M inštrukcií na klávesu, spolu asi
 300M a dve tretiny celého behu `kbd`. Teraz sa bootuje raz a pred každou
 klávesou sa stav obnoví z kópie (`EurekaMachine::CopyStateFrom`).
-Zmerané: všetkých 38 kódov sa dekóduje rovnako, `kbd` spadol z 63 s na
-9,4 s. Jediná vec, ktorú kópia neprenesie, je `cpu_.userdata` — ukazuje
+Zmerané: všetkých 38 kódov sa dekóduje rovnako a `kbd` spadol z 27 s na
+11 s. Jediná vec, ktorú kópia neprenesie, je `cpu_.userdata` — ukazuje
 na stroj a musí ukazovať na ten, ktorý stav prevzal; inak by callbacky
 obnoveného stroja siahali do snímky.
+
+Tú istú snímku používajú aj `CheckBraille`, `CheckBrailleShiftSpace`
+a `CheckAltGr`. Merateľne to už nepridá skoro nič — tri booty sa v
+rozptyle stratia — ale nie je dôvod ich platiť.
+
+**`CheckPcKeyboard` snímku použiť nesmie** a to je vecné, nie
+kozmetické: predmetom tej kontroly je práve boot. Dva break kódy musia
+čakať skôr, než stroj vykoná prvú inštrukciu, lebo overujú, že
+neprežijú príkaz Reset — a kým existuje snímka, ROM sa už dávno
+rozhodla, či je klávesnica pripojená.
+
+Pozor pri meraní na tomto stroji vôbec: procesor vie spadnúť na 1200 MHz
+z 2601 a zostať tam. Čísla namerané v takom stave sa s ostatnými
+porovnať nedajú, aj keby vyzerali rozumne. Overuj takt počas záťaže,
+nie v pokoji — v pokoji hlási minimum vždy.
 
 ### Dva režimy písania
 
