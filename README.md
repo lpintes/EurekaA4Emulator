@@ -38,6 +38,12 @@ a hovorí cez Eureku. Podrobnosti a inštalácia sú v `nvda-addon\README.md`.
 `Alt+F1` až `Alt+F10` musí byť celá. Keď ho chcete pre Windows, stlačte
 najprv `F11`.
 
+Naopak `F11` a `F12` si berie okno, hoci na klávesnici PC sú to platné
+klávesy Eureky (`Alt+F11` sú dáta ROM). Pošle ich ponuka **Klávesnica →
+Poslať Eureke kláves**. Braillovská klávesnica ich nemá — má osem
+funkčných klávesov a `F9` s `F10` robí akordmi s medzerníkom — takže
+v tom režime sú položky zošedené.
+
 Ukončenie a bezpečné uloženie disku: `Ctrl+Shift+Q`. Reset:
 `Ctrl+Shift+R`. Úplný zoznam skratiek je v ponuke Pomocník alebo pod
 `Ctrl+Shift+H`. Nápoveda k prepínačom príkazového riadka: `--help`.

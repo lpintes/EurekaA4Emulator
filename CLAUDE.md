@@ -218,10 +218,23 @@ v konflikte s hosťom. Platí:
   zatváranie okna. Okno zatvára `Ctrl+Shift+Q` — je to akcelerátor, takže
   funguje v každom stave — a po `F11` alebo `Shift+F11` funguje aj Alt+F4.
 - **F10 ani Shift+F10 nie sú voľné** — Eureka nimi hovorí, kde ste, a robí
-  sebakontrolu. Ponuku preto otvára **F12**: `SpecialKey` obsluhuje len
-  `VK_F1`–`VK_F10`, takže F11 a F12 sú jediné klávesy, ktoré stroj nepozná.
-  **Obe sú už minuté** — F12 na ponuku, F11 na uvoľnenie klávesnice. Tretí
-  voľný kláves neexistuje; čokoľvek ďalšie berie kláves hosťovi.
+  sebakontrolu. Ponuku preto otvára **F12**, uvoľnenie klávesnice **F11**.
+- **Voľný kláves neexistuje, ani F11 a F12.** Roky tu stálo, že sú to
+  jediné klávesy, ktoré stroj nepozná — z toho, že `KB.H` končí na
+  `K_F10`. Hlavička nie je stroj: tabuľka klávesnice PC v ROM (`1DF05`
+  indexované scancodom) mapuje `57h` na `CAh` a `58h` na `CBh`, takže
+  `Alt+F11` je `EAh`, Eurekine **dáta ROM**, a `Alt+F12` `EBh`
+  (podľa jej nápovedy nepoužité). Každá hostiteľská skratka teda niečo
+  hosťovi berie; tieto dve berú najmenej z toho, čo bolo v ponuke.
+  Späť ich dáva podponuka **Klávesnica → Poslať Eureke kláves**, ktorá
+  nestojí žiadny kláves a čítačka ju prečíta.
+- **F11 a F12 sú len na klávesnici PC.** Membrána má osem funkčných
+  klávesov na riadku 1 a F9 s F10 robí akordmi s medzerníkom (`1D541`);
+  jedenásty kláves na nej nie je, takže `PressMembraneKey` kód `CAh`
+  zahodí — správne, ale **potichu**. Preto `SpecialKey` končí na `VK_F10`
+  (klávesy membrány, nie tabuľka ROM) a preto sú položky podponuky
+  v braillovskom režime zošedené. Zošedenie je tu na mieste, na rozdiel
+  od položiek režimu: ten kláves naozaj neexistuje.
 - **Akcelerátorová tabuľka je jediný vlastník hostiteľských skratiek.**
   `TranslateAccelerator` ich zje skôr, než ich okno uvidí, takže preklad
   klávesov na vlákne o nich nevie a vedieť nemá. Nepridávaj druhú

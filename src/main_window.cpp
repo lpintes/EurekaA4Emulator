@@ -46,6 +46,9 @@ constexpr wchar_t kShortcutHelp[] =
     L"Skratky emulátora (patria oknu, do Eureky sa neposielajú):\r\n"
     L"\r\n"
     L"F12 — otvorí ponuku. Alt ani F10 to nerobia, tie patria Eureke.\r\n"
+    L"      Pozor, F11 aj F12 sú na klávesnici PC platné klávesy Eureky\r\n"
+    L"      (CAh a CBh) a okno jej ich berie. Vráti ich ponuka Klávesnica →\r\n"
+    L"      Poslať Eureke kláves, vrátane Alt+F11, čo sú dáta ROM.\r\n"
     L"F11 — nasledujúci kláves nepôjde do Eureky, ale do Windows.\r\n"
     L"      Ozve sa vysoký tón, keď je nachystaný, a nižší, keď sa minie.\r\n"
     L"      Hodí sa napríklad na Alt+medzerník, ponuku okna.\r\n"
@@ -67,7 +70,11 @@ constexpr wchar_t kShortcutHelp[] =
     L"Všetko ostatné ide do Eureky:\r\n"
     L"\r\n"
     L"F1 až F10 a kurzorové klávesy vrátane Shiftu a Altu — teda aj celá\r\n"
-    L"rada Alt+F1 až Alt+F10, v ktorej je Alt+F4 komunikácia. F9 je režim,\r\n"
+    L"rada Alt+F1 až Alt+F10, v ktorej je Alt+F4 komunikácia. Na klávesnici\r\n"
+    L"PC rada pokračuje na F11 a F12 (Alt+F11 sú dáta ROM), ale tie dva\r\n"
+    L"klávesy si okno berie pre seba; posiela ich ponuka Klávesnica.\r\n"
+    L"Braillovská klávesnica ich nemá, tá má osem funkčných klávesov\r\n"
+    L"a F9 s F10 robí akordmi s medzerníkom. F9 je režim,\r\n"
     L"F10 povie, kde ste; Shift+F9 stav batérie, Shift+F10 sebekontrolu,\r\n"
     L"Shift+F7 spustí program z disku.\r\n"
     L"\r\n"
@@ -130,6 +137,10 @@ void MainWindow::RegisterCommands() {
   OnCommand(ID_KEYBOARD_RELEASE, [this] { SetReleased(!released_); });
   // Pressing F11 again changes your mind rather than arming it twice.
   OnCommand(ID_KEYBOARD_PASSONCE, [this] { SetPassOnce(!passOnce_); });
+  OnCommand(ID_KEYBOARD_SEND_F11, [this] { SendGuestKey(VK_F11, false); });
+  OnCommand(ID_KEYBOARD_SEND_AF11, [this] { SendGuestKey(VK_F11, true); });
+  OnCommand(ID_KEYBOARD_SEND_F12, [this] { SendGuestKey(VK_F12, false); });
+  OnCommand(ID_KEYBOARD_SEND_AF12, [this] { SendGuestKey(VK_F12, true); });
   OnCommand(ID_TOOLS_DIAGDUMP, [this] { emulator_.PostDumpDiagnostics(); });
 
   OnCommand(ID_ACTIVATE_MENU, [this] {
@@ -216,6 +227,17 @@ void MainWindow::RefreshMenu() const {
                 MF_BYCOMMAND | (passOnce_ ? MF_CHECKED : MF_UNCHECKED));
   EnableMenuItem(menu, ID_KEYBOARD_PASSONCE,
                  MF_BYCOMMAND | (released_ ? MF_GRAYED : MF_ENABLED));
+  // F11 and F12 exist on the PC keyboard and nowhere else.  The machine's own
+  // twenty keys carry eight function keys on row 1 and make F9 and F10 out of
+  // space-bar chords (1D541); there is no eleventh, so PressMembraneKey drops
+  // CAh and CBh on the floor -- correctly, but in silence, and silence is the
+  // one thing this machine must never answer with.  Greying says it instead,
+  // and a screen reader reads "unavailable" off it.
+  const UINT pcOnly =
+      MF_BYCOMMAND | (mode == InputMode::kPc ? MF_ENABLED : MF_GRAYED);
+  for (UINT id : {ID_KEYBOARD_SEND_F11, ID_KEYBOARD_SEND_AF11,
+                  ID_KEYBOARD_SEND_F12, ID_KEYBOARD_SEND_AF12})
+    EnableMenuItem(menu, id, pcOnly);
 }
 
 void MainWindow::SetReleased(bool released) {
@@ -285,6 +307,20 @@ bool MainWindow::HostKeepsKey(WPARAM virtualKey, bool down) {
 
 void MainWindow::ForwardKey(bool down, WPARAM wParam, LPARAM lParam) const {
   emulator_.PostKey(KeyEventFromMessage(down, wParam, lParam));
+}
+
+// Hands the guest a key the accelerator table took from it.  F11 and F12 are
+// the machine's own CAh and CBh (1DF05), so the host owning them costs the
+// guest Alt+F11, its "data ROM"; the menu is the way back and costs no key at
+// all.  Press and release both, because nobody is going to let go of a menu
+// item: the release matters to the ROM, which repeats a key that stays down.
+//
+// Not gated on released_.  Choosing this from the menu is asking for it in so
+// many words, and it is not the keyboard going anywhere -- it is one key,
+// handed over once, which is the whole point of the item.
+void MainWindow::SendGuestKey(WORD virtualKey, bool alt) const {
+  emulator_.PostKey(SyntheticKey(true, virtualKey, alt));
+  emulator_.PostKey(SyntheticKey(false, virtualKey, alt));
 }
 
 LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {

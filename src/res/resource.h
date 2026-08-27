@@ -17,6 +17,14 @@
 #define ID_KEYBOARD_TOGGLE   40022
 #define ID_KEYBOARD_RELEASE  40023
 #define ID_KEYBOARD_PASSONCE 40024
+// F11 and F12 are the guest's keys too -- the ROM's own table for the PC
+// keyboard maps scan codes 57h and 58h to CAh and CBh (1DF05) -- so the two
+// the host took have to be reachable some other way.  A menu item costs no
+// key at all, and a screen reader reads it out.
+#define ID_KEYBOARD_SEND_F11 40025
+#define ID_KEYBOARD_SEND_AF11 40026
+#define ID_KEYBOARD_SEND_F12 40027
+#define ID_KEYBOARD_SEND_AF12 40028
 #define ID_TOOLS_SETTINGS    40030
 #define ID_TOOLS_DIAGDUMP    40031
 #define ID_HELP_KEYS         40040

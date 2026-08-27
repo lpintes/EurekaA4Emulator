@@ -42,6 +42,14 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "&Uvoľniť klávesnicu\tShift+F11",              ID_KEYBOARD_RELEASE
         MENUITEM "&Jeden kláves do Windows\tF11",               ID_KEYBOARD_PASSONCE
+        MENUITEM SEPARATOR
+        POPUP "P&oslať Eureke kláves — len klávesnica PC"
+        BEGIN
+            MENUITEM "&F11",                                    ID_KEYBOARD_SEND_F11
+            MENUITEM "&Alt+F11",                                ID_KEYBOARD_SEND_AF11
+            MENUITEM "F&12",                                    ID_KEYBOARD_SEND_F12
+            MENUITEM "A&lt+F12",                                ID_KEYBOARD_SEND_AF12
+        END
     END
     POPUP "&Nástroje"
     BEGIN
@@ -64,10 +72,15 @@ END
 //
 // F12 opens the menu bar, because the two keys Windows would normally use for
 // it are the guest's: Alt is a modifier on the braille keyboard and F10 is the
-// Eureka's own "where am I".  F11 and F12 are the only keys the machine has no
-// use for -- its function keys stop at F10 (KB.H) -- and with F11 spent on the
-// keyboard release there is no third one left.  Anything else added here has
-// to take a key away from the guest.
+// Eureka's own "where am I".
+//
+// F11 and F12 are *not* free, which this table used to claim on the strength
+// of KB.H stopping at K_F10.  The ROM's own table for the PC keyboard goes
+// further: scan code 57h maps to CAh and 58h to CBh (1DF05), so with the Alt
+// bit those are the Eureka's Alt+F11, "data ROM", and Alt+F12, which its help
+// calls unused.  Every host shortcut here therefore costs the guest something;
+// these two cost the least of what was on offer, and the Keyboard menu hands
+// both keys back on demand.
 
 IDR_ACCELERATORS ACCELERATORS
 BEGIN

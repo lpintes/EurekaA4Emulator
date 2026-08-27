@@ -1780,9 +1780,8 @@ na Win32 aplikáciu. Čo pribudlo a prečo tak:
   poradie Tab, Esc, Enter, mnemoniky a to, že NVDA dialóg ohlási a prečíta.
 - **Ponuku otvára F12.** Alt je modifikátor braillovskej klávesnice a F10
   je Eurekino „kde som“, takže obe predvolené cesty do ponuky sú obsadené.
-  `SpecialKey` obsluhuje len `VK_F1`–`VK_F10`, takže F11 a F12 sú jediné
-  klávesy, ktoré stroj nepozná — doložené aj tým, že sa v zdrojákoch
-  nevyskytovali vôbec.
+  (Pôvodné odôvodnenie pokračovalo tým, že F11 a F12 stroj nepozná. To je
+  **nesprávne** a je to opravené nižšie, 27. 8. 2026.)
 - **Skratky vlastní akcelerátorová tabuľka**, jedno miesto. Preklad
   klávesov na vlákne o nich už nevie; `Ctrl+Shift+Q/R/D` a `Ctrl+K` z neho
   vypadli. Rezervované sú navyše `Ctrl+Shift+U/V/N/H`.
@@ -1900,6 +1899,47 @@ proces, stojí viac než štandardné zatváranie okna. Výnimka je preč; okno
 zatvára `Ctrl+Shift+Q` (akcelerátor, funguje v každom stave, disketu uloží)
 a po `F11` či `Shift+F11` sa `Alt+F4` chová ako všade inde, lebo
 `HostKeepsKey` ho vtedy pustí do `DefWindowProc`.
+
+**Opravené 27. 8. 2026: F11 a F12 stroj pozná.** Majiteľ si prechádzal
+nápovedu funkcií a našiel, že `Alt+F11` sú **dáta ROM** (to isté, čo
+D-akord) a `Alt+F12` je nepoužité. Predpoklad, na ktorom stálo celé
+rozdelenie klávesnice — že F11 a F12 sú jediné klávesy, ktoré stroj
+nepozná — bol teda nesprávny. Vzišiel z toho, že `KB.H` končí na
+`K_F10`; lenže hlavička nie je stroj.
+
+Doložené priamo z dumpu: tabuľka klávesnice PC je fyzicky na `1DF05`
+a indexuje sa scancodom (kontrolný bod: `[38h]` = `F8h`, ľavý Alt,
+`[3Bh..44h]` = `C0h..C9h`). Ďalej v nej je `[57h]` = **`CAh`** a `[58h]`
+= **`CBh`**, teda `10 | K_FUNCTION` a `11 | K_FUNCTION`. S bitom Altu
+`20h` je z toho `EAh` a `EBh`, čo presne sedí na to, čo hovorí nápoveda.
+
+Dve veci, ktoré z toho plynú a nie sú zrejmé:
+
+- **V režime PC by F11 a F12 chodili už dnes.** Emulátor tam neprekladá
+  nič — posiela surový scancode a prekladá ROM — takže ich zožiera len
+  akcelerátorová tabuľka okna.
+- **Na braillovskej klávesnici neexistujú.** Membrána má osem funkčných
+  klávesov na riadku 1 a F9 s F10 skladá z akordov s medzerníkom
+  (`1D541`), takže `PressMembraneKey` `CAh` zahodí. Zahodí ho **potichu**,
+  a to je presne to, čím tento projekt trpí.
+
+Riešenie (voľba majiteľa): skratky sa **nepresúvajú**, F11 a F12 zostávajú
+oknu. Pribudla podponuka `Klávesnica → Poslať Eureke kláves` s položkami
+F11, Alt+F11, F12 a Alt+F12. Nestojí to žiadny kláves, čítačka ponuku
+prečíta a `SyntheticKey` postaví udalosť tak, ako by prišla z Windows —
+scancode si vypýta od `MapVirtualKeyW`, nie z konštanty, lebo v režime PC
+je scancode celá správa. Alt drží pri stlačení a púšťa pri pustení, takže
+`SyncModifiers` po sebe nenechá visieť `38h`. V braillovskom režime sú
+položky **zošedené**, lebo ten kláves na membráne naozaj nie je.
+
+Pri hľadaní alternatív sa našlo aj toto, a môže sa hodiť: tabuľka
+rozšírených klávesov na `1DFD6` je zoznam dvojíc ukončený `00 00`
+(kurzory, Home, End, PgUp, PgDn, Insert, Delete, pravý Ctrl, pravý Alt,
+PrtSc, Enter z numerickej časti). **Nie je v nej `5Dh`**, teda kláves
+Aplikácie, ani `5Bh`/`5Ch` — v roku 1992 neexistovali. Kláves Aplikácie
+je jediný naozaj voľný kláves, aký sa našiel; nepoužil sa preto, že na
+mnohých klávesniciach chýba, ale ak by raz bolo treba tretiu skratku,
+toto je miesto, kde ju hľadať.
 
 Ostáva otvorené a **neodložené len preto, že sa naň zabudlo**:
 

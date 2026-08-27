@@ -53,6 +53,11 @@ struct HostKeyEvent {
 // Builds a HostKeyEvent from a WM_KEYDOWN/WM_KEYUP style message.
 HostKeyEvent KeyEventFromMessage(bool down, WPARAM wParam, LPARAM lParam);
 
+// Builds one for a key nobody pressed, so that a menu command can hand the
+// guest a key the host shortcuts took away from it -- F11 and F12, which the
+// ROM does know (1DF05: scan codes 57h and 58h give CAh and CBh).
+HostKeyEvent SyntheticKey(bool down, WORD virtualKey, bool alt);
+
 // Messages the worker posts back to the window.  wParam carries the detail.
 enum : UINT {
   WM_EMU_STATE = WM_APP + 1,   // mode or diagnostics changed; refresh the UI

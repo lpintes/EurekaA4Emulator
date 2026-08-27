@@ -29,6 +29,7 @@ class MainWindow : public win::Window {
   void PublishKeyboardState() const;
   void RefreshMenu() const;
   void ForwardKey(bool down, WPARAM wParam, LPARAM lParam) const;
+  void SendGuestKey(WORD virtualKey, bool alt) const;
   std::wstring AboutText() const;
 
   // True when this key event belongs to the host rather than to Eureka.  Also

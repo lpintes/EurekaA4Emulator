@@ -77,6 +77,13 @@ uint8_t SpecialKey(const HostKeyEvent& key) {
   const bool shift = (key.modifiers & SHIFT_PRESSED) != 0;
   const bool alt = (key.modifiers & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) != 0;
   uint8_t code = 0;
+  // Stops at F10, and that is the machine and not KB.H saying so.  The ROM
+  // does know CAh and CBh -- 1DF05 maps scan codes 57h and 58h to them, which
+  // is where the Eureka's Alt+F11 "data ROM" comes from -- but only from the
+  // PC keyboard.  This function serves the built-in twenty keys, which carry
+  // eight function keys on row 1 and make F9 and F10 out of space-bar chords
+  // (1D541); there is no eleventh key to press.  Claiming otherwise here
+  // would only hand PressMembraneKey a code it drops in silence.
   if (key.virtualKey >= VK_F1 && key.virtualKey <= VK_F10)
     code = static_cast<uint8_t>(0xc0 + key.virtualKey - VK_F1);
   else {
@@ -271,6 +278,25 @@ HostKeyEvent KeyEventFromMessage(bool down, WPARAM wParam, LPARAM lParam) {
   if (GetKeyState(VK_RMENU) < 0) state |= RIGHT_ALT_PRESSED;
   if (event.extended) state |= ENHANCED_KEY;
   event.modifiers = state;
+  return event;
+}
+
+HostKeyEvent SyntheticKey(bool down, WORD virtualKey, bool alt) {
+  HostKeyEvent event;
+  event.down = down;
+  event.virtualKey = virtualKey;
+  // Asked of Windows rather than written down here, because in PC mode the
+  // scan code *is* the message -- SendScanCode is a wire, not a table -- and
+  // this is the same source the real messages come from.
+  event.scanCode =
+      static_cast<uint8_t>(MapVirtualKeyW(virtualKey, MAPVK_VK_TO_VSC));
+  // Alt is held for the press and let go for the release, which is what a
+  // hand does.  In PC mode SyncModifiers then sends 38h before the key and
+  // B8h after it, leaving nothing down -- a menu command that left a
+  // modifier held would be the silent stuck-Alt bug all over again.  In
+  // braille mode the release carries no Alt either, and that is fine: SameKey
+  // masks the modifier bits precisely because a hand lets go in that order.
+  event.modifiers = (alt && down) ? LEFT_ALT_PRESSED : 0;
   return event;
 }
 
