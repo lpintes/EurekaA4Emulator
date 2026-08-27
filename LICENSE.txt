@@ -1,5 +1,11 @@
 MIT License
 
+Scope: this licence covers the repository except for two parts.  The NVDA
+add-on in nvda-addon/ is under the GNU GPL version 2 or later, because NVDA
+treats add-ons as derivative works of itself; see nvda-addon/COPYING.txt.
+The ROM dump and the third-party material in eurekatech/ are not covered
+either; see ROM-NOTICE.txt.
+
 Copyright (c) 2026 Eureka A4 Emulator contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

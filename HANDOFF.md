@@ -2037,8 +2037,17 @@ našli presne tie dve zabraté.
 Z toho plynie, že **ponuka musí zostať plnohodnotnou cestou ku všetkému** —
 je to jediná cesta, ktorú cudzí program nezoberie. Dnes to tak je.
 
-Otvorené: rozhodnúť, či doplnok patrí do tohto repozitára natrvalo — je pod
-GPL v2+, kým zvyšok je MIT.
+**Rozhodnuté: skratky sa kvôli tomu presúvať nebudú.** Znie to lákavo pri
+Resete, ktorý je vecná funkcia, ale ktorúkoľvek náhradu môže mať obsadenú
+zase niekto iný — je to iná lotéria, nie riešenie. Kto má kolíziu, prerobí
+si ju u seba v tom programe, ktorý skratku drží, alebo použije ponuku.
+
+**Rozhodnuté: doplnok v repozitári zostáva.** Je pod GPL v2+, kým zvyšok je
+MIT, a to je v poriadku — nie je to zmiešanie licencií v jednom diele, ale
+dva vedľa seba: `nvda-addon/` je samostatný plugin do cudzieho programu,
+ktorý si GPL vynucuje na svojich doplnkoch, a nič z emulátora ho nepoužíva
+ani ho nepotrebuje. Hranica je priečinok a je napísaná na troch miestach:
+`LICENSE.txt` (rozsah MIT), `nvda-addon/COPYING.txt` a README oboch strán.
 
 ## 7. Nástroje
 
