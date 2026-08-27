@@ -34,6 +34,10 @@ stroja uspí, kým klávesnicu vlastní Eureka — a len nad ním, takže ponuka
 a dialógy sa čítajú ďalej. Bez neho si NVDA berie časť klávesov pre seba
 a hovorí cez Eureku. Podrobnosti a inštalácia sú v `nvda-addon\README.md`.
 
+`Alt+F4` okno **nezatvára** — patrí Eureke, je to jej komunikácia, a rada
+`Alt+F1` až `Alt+F10` musí byť celá. Keď ho chcete pre Windows, stlačte
+najprv `F11`.
+
 Ukončenie a bezpečné uloženie disku: `Ctrl+Shift+Q`. Reset:
 `Ctrl+Shift+R`. Úplný zoznam skratiek je v ponuke Pomocník alebo pod
 `Ctrl+Shift+H`. Nápoveda k prepínačom príkazového riadka: `--help`.

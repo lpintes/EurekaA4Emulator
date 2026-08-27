@@ -1887,6 +1887,20 @@ odložil v prospech niečoho jednoduchšieho, a je to lepšie riešenie:
    svojom pustení). Jedno F11 tak zaplo prepúšťanie **natrvalo** — sticky
    režim, ktorý nikto nechcel, a k tomu tichý.
 
+**Opravené 27. 8. 2026: Alt+F4 už emulátor nezabíja.** Hlásené z používania:
+majiteľ si prechádzal nápovedu funkcií — `Alt+F1` záznamník, `Alt+F2`, …
+— a na `Alt+F4` emulátor skončil. Bola to výnimka v `WM_SYSKEYDOWN`
+s odôvodnením, že „F4 sa dá stlačiť aj bez Altu". To odôvodnenie je
+nesprávne rovnakým spôsobom ako tie dva prípady, keď sa susednosť pomýlila
+s príčinnosťou: **Alt tu nie je modifikátor hostiteľa, je to kláves stroja**
+(`SpecialKey` mu dáva bit `20h`), takže `Alt+F4` je `E3h`, komunikácia,
+a `F4` samotné je `C3h` — iná funkcia. Rada `Alt+F1`–`Alt+F10` je jedna
+súvislá ponuka, po ktorej sa chodí, a diera v jej strede, ktorá zabije
+proces, stojí viac než štandardné zatváranie okna. Výnimka je preč; okno
+zatvára `Ctrl+Shift+Q` (akcelerátor, funguje v každom stave, disketu uloží)
+a po `F11` či `Shift+F11` sa `Alt+F4` chová ako všade inde, lebo
+`HostKeepsKey` ho vtedy pustí do `DefWindowProc`.
+
 Ostáva otvorené a **neodložené len preto, že sa naň zabudlo**:
 
 - **Medzerníkové akordy na ovládanie emulátora** — nápad používateľa,

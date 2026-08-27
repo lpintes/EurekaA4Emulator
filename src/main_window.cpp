@@ -61,11 +61,13 @@ constexpr wchar_t kShortcutHelp[] =
     L"Ctrl+Shift+N — nastavenia.\r\n"
     L"Ctrl+Shift+H — toto okno.\r\n"
     L"Ctrl+Shift+Q — uloží disketu a skončí.\r\n"
-    L"Alt+F4 — takisto skončí.\r\n"
+    L"      Alt+F4 to už nerobí, ten patrí Eureke. Keď ho potrebujete pre\r\n"
+    L"      Windows, stlačte najprv F11.\r\n"
     L"\r\n"
     L"Všetko ostatné ide do Eureky:\r\n"
     L"\r\n"
-    L"F1 až F10 a kurzorové klávesy vrátane Shiftu a Altu. F9 je režim,\r\n"
+    L"F1 až F10 a kurzorové klávesy vrátane Shiftu a Altu — teda aj celá\r\n"
+    L"rada Alt+F1 až Alt+F10, v ktorej je Alt+F4 komunikácia. F9 je režim,\r\n"
     L"F10 povie, kde ste; Shift+F9 stav batérie, Shift+F10 sebekontrolu,\r\n"
     L"Shift+F7 spustí program z disku.\r\n"
     L"\r\n"
@@ -303,10 +305,16 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     // everywhere else.
     case WM_SYSKEYDOWN:
     case WM_SYSKEYUP:
-      // Alt+F4 stays with Windows in either state.  Losing the standard way to
-      // close a window would cost more than the guest gains from an F4 it can
-      // reach without Alt anyway.
-      if (wParam == VK_F4) break;
+      // Alt+F4 goes to the guest like every other Alt combination.  It was
+      // kept for Windows at first, reasoning that the guest could reach F4
+      // without Alt anyway -- which is wrong.  Alt is a key of the machine's
+      // own here (SpecialKey sets bit 20h), so Alt+F4 is E3h, the Eureka's
+      // "komunikace", and Alt+F1..Alt+F10 is one continuous row of functions
+      // the user walks along to find out what is where.  A hole in the middle
+      // of that row which kills the emulator costs more than the standard
+      // close does: Ctrl+Shift+Q is an accelerator and works in every state,
+      // and F11 or Shift+F11 hands Alt+F4 back to Windows for as long as it
+      // is wanted.
       if (HostKeepsKey(wParam, message == WM_SYSKEYDOWN)) break;
       ForwardKey(message == WM_SYSKEYDOWN, wParam, lParam);
       return 0;

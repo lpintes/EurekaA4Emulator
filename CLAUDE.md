@@ -212,7 +212,11 @@ v konflikte s hosťom. Platí:
 
 - **Alt neotvára ponuku** — je to modifikátor braillovskej klávesnice
   (`SpecialKey` mu nastavuje bit `0x20`). `WM_SYSKEYDOWN` sa preto
-  spracuje a vráti 0. Výnimka je Alt+F4.
+  spracuje a vráti 0. **Ani Alt+F4 nie je výnimka** — Alt+F1 až Alt+F10 je
+  súvislá rada funkcií Eureky (Alt+F4 je `E3h`, komunikácia) a diera
+  v jej strede, ktorá zabije emulátor, stojí viac než štandardné
+  zatváranie okna. Okno zatvára `Ctrl+Shift+Q` — je to akcelerátor, takže
+  funguje v každom stave — a po `F11` alebo `Shift+F11` funguje aj Alt+F4.
 - **F10 ani Shift+F10 nie sú voľné** — Eureka nimi hovorí, kde ste, a robí
   sebakontrolu. Ponuku preto otvára **F12**: `SpecialKey` obsluhuje len
   `VK_F1`–`VK_F10`, takže F11 a F12 sú jediné klávesy, ktoré stroj nepozná.
