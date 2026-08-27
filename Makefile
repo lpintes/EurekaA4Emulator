@@ -16,6 +16,7 @@
 MINGW64 ?= C:/msys64/mingw64
 CXX := $(MINGW64)/bin/g++.exe
 CC  := $(MINGW64)/bin/gcc.exe
+RC  := $(MINGW64)/bin/windres.exe
 
 BUILD := build
 BIN   := bin
@@ -31,8 +32,13 @@ CFLAGS   := -std=c11 -O2 $(WARN) -Isrc
 # Necham to tak, aby sa spolu s prechodom na make nemenilo aj chovanie.
 TESTFLAGS := -std=c++20 -O2 $(WARN) -Isrc
 
-EMU_NAMES  := main machine virtual_disk text_codec audio_player diagnostics
-EMU_OBJS   := $(addprefix $(BUILD)/,$(addsuffix .o,$(EMU_NAMES))) $(BUILD)/z80.o
+EMU_NAMES  := main machine virtual_disk text_codec audio_player diagnostics \
+              host_console emulator_thread main_window dialogs
+# Nezavisle na emulatore, da sa vziat do ineho projektu tak ako je.
+WIN_NAMES  := window dialog
+EMU_OBJS   := $(addprefix $(BUILD)/,$(addsuffix .o,$(EMU_NAMES))) \
+              $(addprefix $(BUILD)/win_,$(addsuffix .o,$(WIN_NAMES))) \
+              $(BUILD)/z80.o $(BUILD)/eureka_res.o
 # Objekty, proti ktorym sa linkuju sonda a integracny test. Bez main.o
 # (ma vlastny wmain) a bez audio_player.o (testy nehraju).
 CORE_OBJS  := $(BUILD)/machine.o $(BUILD)/virtual_disk.o $(BUILD)/diagnostics.o \
@@ -57,13 +63,29 @@ $(BUILD)/z80.o: src/z80.c | $(BUILD)
 $(BUILD)/%.o: src/%.cpp | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
+$(BUILD)/win_%.o: src/win/%.cpp | $(BUILD)
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+
 $(BUILD)/test_%.o: tests/%.cpp | $(BUILD)
 	$(CXX) $(TESTFLAGS) $(DEPFLAGS) -c $< -o $@
 
-# -municode kvoli wmain, staticke runtime kniznice preto, aby EXE bezalo
-# aj mimo msys2 shellu.
+# Ponuka, akceleratory, sablony dialogov a manifest. --codepage=65001 preto,
+# ze .rc je v UTF-8 a su v nom slovenske retazce; bez toho by windres cital
+# bajty ako ANSI a diakritika by sa do zdrojov dostala rozsypana -- a ticho.
+# --include-dir preto, aby "resource.h" aj "eureka.manifest" nasiel vedla .rc.
+$(BUILD)/eureka_res.o: src/res/eureka.rc src/res/resource.h \
+                       src/res/eureka.manifest | $(BUILD)
+	$(RC) --codepage=65001 --include-dir src/res -I src -i $< -o $@
+
+# -mwindows robi z toho program GUI subsystemu, takze sa pri spusteni
+# neotvori ziadne okno konzoly. Konzolu si emulator vypyta sam, az ked treba
+# (--diag, --help) -- viz host_console.cpp. Vstupny bod je preto wWinMain
+# a -municode zostava, lebo aj ten jeho startup je sirokoznakovy.
+#
+# Staticke runtime kniznice preto, aby EXE bezalo aj mimo msys2 shellu.
 $(EMU): $(EMU_OBJS) | $(BIN)
-	$(CXX) -municode $(STATIC) -s -o $@ $(EMU_OBJS) -lwinmm -lole32 -lshell32 -luuid
+	$(CXX) -municode -mwindows $(STATIC) -s -o $@ $(EMU_OBJS) \
+	    -lwinmm -lole32 -lshell32 -luuid -lcomctl32
 
 # codec_test a disk_test maju obycajny main, preto bez -municode; s nim
 # linker spadne na chybajucom wWinMain.

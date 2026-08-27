@@ -1,0 +1,133 @@
+// Menu, accelerators and the dialog templates.  Kept declarative and in one
+// file on purpose: this is the layout, and a layout expressed in dialog units
+// scales with the dialog font instead of being computed by us.
+//
+// The strings here are Slovak and the file is UTF-8, so windres is called with
+// --codepage=65001 (see the Makefile).  Resources hold UTF-16 either way.
+
+#include <windows.h>
+#include "resource.h"
+
+#pragma code_page(65001)
+
+// The manifest asks for Common Controls 6 and system DPI awareness.
+1 RT_MANIFEST "eureka.manifest"
+
+/////////////////////////////////////////////////////////////////////////////
+// Menu
+//
+// Every command that has a shortcut names it after the tab, because that is
+// where a screen reader looks for it.  A shortcut nobody can discover is a
+// shortcut nobody has.
+
+IDR_MAIN_MENU MENU
+BEGIN
+    POPUP "&Súbor"
+    BEGIN
+        MENUITEM "&Uložiť disketu do priečinka…\tCtrl+Shift+U", ID_FILE_EXPORT
+        MENUITEM SEPARATOR
+        MENUITEM "S&končiť\tCtrl+Shift+Q",                      ID_FILE_EXIT
+    END
+    POPUP "&Stroj"
+    BEGIN
+        MENUITEM "&Reset\tCtrl+Shift+R",                        ID_MACHINE_RESET
+        MENUITEM "&Vypnúť Eureku\tCtrl+Shift+V",                ID_MACHINE_POWEROFF
+    END
+    POPUP "&Klávesnica"
+    BEGIN
+        MENUITEM "&Braillovská",                                ID_KEYBOARD_BRAILLE
+        MENUITEM "Externá &PC",                                 ID_KEYBOARD_PC
+        MENUITEM SEPARATOR
+        MENUITEM "&Prepnúť\tCtrl+K",                            ID_KEYBOARD_TOGGLE
+        MENUITEM SEPARATOR
+        MENUITEM "&Uvoľniť klávesnicu\tShift+F11",              ID_KEYBOARD_RELEASE
+        MENUITEM "&Jeden kláves do Windows\tF11",               ID_KEYBOARD_PASSONCE
+    END
+    POPUP "&Nástroje"
+    BEGIN
+        MENUITEM "&Nastavenia…\tCtrl+Shift+N",                  ID_TOOLS_SETTINGS
+        MENUITEM "&Výpis diagnostiky\tCtrl+Shift+D",            ID_TOOLS_DIAGDUMP
+    END
+    POPUP "&Pomocník"
+    BEGIN
+        MENUITEM "&Klávesové skratky…\tCtrl+Shift+H",           ID_HELP_KEYS
+        MENUITEM "&O programe…",                                ID_HELP_ABOUT
+    END
+END
+
+/////////////////////////////////////////////////////////////////////////////
+// Accelerators
+//
+// This table is the single owner of every host shortcut.  TranslateAccelerator
+// eats these presses before the window sees them, so the key translation on
+// the emulator thread no longer has to recognise any of them.
+//
+// F12 opens the menu bar, because the two keys Windows would normally use for
+// it are the guest's: Alt is a modifier on the braille keyboard and F10 is the
+// Eureka's own "where am I".  F11 and F12 are the only keys the machine has no
+// use for -- its function keys stop at F10 (KB.H) -- and with F11 spent on the
+// keyboard release there is no third one left.  Anything else added here has
+// to take a key away from the guest.
+
+IDR_ACCELERATORS ACCELERATORS
+BEGIN
+    "U",        ID_FILE_EXPORT,      VIRTKEY, CONTROL, SHIFT
+    "Q",        ID_FILE_EXIT,        VIRTKEY, CONTROL, SHIFT
+    "R",        ID_MACHINE_RESET,    VIRTKEY, CONTROL, SHIFT
+    "V",        ID_MACHINE_POWEROFF, VIRTKEY, CONTROL, SHIFT
+    "K",        ID_KEYBOARD_TOGGLE,  VIRTKEY, CONTROL
+    "N",        ID_TOOLS_SETTINGS,   VIRTKEY, CONTROL, SHIFT
+    "D",        ID_TOOLS_DIAGDUMP,   VIRTKEY, CONTROL, SHIFT
+    "H",        ID_HELP_KEYS,        VIRTKEY, CONTROL, SHIFT
+    VK_F11,     ID_KEYBOARD_PASSONCE, VIRTKEY
+    VK_F11,     ID_KEYBOARD_RELEASE,  VIRTKEY, SHIFT
+    VK_F12,     ID_ACTIVATE_MENU,    VIRTKEY
+END
+
+/////////////////////////////////////////////////////////////////////////////
+// Settings
+//
+// Deliberately thin.  It holds the two switches that already exist and mean
+// something at runtime; what else becomes a setting, and what survives between
+// runs, is the same question as keeping the RAM across runs and is decided
+// with it (HANDOFF 6.15, 6.18).
+
+IDD_SETTINGS DIALOGEX 0, 0, 232, 132
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Nastavenia"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    GROUPBOX        "Klávesnica", IDC_STATIC, 7, 7, 218, 52
+    CONTROL         "&Braillovská (body F D S J K L, píše sa akordmi)",
+                    IDC_MODE_BRAILLE, "Button", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
+                    16, 21, 200, 12
+    CONTROL         "Externá &PC (píše sa po českej klávesnici)",
+                    IDC_MODE_PC, "Button", BS_AUTORADIOBUTTON,
+                    16, 38, 200, 12
+
+    GROUPBOX        "Diagnostika", IDC_STATIC, 7, 65, 218, 40
+    CONTROL         "&Zapnutá — záznam ide na konzolu, výpis Ctrl+Shift+D",
+                    IDC_DIAGNOSTICS, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
+                    16, 79, 200, 12
+
+    DEFPUSHBUTTON   "OK", IDOK, 118, 111, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 175, 111, 50, 14
+END
+
+/////////////////////////////////////////////////////////////////////////////
+// About
+//
+// The body is a read-only multiline edit rather than static text, so a screen
+// reader can walk it with the review cursor instead of having to take it in
+// one announcement.  It is a tab stop for the same reason.
+
+IDD_ABOUT DIALOGEX 0, 0, 268, 156
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "O programe"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    EDITTEXT        IDC_ABOUT_TEXT, 7, 7, 254, 121,
+                    ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL |
+                    WS_GROUP | WS_TABSTOP
+    DEFPUSHBUTTON   "OK", IDOK, 211, 134, 50, 14, WS_GROUP
+END
