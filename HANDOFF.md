@@ -1757,15 +1757,182 @@ veci:
 
 GUI teda začína nad dvojrežimovou klávesnicou, nie nad trojrežimovou.
 
+**Hotové 27. 8. 2026: okno, vlákno a dialógy.** Konzolovka je preložená
+na Win32 aplikáciu. Čo pribudlo a prečo tak:
+
+- **`src/win/`** — tenká vlastná obálka nad Win32, o emulátore nevie nič.
+  wxWidgets sa neťahalo: rozsah je jedno okno, ponuka, akcelerátory a dva
+  dialógy, prístupnosť by nepriniesla nič navyše (obe kreslia natívne
+  kontroly) a celý zisk z GUI podľa tejto sekcie sú **surové správy** —
+  `lParam` bit 30, scan kód, `WM_KILLFOCUS`, `WM_SYSKEYDOWN`. Framework je
+  od toho, aby ich schoval.
+- **`src/emulator_thread.*`** — stroj aj zvuk bežia na vlastnom vlákne.
+  Nie kvôli poriadku: rozbalená ponuka, modálny dialóg aj ťahanie okna si
+  spustia vlastnú správovú slučku a jednovláknový emulátor by v nich stál.
+  Pri 22 ms latencie to znamená reč preseknutú uprostred slova.
+  **Odmerané:** s otvoreným dialógom `Nastavenia` spotreboval proces 0,47 s
+  CPU za 3 s reálneho času, bez dialógu 0,34 s. Vlákno nestálo.
+- Okno sa stroja **nedotýka**. Klávesy aj príkazy idú jednou frontou, takže
+  poradie drží a nad strojom nie je ani jeden zámok.
+- **Dialógy sú skutočné dialógy** zo šablón v `.rc`, nie okná, ktoré tak
+  vyzerajú (to boli formuláre Delphi). Overené na bežiacom procese: trieda
+  okna je `#32770`, teda rola „dialóg“ pre MSAA/UIA. Odtiaľ je zadarmo
+  poradie Tab, Esc, Enter, mnemoniky a to, že NVDA dialóg ohlási a prečíta.
+- **Ponuku otvára F12.** Alt je modifikátor braillovskej klávesnice a F10
+  je Eurekino „kde som“, takže obe predvolené cesty do ponuky sú obsadené.
+  `SpecialKey` obsluhuje len `VK_F1`–`VK_F10`, takže F11 a F12 sú jediné
+  klávesy, ktoré stroj nepozná — doložené aj tým, že sa v zdrojákoch
+  nevyskytovali vôbec.
+- **Skratky vlastní akcelerátorová tabuľka**, jedno miesto. Preklad
+  klávesov na vlákne o nich už nevie; `Ctrl+Shift+Q/R/D` a `Ctrl+K` z neho
+  vypadli. Rezervované sú navyše `Ctrl+Shift+U/V/N/H`.
+- Z toho, čo táto sekcia sľubovala, je hotové aj **`WM_KILLFOCUS`**
+  (pustí všetko deterministicky; `ForgetStaleArrows` zostal ako poistka na
+  release stratený inak) a **explicitný autorepeat z `lParam` bitu 30**
+  v braillovskom akorde.
+- Hostiteľská konzola **zostala**, ale už nie je povrchom — je to
+  diagnostická plocha. Editačný prvok v okne sa nerobil, text sa zatiaľ
+  nevypisuje.
+
+**Doplnené 27. 8. 2026: konzola sa už neotvára sama.** Emulátor je program
+GUI subsystému (`-mwindows`, vstupný bod `wWinMain`), takže pri bežnom
+spustení žiadne okno konzoly nevyskočí — dovtedy vyskočilo, vzalo si fokus
+a používateľ musel okno emulátora hľadať Alt+Tabom.
+
+- `AttachToParentConsole()` na štarte je zadarmo a bez okna: `--help`
+  a `--diag` zo shellu píšu tam, kam majú.
+- `OpenConsole()` konzolu vyrobí, a volá sa len pre `--diag`, `--help`
+  a zapnutie diagnostiky v Nastaveniach.
+- Štandardné handly sa preberajú len keď tam nič použiteľné nie je, takže
+  `--help > subor.txt` ďalej funguje. Odskúšané.
+- Konzolové zariadenie hosťa sa vypisuje **len so zapnutou diagnostikou**.
+  Berie sa vždy, aby buffer nerástol.
+
+**Dôsledok, ktorý sa dá ľahko prehliadnuť:** čokoľvek pre používateľa
+poslané cez `host::Print` odteraz padne do konzoly, ktorú nikto neotvoril,
+a **zmizne potichu**. Preto sú v `MessageBox` chyby pri štarte, preskočené
+podpriečinky, zlyhanie zvuku (to hlási vlákno oknu cez `WM_EMU_NO_AUDIO`,
+lebo modálne okno z pracovného vlákna by ho zablokovalo) a hlásenia pri
+ukladaní diskety. `HoldConsole` prestalo byť potrebné na chyby — dialóg sa
+nezavrie sám.
+
+**Dve pasce, obe odchytené až meraním:**
+
+1. *Pripojenie k rodičovskej konzole pri štarte vyzerá zadarmo a nie je.*
+   Konzola žije, kým je na ňu niekto pripojený, takže spustené z dávky,
+   ktorá potom skončí, by okno toho shellu zostalo visieť prázdne celú
+   reláciu. Pripája sa preto až tam, kde sa píše — `OpenConsole()`
+   a `Fail()`, a v `Fail()` len preto, že proces hneď skončí.
+2. *`cmd` na program GUI subsystému čaká.* `Spustit-Eureku.bat` teda
+   držala okno dávky na obrazovke celý beh — konzolu sme z emulátora
+   odstránili a vrátila sa zadnými dverami. Dávka preto volá `start`.
+
+Odskúšané: priamo EXE bez rodičovskej konzoly (žiadna konzola), cez dávku
+(žiadna, a `cmd` skončí hneď), cez dávku s `--diag` (vznikne
+`ConsoleWindowClass` „Eureka A4 — diagnostika"), zo shellu (pripojí sa,
+nové okno nevzniká), presmerovanie `--help > subor.txt` (zachované),
+a zapnutie diagnostiky v Nastaveniach za behu.
+
+**Pasca, do ktorej som pri tom spadol.** Príkaz „Vypnúť Eureku" najprv
+posielal `QueueKey(0x8f)` a hneď za tým `ReleaseKey(0x8f)`. Vyzeralo to
+symetricky a bolo to nefunkčné: pustenie, ktoré príde skôr, než sa
+stlačenie dostane na porty, spadne v `ReleaseKey` do vetvy „pustené pred
+prvým skenom" a **skráti stlačenie zo 120 ms na 40 ms**
+(`machine.cpp:1182`). ROM ten akord nestihne zosnímať — odmerané: stroj sa
+nevypne vôbec a `C45Ah` zostane `00` namiesto `FF`.
+
+Prečo to test `power` nechytil: skladal si akord sám, takže testoval
+stroj, ale **cestu hostiteľa netestoval vôbec**. Preto je akord teraz
+v `EurekaMachine::PressPowerOffChord()` a test aj ponuka volajú to isté;
+hostiteľ si ho už neskladá. Poučenie je všeobecnejšie než tento akord: keď
+test aj aplikácia robia „to isté" dvoma zápismi, test nehovorí o aplikácii
+nič.
+
 Otvorené a treba rozhodnúť:
 
-- **Ktoré nastavenia** a kde sa uchovajú. Dnešné prepínače sú prepínače
-  príkazového riadka (`--pc`, `--disk`, `--diag`); časť z nich sa stane
-  položkou v okne a časť by mala prežiť medzi behmi — a to je tá istá
-  otázka ako uchovanie RAM (6.15), takže sa oplatí rozhodnúť naraz.
-- **Čo s konzolou.** Buď zostane vedľa okna, alebo výstup pôjde do
-  editačného prvku len na čítanie. Editačný prvok má tú výhodu, že
-  v ňom NVDA vie prehliadať kurzorom; konzola má tú, že už funguje.
+- **Ktoré nastavenia** a kde sa uchovajú. Dialóg `Nastavenia` je zámerne
+  tenký — drží dva prepínače, ktoré za behu naozaj niečo znamenajú (režim
+  klávesnice, diagnostika), a **nič si nepamätá medzi behmi**. Čo ďalšie
+  sa stane nastavením a čo má beh prežiť, je tá istá otázka ako uchovanie
+  RAM (6.15), takže sa rozhodne s ňou.
+- **Výmena diskety za behu** (6.17) v ponuke ešte nie je; `Súbor` vie
+  zatiaľ len uložiť disketu do priečinka. Cesta na výmenu v kóde stále
+  neexistuje.
+**Hotové 27. 8. 2026: F11 a Shift+F11.** Majiteľ nápad s akordmi (nižšie)
+odložil v prospech niečoho jednoduchšieho, a je to lepšie riešenie:
+
+- **F11** pustí do Windows nasledujúci jeden kláves; okno ho nechá
+  `DefWindowProc`, takže `Alt`, `F10` aj `Alt+medzerník` robia to, čo robia
+  všade inde. `Alt+medzerník` je ten okamžitý zisk — systémovú ponuku okna
+  sme dovtedy zožierali.
+- **Shift+F11** uvoľní klávesnicu úplne, ako „host key“ vo virtuálnom
+  stroji. Toto je z tých dvoch to užitočnejšie a jeho hodnota porastie
+  s každou kontrolou, ktorá do okna pribudne.
+- Oboje je v akcelerátorovej tabuľke a v ponuke Klávesnica, stav je v
+  titulku a **každá zmena znie** (viď `CLAUDE.md`, „Režim, ktorý nepočuť“).
+- Pri zmene sa posiela `PostFocusLost()`, aby hosťovi nezostal visieť
+  modifikátor.
+- Položky režimu sa počas uvoľnenia **nezošedievajú**: vybrať si, ako sa
+  klávesnica vráti, je zmysluplné, a `Ctrl+K` cez akcelerátor ide ďalej —
+  zošedená položka vedľa fungujúcej skratky hovorí dve rôzne veci.
+
+**Dve pasce z toho, obe odmerané:**
+
+1. *Akcelerátor zje stlačenie, nie pustenie.* F11 nachystal jednorazovku a
+   pustenie toho istého F11 ju o zlomok sekundy neskôr minulo — F11 potom
+   Alt neurobilo nič. Minie sa preto len na klávese, ktorého **stlačenie**
+   okno videlo.
+2. *Modifikátor musí jednorazovku míňať.* Prvé pravidlo modifikátory
+   z míňania vynímalo, lenže `Alt` sám je úplný úkon (ponuku otvára na
+   svojom pustení). Jedno F11 tak zaplo prepúšťanie **natrvalo** — sticky
+   režim, ktorý nikto nechcel, a k tomu tichý.
+
+Ostáva otvorené a **neodložené len preto, že sa naň zabudlo**:
+
+- **Medzerníkové akordy na ovládanie emulátora** — nápad používateľa,
+  27. 8. 2026, a fyzikálne sedí: na dvadsaťklávesovej klávesnici niet Ctrl,
+  takže medzerník je prirodzený modifikátor, a hardvér ho tak aj vidí
+  (`IOPORT.H`: medzerník je bit 7 portu `bkb_row0`, teda ten istý port ako
+  šesť bodov; `BrailleBit` mu už dáva `0x80`).
+
+  **Pozor, priestor nie je prázdny.** `C-DEVEL.G:39` hovorí: „Control D
+  (Dots 4,5,6 held down with the Space Bar, then type a D)" — Space+body456
+  je Eurekin **vlastný prefix Ctrl** a potom sa čaká celé písmeno, čiže je
+  to dvojkrokový stavový automat. A shift s holým medzerníkom je Escape
+  (`1D52F`). Voľnú množinu treba **odmerať, nie odhadnúť**.
+
+  Obava z chŕlenia medzier neplatí: hostiteľ držaný medzerník do stroja
+  neposiela vôbec. Akord sa skladá, kým sú prsty dole, a `PressBraille`
+  vloží jeden stlačovací a jeden púšťací rámec bez akéhokoľvek stavu.
+  Rozhodovací bod pre „je to náš akord?" už teda existuje — pri pustení
+  posledného prsta, bez časovača a bez prahu. Cena je tá, čo platí už dnes:
+  holý medzerník sa doručí až pri pustení.
+
+  Návrh: **len v braillovskom režime.** V režime PC sa prsty pri písaní
+  prekrývajú a medzerník ešte dole pri ďalšom písmene by robil falošné
+  akordy; navyše tam Ctrl je. A každý emulátorový akord sa musí ozvať inak
+  než Eurekiným hlasom, inak sa „akord nefunguje" nedá odlíšiť od „akord
+  zožral stroj" — oboje je ticho.
+- **Sonda na to, čo Eureka z klávesnice zje** — dvojica krátkych `.COM`
+  programov, ktoré ohlásia prijatý kód a skončia na Escape. Cesta je
+  v manuáli celá:
+
+  - surový kód: `ld b,2` (`dev_kb`, `DEVICE.LIB:24`) a BIOS volanie **18**
+    (`BIOS_DEV_INPUT`, `BIOS.H`); `ld hl,(0001h)` dá WBOOT, teda položku 1,
+    takže položka 18 je `HL+51`. Kód klávesy príde v `A` — hodnoty z `KB.H`.
+  - čo z toho pustila konzola: `BIOS_DEV_CONTROL` = 22, `B` = 11
+    (`dev_console`), `C` = 7 (`con_ctl_getkey`).
+
+  Cenná je až **odlišnosť** oboch: čo ovládač vyrobí a konzola nedoručí,
+  to zjedla konzola. Výpis cez BDOS 2 ide na `cono_list`, takže stroj to aj
+  povie a náš stub BIOS funkcie 4 to zapíše na hostiteľskú konzolu — jeden
+  program pre skutočný stroj aj pre nás. Assembler netreba, stačí Python
+  v `tools/`, a výsledok sa dá overiť disassemblovaním cez `z180dis.py`.
+
+  **Obmedzenie, ktoré treba povedať vopred:** takto sa zmeria len to, čo je
+  voľné, kým beží program. Hlavné menu je tretia vrstva nad oboma sondami
+  a môže zjesť aj to, čo obe videli. Druhú polovicu musí rozhodnúť
+  `diag_probe` a počúvanie priamo v menu.
 
 ## 7. Nástroje
 
@@ -1801,12 +1968,18 @@ zachytávanie konzolového vstupu aj `RenderIdle`. Malo to riešiť tri hlásen�
 chyby — hladujúce funkčné klávesy, ukladanie v BASICu a medzerník, ktorý
 nezastaví hudbu. Deväť testov prechádza a majiteľ to odskúšal aj ručne.
 
-1. **GUI** (6.18) — vlastné okno, nastavenia, prepínanie a obľúbené
-   diskety. Najväčšia položka tohto zoznamu. Dedí `main.cpp` už bez tej
-   skratky, tak ako bolo zamýšľané: prepínanie režimu je dnes jediné
-   `Ctrl+K` a rodina `Ctrl+*` pre GUI je rozbehnutá. Pozor pri nej na to,
-   že ROM na exterke Ctrl+písmeno rešpektuje (`1DE0E`), takže každá ďalšia
-   taká skratka berie hosťovi jeden riadiaci znak.
+**Hotové 27. 8. 2026: GUI** (6.18) — okno, ponuka, akcelerátory, vlastné
+vlákno emulátora a dva skutočné dialógy. Deväť testov ďalej prechádza.
+Zostáva z toho výmena diskety za behu, obľúbené diskety a uchovanie
+nastavení; podrobnosti aj otvorené kusy sú v 6.18.
+
+1. **Sonda na klávesnicu** (6.18, koniec) — dva krátke `.COM` programy
+   cez `dev_kb` a `con_ctl_getkey`, ktoré ohlásia prijatý kód. Bez ich dát
+   sa nedá rozhodnúť, ktoré medzerníkové akordy sú voľné na ovládanie
+   emulátora, lebo Space+body456 je Eurekin vlastný prefix Ctrl. Krátke a
+   odblokuje to väčšiu vec. Pozor aj naďalej na to, že ROM na exterke
+   Ctrl+písmeno rešpektuje (`1DE0E`), takže každá ďalšia taká skratka
+   berie hosťovi jeden riadiaci znak.
 2. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
    percent zle započítaných cyklov v obsluhe generátora tónov. Pozor na
    páku 8 : 1 — tempo reaguje osemkrát citlivejšie než cena obsluhy.
@@ -1815,8 +1988,9 @@ nezastaví hudbu. Deväť testov prechádza a majiteľ to odskúšal aj ručne.
    sledovať bez neho, sú `C598h`/`C599h` (viď 6.9). Pozor: kým nebol
    modelovaný vypínací strob, päť minút nečinnosti stroj potichu zabilo,
    takže časť starších pozorovaní „po čase prestane reagovať" môže byť
-   práve toto. Časť z toho môže spadnúť aj s GUI — `WM_KILLFOCUS`
-   nahradí dvojsekundový limit v `ForgetStaleArrows`.
+   práve toto. **Časť z toho už mohla spadnúť s GUI:** `WM_KILLFOCUS` teraz
+   pustí všetko deterministicky a `ForgetStaleArrows` je len poistka.
+   Skúsiť to znovu skôr, než sa bude hľadať inde.
 4. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
    Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
    používa. Oplatí sa rozhodnúť naraz s uchovaním nastavení (6.18).

@@ -14,8 +14,26 @@ ako v Eureke.
 3. Počkajte na úvodnú vetu „inicializace eureky“.
 4. Klávesnica Windows teraz ovláda emulovaný počítač.
 
+Emulátor má vlastné okno s ponukou. **Ponuku otvára `F12`** — nie `Alt`
+ani `F10`, tie patria Eureke: `Alt` je modifikátor braillovskej klávesnice
+a `F10` je Eurekino „kde som“.
+
+Keď potrebujete kláves pre Windows a nie pre Eureku:
+
+- **`F11`** pustí do Windows **nasledujúci jeden kláves**. Hodí sa
+  napríklad na `Alt+medzerník`, teda systémovú ponuku okna. Vysoký tón
+  znamená, že je nachystaný, nižší, že sa minul.
+- **`Shift+F11`** uvoľní klávesnicu **úplne**: do Eureky nejde nič a okno
+  sa správa ako hociktoré iné okno Windows. Klesajúca dvojica tónov
+  znamená, že klávesy Eureku opúšťajú, stúpajúca že sa vracajú. Kým to
+  platí, je to napísané aj v titulku okna, takže sa na to dá kedykoľvek
+  spýtať `NVDA+T`.
+
 Ukončenie a bezpečné uloženie disku: `Ctrl+Shift+Q`. Reset:
-`Ctrl+Shift+R`. Nápoveda k prepínačom: `--help`.
+`Ctrl+Shift+R`. Úplný zoznam skratiek je v ponuke Pomocník alebo pod
+`Ctrl+Shift+H`. Nápoveda k prepínačom príkazového riadka: `--help`.
+
+Skratky emulátora sa do Eureky neposielajú; všetko ostatné áno.
 
 ## Dve klávesnice
 
@@ -43,10 +61,18 @@ podržte **všetky štyri kurzorové klávesy naraz**. Stroj zahlási „konec�
 a zhasne, disk sa pritom uloží. Vypne sa aj sám po piatich minútach
 nečinnosti a tridsať sekúnd vopred to ohlási tónmi.
 
-Keď emulátor spustíte zo správcu súborov, dostane vlastné okno konzoly,
-ktoré by s ním na konci zaniklo. Preto pred skončením počká na kláves,
-aby sa dala prečítať posledná hláška — pri chybe aj pri normálnom
-ukončení. Spustený z už otvoreného príkazového riadka nečaká na nič.
+Emulátor má **len svoje okno**. Žiadna konzola pri spustení nevyskočí a
+nič vám nezoberie zameranie.
+
+Konzola sa otvorí jedine vtedy, keď o ňu požiadate: pri `--diag`, pri
+`--help` a keď diagnostiku zapnete v Nastaveniach. Je to diagnostická
+plocha, nie používateľské rozhranie — tým je zvuk. Keď emulátor spustíte
+z už otvoreného príkazového riadka, píše sa rovno doň a nové okno
+nevzniká.
+
+Všetko, čo sa týka vás a nie ladenia — chyba pri štarte, súbory, ktoré sa
+na disketu nezmestili, zlyhanie zvukového zariadenia, ukladanie diskety —
+sa ohlási dialógom, ktorý čítačka prečíta.
 
 Program sa dá spustiť aj z príkazového riadka:
 
@@ -106,8 +132,8 @@ HD64180; spustiteľný `.COM` musí byť určený pre EurekaDOS/CP/M 2.2.
 - Podporované sú české a slovenské písmená vrátane `č ď ľ ĺ ň ô ŕ ř š ť ž`.
   Moderné úvodzovky, pomlčky a tri bodky sa bezpečne normalizujú. Znak mimo
   8-bitovej sady sa prevedie na základné písmeno alebo `?`.
-- Výstup z Eureky sa opačne dekóduje do Unicode, takže konzolu korektne číta
-  aj NVDA.
+- Výstup z Eureky sa opačne dekóduje do Unicode, takže diagnostický výpis
+  na konzole korektne číta aj NVDA.
 
 Emulátor nemení obsah programov ani ich textové dáta fonetickými náhradami.
 Výslovnostná oprava anglického slova `source` zostáva v samostatnom NVDA
@@ -167,8 +193,9 @@ Prepínač `--diag` zapne záznam hardvérových prístupov, ktoré model neobsl
   napríklad písmeno v braillovskom režime — od klávesu, ktorý vôbec
   neprišiel. Oboje je inak ticho.
 
-Výpis: `Ctrl+Shift+D` počas behu, a tiež pri ukončení. Bez `--diag` nemá
-záznam žiadnu réžiu.
+Výpis: `Ctrl+Shift+D` počas behu, a tiež pri ukončení. Zapnúť sa dá aj za
+behu v Nastaveniach (`Ctrl+Shift+N`); vtedy sa otvorí okno konzoly, do
+ktorého sa dá čítať. Bez `--diag` nemá záznam žiadnu réžiu.
 
 Obe otázky, kvôli ktorým vznikol, sú medzitým zodpovedané: zapisovateľná
 RAM začína na `0x70000` a na sériovom porte Z180 visí klávesnica IBM PC.

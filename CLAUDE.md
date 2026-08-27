@@ -64,9 +64,25 @@ Emulátor: `build.bat` z ľubovoľného príkazového riadka — cestu k mingw
 si predradí sám a na globálny PATH sa nespolieha. Hotové EXE ide do
 `bin\`, medzivýstupy do `build\`; oba sú v `.gitignore`.
 
-Dve veci, bez ktorých sa emulátor nezlinkuje: `-municode`, lebo vstupný
-bod je `wmain`, a `-static -static-libgcc -static-libstdc++`, inak EXE
-pýta mingw DLL a mimo msys2 shellu sa nespustí.
+Tri veci, bez ktorých sa emulátor nezlinkuje alebo nepobeží správne:
+`-municode` (vstupný bod je širokoznakový), `-mwindows` (GUI subsystém,
+vstupný bod je preto `wWinMain`, nie `wmain`) a
+`-static -static-libgcc -static-libstdc++`, inak EXE pýta mingw DLL
+a mimo msys2 shellu sa nespustí.
+
+Testy a sonda `-mwindows` **nemajú** — sú to konzolové programy s `wmain`.
+
+Zdroje okna (`src/res/eureka.rc`) prekladá `windres` — ponuka,
+akcelerátory, šablóny dialógov a manifest. Dve veci na ňom:
+`--codepage=65001`, lebo `.rc` je v UTF-8 a sú v ňom slovenské reťazce
+(bez toho by windres čítal bajty ako ANSI a diakritika by sa do zdrojov
+dostala rozsypaná, a **potichu**), a `--include-dir src/res`, aby vedľa
+`.rc` našiel `resource.h` aj `eureka.manifest`. Manifest si pýta Common
+Controls 6, preto pribudlo `-lcomctl32` a `InitCommonControlsEx`.
+
+Keď na `.rc` siahneš, over výsledok na hotovom EXE, nie na zdrojáku —
+reťazce sú v ňom v UTF-16, takže `s.encode('utf-16-le') in data`
+povie, či prežili. Sám preklad nezlyhá ani keď ich rozsype.
 
 `z80.c` sa prekladá ako C, nie C++; `Makefile` to už rieši.
 
@@ -153,6 +169,105 @@ dokumentácia a používateľské reťazce po slovensky alebo česky.
 
 Komentuj *prečo*, nie *čo*. Pri hardvérových predpokladoch pripíš
 adresu v ROM, ktorá ich dokladá — inak ich nikto neskôr neoverí.
+
+## Rozvrstvenie GUI
+
+- `src/win/` je tenká obálka nad Win32 a **o emulátore nevie nič** —
+  dá sa vziať do iného projektu tak, ako je. Nech to tak zostane.
+- `src/emulator_thread.*` vlastní `EurekaMachine` aj `AudioPlayer` a beží
+  na vlastnom vlákne. Okno sa stroja **nedotýka**, všetko mu posiela cez
+  jednu frontu príkazov — preto tam nie je ani jeden zámok nad strojom.
+  Klávesy idú tou istou frontou ako príkazy, aby si prepnutie režimu
+  nepredbehlo kláves napísaný po ňom.
+- Vlákno tam nie je kvôli poriadku. Rozbalená ponuka, modálny dialóg aj
+  ťahanie okna si spustia **vlastnú správovú slučku**; jednovláknový
+  emulátor by v nich stál a pri 22 ms latencie by sa reč zasekla uprostred
+  slova. **Nevracaj emulátor do správovej slučky okna.**
+- Dialógy sú **skutočné dialógy** zo šablón (`DialogBoxParamW`), nie okná,
+  ktoré tak vyzerajú. Rolu „dialóg“ pre NVDA, poradie Tab, Esc, Enter
+  a mnemoniky dáva správca dialógov; vlastné `WS_POPUP` okno nedá nič
+  z toho. Overiť sa to dá triedou okna — musí byť `#32770`.
+- Súradnice sa nepočítajú nikde. Rozloženie dialógov je v dialógových
+  jednotkách v `.rc` a škáluje sa s fontom. Ak by niektorý dialóg pýtal
+  layout engine, je príliš zložitý na dialóg.
+
+## Klávesnica a kto ju vlastní
+
+Okno posiela do Eureky **všetko**, takže bežné konvencie Windows sú
+v konflikte s hosťom. Platí:
+
+- **Alt neotvára ponuku** — je to modifikátor braillovskej klávesnice
+  (`SpecialKey` mu nastavuje bit `0x20`). `WM_SYSKEYDOWN` sa preto
+  spracuje a vráti 0. Výnimka je Alt+F4.
+- **F10 ani Shift+F10 nie sú voľné** — Eureka nimi hovorí, kde ste, a robí
+  sebakontrolu. Ponuku preto otvára **F12**: `SpecialKey` obsluhuje len
+  `VK_F1`–`VK_F10`, takže F11 a F12 sú jediné klávesy, ktoré stroj nepozná.
+  **Obe sú už minuté** — F12 na ponuku, F11 na uvoľnenie klávesnice. Tretí
+  voľný kláves neexistuje; čokoľvek ďalšie berie kláves hosťovi.
+- **Akcelerátorová tabuľka je jediný vlastník hostiteľských skratiek.**
+  `TranslateAccelerator` ich zje skôr, než ich okno uvidí, takže preklad
+  klávesov na vlákne o nich nevie a vedieť nemá. Nepridávaj druhú
+  kontrolu skratky do prekladu.
+- **Akcelerátor zje stlačenie, ale nie pustenie.** Pustenie príde do
+  `WndProc` normálne. Pre stroj je to neškodné (break bez make), ale pre
+  čokoľvek so stavom je to pasca: jednorazovka na F11 sa takto míňala sama
+  hneď po nachystaní. Preto sa míňa len na klávese, ktorého **stlačenie**
+  okno naozaj videlo. Rovnaká pasca zožrala akord v braillovskom režime.
+- **Uvoľnenie klávesnice (`released_` v `MainWindow`) je stav okna, nie
+  stroja.** Okno kláves jednoducho nepošle a nechá ho `DefWindowProc`.
+  Pri každej zmene sa posiela `PostFocusLost()`, inak by hosťovi zostal
+  visieť modifikátor, na ktorý už pustenie nikdy nepríde.
+
+## Konzola je diagnostika, nie výstup
+
+Emulátor je program GUI subsystému, takže **konzolu nemá**, pokiaľ si ju
+nevypýta. Nevyžiadané okno konzoly pri štarte zoberie fokus a potom sa
+musí hľadať Alt+Tabom — to je šum, nie informácia. `host_console.cpp`:
+
+- `AttachToParentConsole()` na začiatku. Je zadarmo a neotvára okno; robí
+  len to, že `--help` a `--diag` spustené zo shellu píšu tam, kam majú.
+- `OpenConsole()` konzolu naozaj vyrobí, a preto je len pre výstup, ktorý
+  si používateľ vyžiadal menom: `--diag`, `--help`, zapnutie diagnostiky
+  v Nastaveniach.
+- Štandardné handly sa preberajú **len keď tam nič použiteľné nie je**.
+  Inak by `EurekaA4Emulator.exe --help > subor.txt` poslalo nápovedu na
+  obrazovku namiesto do súboru.
+
+**Z toho plynie pravidlo: čo je pre používateľa, nesmie ísť cez
+`host::Print`.** Padlo by to do konzoly, ktorú nikto neotvoril, a zmizlo
+by potichu. Patrí to do `MessageBox` — ten existuje vždy a čítačka ho
+ohlási ako dialóg a prečíta. Takto sú riešené chyby pri štarte, preskočené
+podpriečinky, zlyhanie zvuku a hlásenia pri ukladaní diskety.
+
+Na konzolu patrí len: `--diag`, výpis diagnostiky, záznam klávesov,
+konzolové zariadenie hosťa (a to sa vypisuje **iba** so zapnutou
+diagnostikou) a `--help`.
+
+Dve veci okolo toho, ktoré vyzerajú ako drobnosť a nie sú:
+
+- **Nepripájaj sa k rodičovskej konzole pri štarte.** Vyzerá to zadarmo —
+  žiadne okno nevznikne — ale konzola žije, kým je na ňu niekto pripojený.
+  Spustené z dávky, ktorá potom skončí, by okno toho shellu zostalo visieť
+  prázdne celú reláciu. Pripája sa až tam, kde sa naozaj píše: v
+  `OpenConsole()` a v `Fail()` (a tam len preto, že proces hneď skončí).
+- **`Spustit-Eureku.bat` musí volať `start`.** `cmd` na program GUI
+  subsystému **čaká**, takže bez `start` zostane okno dávky na obrazovke
+  celý čas behu — konzola je preč z emulátora a vráti sa zadnými dverami.
+  Odskúšané oboje.
+
+## Režim, ktorý nepočuť, je chyba
+
+Klávesnica, ktorá nikam nechodí, a pokazená klávesnica sú **obe ticho** —
+to je pasca, do ktorej tento projekt padá dokola. Preto každá zmena toho,
+kam idú klávesy, znie: `Beep()` hostiteľa, ktorý sa nedá pomýliť
+s Eurekiným hlasom z DAC. Klesajúca dvojica = klávesy Eureku opúšťajú,
+stúpajúca = vracajú sa, krátky vysoký = jednorazovka nachystaná, nižší =
+minutá. Stav navyše stojí v titulku okna, takže NVDA+T na neho odpovie
+kedykoľvek, nie len v okamihu zmeny.
+
+`Beep()` je synchrónny a to je v poriadku **len preto, že stroj beží na
+vlastnom vlákne**. Keby sa emulátor niekedy vrátil do správovej slučky,
+toto je jedno z miest, ktoré by ho zaseklo.
 
 ## Git
 
