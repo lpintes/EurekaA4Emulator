@@ -1934,6 +1934,112 @@ Ostáva otvorené a **neodložené len preto, že sa naň zabudlo**:
   a môže zjesť aj to, čo obe videli. Druhú polovicu musí rozhodnúť
   `diag_probe` a počúvanie priamo v menu.
 
+**Hotové 27. 8. 2026: NVDA spí nad oknom stroja, nie nad aplikáciou.**
+Majiteľ hlásil, že emulátor sa s NVDA tlčie a jediná obrana — uspať čítačku
+cez `NVDA+Shift+S` — umlčí aj Nastavenia a ponuku, teda presne to, kde je
+čítačka potrebná. Riešené doplnkom v `nvda-addon/`.
+
+Prečo nie hook v okne. Cesta „ako virtuálny stroj", teda `WH_KEYBOARD_LL`
+v emulátore, technicky funguje — hooky sa volajú od naposledy
+zaregistrovaného a emulátor štartuje po NVDA — ale **rozpadne sa potichu**:
+stačí reštart NVDA alebo `NVDA+Ctrl+F3` a čítačka je v reťazci pred nami.
+K tomu zaseknuté okno znamená mŕtvu klávesnicu pre celý systém. Pre tento
+projekt je to zlá výmena; klávesnica, ktorá nikam nechodí, je jeho stará
+pasca.
+
+Čo to teda robí a čím je to doložené (čítané zo zdrojákov NVDA, tag
+`release-2026.1.1`, a preverené aj proti `release-2024.1`):
+
+- `NVDAObject` má `_cache_sleepMode = False` a `eventHandler.executeEvent`
+  aj `inputCore.executeGesture` sa pýtajú **objektu**, ktorého sa vec týka.
+  Spánok sa preto dá viazať na jedno okno: doplnok cez
+  `chooseNVDAObjectOverlayClasses` podstrčí vlastnú triedu oknu
+  `EurekaA4EmulatorWindow`. Dialógy (`#32770`) a ponuka (`#32768`) sú iné
+  objekty a zostávajú bdelé.
+- V spánku sa gesto zahodí (`NoInputGestureAction`) a kláves ide do
+  aplikácie, udalosti sa nespracujú. Teda: žiadne echo, žiadne dvojité
+  rozprávanie a Eureka dostane aj numerickú klávesnicu a `NVDA+šípky`.
+- **Výnimka je kláves NVDA:** `keyboardHandler.internal_keyDownEvent` ho
+  nepustí ďalej nikdy („Never pass the NVDA modifier key to the OS"). Eureka
+  `Insert` pozná (`8Dh`), takže sa doň dostane len dvojitým stlačením
+  (bypass cez `multiPressTimeout`, tiež v tom hooku) alebo cez `Shift+F11`.
+- `NVDA+Shift+S` má `allowInSleepMode=True`, takže zostáva núdzová brzda aj
+  v spánku. Preto doplnok vracia `True`, nie `SLEEP_FULL`.
+- `NVDA+T` by v spánku nefungovalo — a titulok je pritom jediný nosič stavu,
+  na ktorý sa dá spýtať kedykoľvek. Doplnok ho preto **vnútri emulátora
+  nahrádza** vlastným príkazom s `allowInSleepMode=True`; skripty
+  aplikačného modulu sa hľadajú pred `globalCommands`
+  (`scriptHandler._yieldObjectsForFindScript`), takže mimo emulátora sa
+  nemení nič.
+
+Zo strany emulátora pribudlo jedno: `PublishKeyboardState()` vystaví
+`released_` ako vlastnosť okna `EurekaA4.KeyboardReleased`. Vlastnosť okna,
+nie pomenovaná udalosť — viaže sa na konkrétne okno, takže dva bežiace
+emulátory si neprekážajú, a jej neprítomnosť znamená „Eureka vlastní
+klávesnicu", čo je aj to, čo odpovie staršie EXE. **Odmerané na bežiacom
+procese** (`GetPropW` z iného procesu cez `ctypes`): pri štarte `0`, po
+`Shift+F11` `1`, po vrátení `0`, a titulok sa mení s tým.
+
+Jednorazovka (F11) sa zámerne nepublikuje — prebudená čítačka by ten jeden
+kláves zjedla ako svoj príkaz, okno by ho nikdy nevidelo a jednorazovka by
+zostala nachystaná navždy. To je presne tá tichá sticky pasca, na ktorej sa
+`HostKeepsKey` už raz popálilo.
+
+**Opravené hneď pri prvom skúšaní so zapnutým NVDA: ponuka bola ticho.**
+Majiteľ hlásil, že po `F12` sa ponuka otvorí, ale nepočuť ju — ozve sa až
+prvá šípka dole. Príčina je štrukturálna a stojí za zapamätanie:
+**ponuková lišta nie je okno.** Patrí HWND, ktorý ju vlastní, takže objekty,
+ktoré NVDA po otvorení ponuky postaví, nesú triedu `EurekaA4EmulatorWindow`
+a padnú na ten istý overlay ako okno stroja — a ten ich uspal. Rozbaľovacie
+menu naopak **vlastné okno je** (`#32768`), overlay naň nesadá, a preto sa
+prvá šípka ozvala.
+
+Odmerané na bežiacom emulátore (`GetGUIThreadInfo` na vlákne okna): pred
+ponukou `flags=0` a `hwndMenuOwner=0`, po `SC_KEYMENU` (to, čo robí `F12`)
+`GUI_INMENUMODE` a `hwndMenuOwner` = naše okno, po rozbalení bez zmeny, po
+`Esc` zase `0`. **`hwndFocus` je celý čas hlavné okno** — to je to
+doloženie, že ponuka vlastný HWND nemá.
+
+Doplnok sa preto pýta aj na režim ponuky a kým je ponuka hore, nespí.
+Vecne to sedí: v režime ponuky berie klávesy Windows a Eureka z nich
+nedostane nič, takže nie je pre koho mlčať. Overené proti bežiacemu
+emulátoru cez rozhodovaciu funkciu samotného doplnku — okno stroja `True`,
+otvorená ponuka `False`, rozbalená `False`, po zavretí `True`, po
+`Shift+F11` `False`, po vrátení `True`.
+
+Poučenie na ďalšie kolo: **„trieda okna" a „okno" nie sú to isté.** Čokoľvek
+ďalšie, čo bude žiť na HWND hlavného okna, spadne na ten istý overlay.
+
+**Potvrdené majiteľom 27. 8. 2026 v ostrej relácii s NVDA:** nad oknom
+stroja čítačka mlčí a klávesy patria Eureke, a po oprave sa ponuka ohlási
+hneď pri otvorení. To je jediný druh dôkazu, ktorý tu platí — všetko
+ostatné okolo doplnku je meranie zvonka a čítanie zdrojákov NVDA, lebo
+doplnok beží vnútri cudzieho procesu, do ktorého sa odtiaľto nedá vidieť.
+
+Neodskúšané v ostrej relácii zostáva: `NVDA+T` počas spánku, dialógy
+(Nastavenia, Pomocník) a prechod cez `Shift+F11` tam a späť. Zo zdrojákov aj
+z merania to vychádza, ale povedané to nie je.
+
+**Skratku okna môže zobrať iný program, a je to ticho.** Pri skúšaní sa
+ukázalo, že `Ctrl+Shift+H` (Klávesové skratky) nerobí nič. Príkaz aj ponuka
+sú v poriadku — overené poslaním `WM_COMMAND` s `ID_HELP_KEYS`, dialóg
+vznikne. Kláves sa do okna nedostane: niekto iný v relácii ho drží ako
+**globálnu skratku** cez `RegisterHotKey`, a tá vyhráva nad akcelerátorovou
+tabuľkou aplikácie. Na stroji majiteľa je to organizér a berie aj
+`Ctrl+Shift+R`, teda Reset.
+
+Diagnostika je jednoduchá a stojí za zapamätanie: skúsiť si tú kombináciu
+zaregistrovať sám. `RegisterHotKey` vráti chybu **1409**
+(`ERROR_HOTKEY_ALREADY_REGISTERED`), keď ju už niekto drží; keď je voľná,
+prejde a hneď sa dá odregistrovať. Takto sa z ôsmich skratiek emulátora
+našli presne tie dve zabraté.
+
+Z toho plynie, že **ponuka musí zostať plnohodnotnou cestou ku všetkému** —
+je to jediná cesta, ktorú cudzí program nezoberie. Dnes to tak je.
+
+Otvorené: rozhodnúť, či doplnok patrí do tohto repozitára natrvalo — je pod
+GPL v2+, kým zvyšok je MIT.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -1972,6 +2078,10 @@ nezastaví hudbu. Deväť testov prechádza a majiteľ to odskúšal aj ručne.
 vlákno emulátora a dva skutočné dialógy. Deväť testov ďalej prechádza.
 Zostáva z toho výmena diskety za behu, obľúbené diskety a uchovanie
 nastavení; podrobnosti aj otvorené kusy sú v 6.18.
+
+**Hotové 27. 8. 2026: doplnok pre NVDA** (`nvda-addon/`) — čítačka spí nad
+oknom stroja a len nad ním, takže ponuka a dialógy sa čítajú ďalej.
+Zostáva to odskúšať v skutočnej relácii s NVDA; rozbor je na konci 6.18.
 
 1. **Sonda na klávesnicu** (6.18, koniec) — dva krátke `.COM` programy
    cez `dev_kb` a `con_ctl_getkey`, ktoré ohlásia prijatý kód. Bez ich dát

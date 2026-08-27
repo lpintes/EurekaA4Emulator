@@ -9,6 +9,12 @@
 # a na `goto`, a to ticho -- zlyha az za behu, nie pri prekade. Ostavaju CRLF.
 *.bat text eol=crlf
 
+# Python v nvda-addon/ sa riadi stylom NVDA, a ten zavazne pyta LF. Pravidlo
+# je tu preto, ze `* text=auto` necha o konci riadkov v pracovnom strome
+# rozhodnut nastavenie core.autocrlf, takze inde by ten subor mohol vzniknut
+# s CRLF a nikto by si toho nevsimol.
+*.py text eol=lf
+
 # Obsah eurekatech/ su dobove subory z roku 1992 vratane CP/M binarok.
 # Konverzia koncov riadkov by ich poskodila a integracny test zavisi na
 # tom, ze READ.COM je bajt na bajt taky, aky prisiel z diskety. Toto

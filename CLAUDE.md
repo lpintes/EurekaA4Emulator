@@ -86,6 +86,13 @@ povie, či prežili. Sám preklad nezlyhá ani keď ich rozsype.
 
 `z80.c` sa prekladá ako C, nie C++; `Makefile` to už rieši.
 
+Doplnok pre NVDA: `build-addon.bat`. Nie je v `Makefile` a nemá to byť —
+je to zip a jeden preklad `.po` → `.mo` cez `msgfmt` z msys2, teda nič, čo
+by malo závislosti alebo sa dalo zbytočne prekladať znovu. `build-addon.bat
+scratchpad` nakopíruje modul do vývojového priečinka NVDA; to je vývojová
+slučka, `NVDA+Ctrl+F3` ho načíta znovu. Pozor, v scratchpade nefunguje
+`addonHandler.initTranslation()` (nie je to doplnok) — modul to ošetruje.
+
 Sonda a testy: `build-tests.bat`. Zostaví `bin\diag_probe.exe`,
 `bin\integration_test.exe`, `bin\codec_test.exe` a `bin\disk_test.exe`,
 a linkuje ich proti objektom z `build\`.
@@ -170,6 +177,13 @@ dokumentácia a používateľské reťazce po slovensky alebo česky.
 Komentuj *prečo*, nie *čo*. Pri hardvérových predpokladoch pripíš
 adresu v ROM, ktorá ich dokladá — inak ich nikto neskôr neoverí.
 
+Python v `nvda-addon/` sa riadi **štýlom NVDA**, nie štýlom `tools/`:
+tabulátory (nie medzery), `camelCase`, riadok do 110 znakov, LF, UTF-8 bez
+BOM a každý reťazec pre používateľa cez `_()` s komentárom `# Translators:`
+tesne pred ním. Je to vynucované u nich, nie u nás, ale doplnok, ktorý ich
+štýl nedodrží, sa nedá poslať ďalej. A licencia je tam iná: **GPL v2+**,
+lebo NVDA považuje doplnky za odvodené dielo (`nvda-addon/COPYING.txt`).
+
 ## Rozvrstvenie GUI
 
 - `src/win/` je tenká obálka nad Win32 a **o emulátore nevie nič** —
@@ -217,6 +231,39 @@ v konflikte s hosťom. Platí:
   stroja.** Okno kláves jednoducho nepošle a nechá ho `DefWindowProc`.
   Pri každej zmene sa posiela `PostFocusLost()`, inak by hosťovi zostal
   visieť modifikátor, na ktorý už pustenie nikdy nepríde.
+
+## Čítačka obrazovky je tretí hráč o klávesnicu
+
+NVDA sedí nad aplikáciou v nízkoúrovňovom hooku, takže rozhoduje **skôr než
+okno**. Nič v `main_window.cpp` preto nevie klávesu vziať čítačke — to sa dá
+len dohodou, a tá je v `nvda-addon/`: doplnok uspí NVDA nad oknom triedy
+`EurekaA4EmulatorWindow` a nikde inde, takže ponuka a dialógy sa čítajú ďalej.
+
+Emulátor do toho hovorí jedinou vecou: vlastnosťou okna
+`EurekaA4.KeyboardReleased` (`PublishKeyboardState`), ktorú si doplnok číta
+cez `GetPropW` z druhého procesu. Overené na bežiacom procese — pri štarte
+je `0`, po `Shift+F11` `1`, po vrátení zase `0`.
+
+Tri veci, na ktoré si dať pozor:
+
+- **Názov triedy okna a názov vlastnosti sú zmluva medzi dvoma projektmi.**
+  Premenovanie ktoréhokoľvek doplnok vypne, a **potichu** — nič nezlyhá,
+  NVDA len prestane spať. Oba názvy sú v `main_window.cpp` aj
+  v `eurekaa4emulator.py` a musia si zodpovedať.
+- **Jednorazovka (F11) sa zámerne nepublikuje.** Vyzerá to logicky — na
+  jeden kláves patrí klávesnica hosťovi — ale prebudená čítačka by práve
+  ten kláves zjedla ako svoj príkaz, okno by ho nikdy nevidelo a
+  jednorazovka by zostala nachystaná navždy. To je ten istý tichý sticky
+  režim, na ktorom sa už raz `HostKeepsKey` popálilo.
+- **Kláves NVDA si čítačka necháva aj v spánku.** `Insert` je pre Eureku
+  platný kláves (`8Dh`), takže sa doň dostane len dvoma rýchlymi
+  stlačeniami za sebou (vlastná finta NVDA) alebo cez `Shift+F11`.
+- **Ponuková lišta nie je okno**, patrí HWND hlavného okna. Objekty ponuky
+  teda nesú triedu `EurekaA4EmulatorWindow` a spánok viazaný na triedu okna
+  ich uspí tiež — ponuka je po `F12` ticho a ozve sa až prvá šípka, lebo
+  rozbaľovacie menu už vlastné okno (`#32768`) je. Doplnok sa preto pýta aj
+  na `GetGUIThreadInfo` a v režime ponuky nespí. Platí to pre čokoľvek
+  ďalšie, čo bude žiť na tom istom HWND.
 
 ## Konzola je diagnostika, nie výstup
 

@@ -1,0 +1,22 @@
+Doplnok eurekaA4Emulator pre NVDA
+Copyright (C) 2026 Lubos Pintes
+
+NVDA považuje doplnky a ovládače za odvodené dielo, takže tento doplnok je
+šírený pod licenciou GNU General Public License, verzia 2 alebo novšia — nie
+pod MIT licenciou, ktorá platí pre zvyšok tohto repozitára. Týka sa to obsahu
+priečinka nvda-addon/, ničoho iného.
+
+Tento program je slobodný softvér: môžete ho šíriť a upravovať podľa
+podmienok GNU General Public License, ako ju zverejnila Free Software
+Foundation, a to buď verzie 2 tejto licencie, alebo (podľa vášho uváženia)
+ktorejkoľvek neskoršej verzie.
+
+Tento program je šírený v nádeji, že bude užitočný, ale BEZ AKEJKOĽVEK
+ZÁRUKY, dokonca aj bez implicitnej záruky PREDAJNOSTI alebo VHODNOSTI NA
+KONKRÉTNY ÚČEL. Podrobnosti nájdete v GNU General Public License.
+
+Úplné znenie licencie:
+https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+Licencia NVDA a jej dodatočné povolenia:
+https://github.com/nvaccess/nvda/blob/master/copying.txt

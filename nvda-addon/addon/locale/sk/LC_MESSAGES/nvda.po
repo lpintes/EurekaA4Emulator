@@ -1,0 +1,26 @@
+# Slovenský preklad doplnku eurekaA4Emulator pre NVDA.
+# Copyright (C) 2026 Lubos Pintes
+# Táto správa sa zobrazuje v Vstupných gestách a v pomocníkovi pre vstup.
+msgid ""
+msgstr ""
+"Project-Id-Version: eurekaA4Emulator 1.0.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-27 00:00+0200\n"
+"PO-Revision-Date: 2026-08-27 00:00+0200\n"
+"Last-Translator: Lubos Pintes\n"
+"Language-Team: Slovak\n"
+"Language: sk\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;\n"
+
+#. Translators: Input help mode message for a command that reports the title of
+#. the Eureka A4 emulator window.
+msgid ""
+"Reports the title of the emulator window, which carries the keyboard state. "
+"Unlike NVDA's own command, this one answers while NVDA sleeps over the "
+"machine window"
+msgstr ""
+"Oznámi titulok okna emulátora, v ktorom je stav klávesnice. Na rozdiel od "
+"vlastného príkazu NVDA odpovie aj vtedy, keď NVDA nad oknom stroja spí"

@@ -29,6 +29,11 @@ Keď potrebujete kláves pre Windows a nie pre Eureku:
   platí, je to napísané aj v titulku okna, takže sa na to dá kedykoľvek
   spýtať `NVDA+T`.
 
+V priečinku `nvda-addon\` je **doplnok pre NVDA**, ktorý čítačku nad oknom
+stroja uspí, kým klávesnicu vlastní Eureka — a len nad ním, takže ponuka
+a dialógy sa čítajú ďalej. Bez neho si NVDA berie časť klávesov pre seba
+a hovorí cez Eureku. Podrobnosti a inštalácia sú v `nvda-addon\README.md`.
+
 Ukončenie a bezpečné uloženie disku: `Ctrl+Shift+Q`. Reset:
 `Ctrl+Shift+R`. Úplný zoznam skratiek je v ponuke Pomocník alebo pod
 `Ctrl+Shift+H`. Nápoveda k prepínačom príkazového riadka: `--help`.
@@ -218,8 +223,21 @@ aj cez `Spustit-Eureku.bat`, ktorý si EXE nájde v `bin\`.
 EXE je linkované staticky, takže beží aj mimo msys2 a nepotrebuje
 žiadne mingw DLL.
 
+Doplnok pre NVDA sa prekladá zvlášť:
+
+```text
+build-addon.bat
+```
+
+Výsledok je `bin\eurekaA4Emulator.nvda-addon`. Preklad hlások potrebuje
+`msgfmt` z msys2 (`C:\msys64\usr\bin`); bez neho sa doplnok zostaví, len
+bez prekladu. `build-addon.bat scratchpad` modul namiesto toho nakopíruje
+do vývojového priečinka NVDA.
+
 ROM nie je súčasťou licencie zdrojového kódu; pozrite `ROM-NOTICE.txt`.
 Použité jadro Z80 má vlastné MIT oznámenie v `src\LICENSE.superzazu-z80.txt`.
+Doplnok v `nvda-addon\` je pod GPL v2+, lebo NVDA považuje doplnky za
+odvodené dielo; pozrite `nvda-addon\COPYING.txt`.
 
 Technické referencie k procesoru: [Hitachi HD64180 User's Manual](https://www.bitsavers.org/components/hitachi/64180/HD64180_Users_Manual_Oct85.pdf),
 [Zilog Z180 User Manual](https://www.zilog.com/docs/z180/um0050.pdf) a
