@@ -242,7 +242,9 @@ bool CheckPowerOff(EurekaMachine& machine) {
     const auto said = machine.TakeSpeechInput();
     spoken.insert(spoken.end(), said.begin(), said.end());
     if (!pressed && machine.cycles() > lastOut + kQuiet) {
-      machine.QueueKey(0x8f);
+      // The same call the emulator's "Vypnúť Eureku" command makes, so this
+      // test covers the host's path and not just the machine's.
+      machine.PressPowerOffChord();
       pressed = true;
     }
     if (!machine.Step()) break;

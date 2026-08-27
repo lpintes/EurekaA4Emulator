@@ -79,6 +79,16 @@ class EurekaMachine {
   // Optional counterpart of QueueKey for hosts that see key releases: it ends
   // the emulated press early.  Without it a key still comes up on its own.
   void ReleaseKey(uint8_t key);
+  // All four cursor keys at once (8Fh, k_udlr): the machine's off switch, from
+  // the Main Menu, checked at 18154.  A host that offers "switch off" as a
+  // command calls this rather than building the chord itself -- there is one
+  // way to get it wrong and it is quiet.  Following the press with ReleaseKey
+  // takes the "let go before the first scan" branch there, which cuts the
+  // press from kPressMs to kMinPressMs; measured, the ROM then never sees the
+  // chord at all and C45Ah stays 00 instead of FFh.  Nobody is holding a key
+  // when a menu item is chosen, so there is nothing to let go of: the press
+  // ends on its own.
+  void PressPowerOffChord() { QueueKey(0x8f); }
   // Presses a braille chord on the dot keys: bit 0 is dot 3, bit 1 dot 2,
   // bit 2 dot 1, bit 3 dot 4, bit 4 dot 5, bit 5 dot 6, bit 7 the space bar.
   // Shift is the keyboard's own twentieth key on row 8Ch and is part of the
