@@ -48,7 +48,7 @@ constexpr wchar_t kShortcutHelp[] =
     L"F12 — otvorí ponuku. Alt ani F10 to nerobia, tie patria Eureke.\r\n"
     L"      Pozor, F11 aj F12 sú na klávesnici PC platné klávesy Eureky\r\n"
     L"      (CAh a CBh) a okno jej ich berie. Vráti ich ponuka Klávesnica →\r\n"
-    L"      Poslať Eureke kláves, vrátane Alt+F11, čo sú dáta ROM.\r\n"
+    L"      Poslať Eureke kláves; F11 je ROM operačného systému.\r\n"
     L"F11 — nasledujúci kláves nepôjde do Eureky, ale do Windows.\r\n"
     L"      Ozve sa vysoký tón, keď je nachystaný, a nižší, keď sa minie.\r\n"
     L"      Hodí sa napríklad na Alt+medzerník, ponuku okna.\r\n"
@@ -69,14 +69,23 @@ constexpr wchar_t kShortcutHelp[] =
     L"\r\n"
     L"Všetko ostatné ide do Eureky:\r\n"
     L"\r\n"
-    L"F1 až F10 a kurzorové klávesy vrátane Shiftu a Altu — teda aj celá\r\n"
-    L"rada Alt+F1 až Alt+F10, v ktorej je Alt+F4 komunikácia. Na klávesnici\r\n"
-    L"PC rada pokračuje na F11 a F12 (Alt+F11 sú dáta ROM), ale tie dva\r\n"
-    L"klávesy si okno berie pre seba; posiela ich ponuka Klávesnica.\r\n"
-    L"Braillovská klávesnica ich nemá, tá má osem funkčných klávesov\r\n"
-    L"a F9 s F10 robí akordmi s medzerníkom. F9 je režim,\r\n"
-    L"F10 povie, kde ste; Shift+F9 stav batérie, Shift+F10 sebekontrolu,\r\n"
-    L"Shift+F7 spustí program z disku.\r\n"
+    L"F1 až F10 a kurzorové klávesy vrátane Shiftu a Altu.\r\n"
+    L"\r\n"
+    L"Alt+F1 až Alt+F10 je rada, ktorá funkciu len pomenuje a nespustí ju:\r\n"
+    L"Alt+F4 povie „komunikace“, samotné F4 do komunikácie vojde. Takto sa\r\n"
+    L"dá prejsť, čo kde je.\r\n"
+    L"\r\n"
+    L"Na klávesnici PC rada pokračuje: F11 je ROM operačného systému\r\n"
+    L"(Alt+F11 povie „data ROMu“), F12 je nepoužité. Tie dva klávesy si\r\n"
+    L"berie okno a posiela ich ponuka Klávesnica.\r\n"
+    L"\r\n"
+    L"F11 má aj braillovská klávesnica: je to „d-akord“, medzerník a body\r\n"
+    L"1, 4, 5, takže sa dá stlačiť aj priamo bodmi. F12 na nej akord nemá\r\n"
+    L"a Alt je na nej medzerník, ktorý akord už používa — v braillovskom\r\n"
+    L"režime je preto z tých štyroch položiek aktívne len F11.\r\n"
+    L"\r\n"
+    L"F9 je režim, F10 povie, kde ste; Shift+F9 stav batérie, Shift+F10\r\n"
+    L"sebekontrolu, Shift+F7 spustí program z disku.\r\n"
     L"\r\n"
     L"V braillovskom režime sú F D S body 1 2 3, J K L body 4 5 6\r\n"
     L"a medzerník je medzerník. Shift robí veľké písmeno a so samotným\r\n"
@@ -227,17 +236,18 @@ void MainWindow::RefreshMenu() const {
                 MF_BYCOMMAND | (passOnce_ ? MF_CHECKED : MF_UNCHECKED));
   EnableMenuItem(menu, ID_KEYBOARD_PASSONCE,
                  MF_BYCOMMAND | (released_ ? MF_GRAYED : MF_ENABLED));
-  // F11 and F12 exist on the PC keyboard and nowhere else.  The machine's own
-  // twenty keys carry eight function keys on row 1 and make F9 and F10 out of
-  // space-bar chords (1D541); there is no eleventh, so PressMembraneKey drops
-  // CAh and CBh on the floor -- correctly, but in silence, and silence is the
-  // one thing this machine must never answer with.  Greying says it instead,
-  // and a screen reader reads "unavailable" off it.
+  // F11 is the one of the four the braille keyboard can also make: it is the
+  // "d" chord, space plus dots 1,4,5 (9Ch), measured to say the same "ROM
+  // operacniho systemu" as scan code 57h.  The other three it cannot -- F12
+  // has no chord, and Alt means the space bar, which the chord is already
+  // using -- so on the twenty keys they would go nowhere and go there in
+  // silence.  Greying says it out loud enough for a screen reader to read.
   const UINT pcOnly =
       MF_BYCOMMAND | (mode == InputMode::kPc ? MF_ENABLED : MF_GRAYED);
-  for (UINT id : {ID_KEYBOARD_SEND_F11, ID_KEYBOARD_SEND_AF11,
-                  ID_KEYBOARD_SEND_F12, ID_KEYBOARD_SEND_AF12})
+  for (UINT id : {ID_KEYBOARD_SEND_AF11, ID_KEYBOARD_SEND_F12,
+                  ID_KEYBOARD_SEND_AF12})
     EnableMenuItem(menu, id, pcOnly);
+  EnableMenuItem(menu, ID_KEYBOARD_SEND_F11, MF_BYCOMMAND | MF_ENABLED);
 }
 
 void MainWindow::SetReleased(bool released) {

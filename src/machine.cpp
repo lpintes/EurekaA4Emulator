@@ -465,6 +465,12 @@ void EurekaMachine::PressMembraneKey(uint8_t key) {
       case 0xc9: frame.row0 = 0x88; break;  // space + dot 4    = F10 (WHERE)
       case 0xd8: frame.row0 = 0x86; break;  // space + dots 1,2 = Shift+F9
       case 0xd9: frame.row0 = 0x98; break;  // space + dots 4,5 = Shift+F10
+      // F11 is a chord too -- the "d" chord, which the keyboard section of
+      // hardware-map.md has listed all along and this switch did not.  It was
+      // reachable by typing the dots and unreachable by its key code, and
+      // the difference was silent.  Measured: chord 9Ch says "ROM
+      // operacniho systemu", the same as scan code 57h on the PC keyboard.
+      case 0xca: frame.row0 = 0x9c; break;  // space + dots 1,4,5 = F11
       default: return;
     }
   } else {

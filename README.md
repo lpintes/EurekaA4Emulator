@@ -34,15 +34,22 @@ stroja uspí, kým klávesnicu vlastní Eureka — a len nad ním, takže ponuka
 a dialógy sa čítajú ďalej. Bez neho si NVDA berie časť klávesov pre seba
 a hovorí cez Eureku. Podrobnosti a inštalácia sú v `nvda-addon\README.md`.
 
-`Alt+F4` okno **nezatvára** — patrí Eureke, je to jej komunikácia, a rada
-`Alt+F1` až `Alt+F10` musí byť celá. Keď ho chcete pre Windows, stlačte
-najprv `F11`.
+`Alt+F4` okno **nezatvára** — patrí Eureke. `Alt+F1` až `Alt+F10` je rada,
+ktorá funkciu len **pomenuje** a nespustí ju (`Alt+F4` povie „komunikace",
+samotné `F4` do komunikácie vojde), takže sa ňou dá prejsť, čo kde je, a
+diera v jej strede by bola na obtiaž. Keď `Alt+F4` chcete pre Windows,
+stlačte najprv `F11`.
 
 Naopak `F11` a `F12` si berie okno, hoci na klávesnici PC sú to platné
-klávesy Eureky (`Alt+F11` sú dáta ROM). Pošle ich ponuka **Klávesnica →
-Poslať Eureke kláves**. Braillovská klávesnica ich nemá — má osem
-funkčných klávesov a `F9` s `F10` robí akordmi s medzerníkom — takže
-v tom režime sú položky zošedené.
+klávesy Eureky: `F11` je ROM operačného systému (`Alt+F11` povie „data
+ROMu"), `F12` je nepoužité. Pošle ich ponuka **Klávesnica → Poslať Eureke
+kláves**.
+
+V braillovskom režime je z tých štyroch položiek aktívne len `F11`, lebo
+ten kláves membrána má — je to „d-akord", medzerník + body 1, 4, 5.
+Rovnako sa dá stlačiť aj priamo bodmi. `F12` akord nemá a `Alt` je na tej
+klávesnici medzerník, ktorý akord už používa, takže zvyšné tri sú
+zošedené.
 
 Ukončenie a bezpečné uloženie disku: `Ctrl+Shift+Q`. Reset:
 `Ctrl+Shift+R`. Úplný zoznam skratiek je v ponuke Pomocník alebo pod

@@ -91,9 +91,23 @@ exercised in isolation. The function keys map as follows:
 | F9 | rezim | Shift+F9 | stav baterie |
 | F10 | kde jsem | Shift+F10 | sebekontrola |
 
-F2 announces nothing on entry; F10 is what says where you are.  F9 and F10 are
-not keys of their own but chords of the space bar and braille dots -- see the
-keyboard section of `hardware-map.md`.
+F2 announces nothing on entry; F10 is what says where you are.  F9, F10 and
+F11 are not keys of their own but chords of the space bar and braille dots --
+see the keyboard section of `hardware-map.md`.
+
+The sweep stops at F10 because that is where the membrane's own codes stop
+being interesting, but the row does not: **F11 is "ROM operacniho systemu"**,
+the dates of every ROM module, and F12 is unused.  On the PC keyboard they are
+scan codes 57h and 58h (CAh and CBh at 1DF05); on the braille keyboard F11 is
+the "d" chord, 9Ch.
+
+**Alt+Fn names the function instead of entering it**, which is the row a user
+walks along to find out what is where.  Measured, because the speech alone
+does not show it -- F4 and Alt+F4 both say "komunikace", and the difference
+only appears on what comes next: after F4 an Escape asks "ukoncit?, ano nebo
+ne?", so the machine is inside communications, while after Alt+F4 it is silent
+because the machine never left the main menu.  Alt+F11 says "data ROMu" and
+Alt+F12 "nepouzito", which is how the row was found in the first place.
 
 Results of the current sweep:
 

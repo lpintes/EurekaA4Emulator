@@ -43,7 +43,7 @@ BEGIN
         MENUITEM "&Uvoľniť klávesnicu\tShift+F11",              ID_KEYBOARD_RELEASE
         MENUITEM "&Jeden kláves do Windows\tF11",               ID_KEYBOARD_PASSONCE
         MENUITEM SEPARATOR
-        POPUP "P&oslať Eureke kláves — len klávesnica PC"
+        POPUP "P&oslať Eureke kláves"
         BEGIN
             MENUITEM "&F11",                                    ID_KEYBOARD_SEND_F11
             MENUITEM "&Alt+F11",                                ID_KEYBOARD_SEND_AF11

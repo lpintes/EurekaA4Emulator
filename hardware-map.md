@@ -374,7 +374,7 @@ tabuľka na 1D541.
 | medzerník + bod 4 | `88h` | `C9h` | F10 = kde som |
 | medzerník + body 1,2 (`b`) | `86h` | `D8h` | Shift+F9 = stav batérie |
 | medzerník + body 4,5 | `98h` | `D9h` | Shift+F10 = sebekontrola |
-| medzerník + body 1,4,5 (`d`) | `9Ch` | `CAh` | dátumy všetkých modulov ROM |
+| medzerník + body 1,4,5 (`d`) | `9Ch` | `CAh` | **F11** = ROM operačného systému, teda dátumy všetkých modulov |
 
 Pod prstami sú to dva zrkadlové páry, nie štyri vzory: ukazovák ľavej
 ruky, ukazovák pravej, a to isté s prostredníkom navyše. Že „b-akord"
@@ -552,6 +552,37 @@ Pravý Alt dáva `@ # $ ~ ^ & * { } [ ] ' \``.
 Tabuľka `DF05` od `3Bh` je zároveň jediné doložené slovo o tom, ktoré
 kurzorové akordy sú Insert a Delete: scancode `52h` → `8Dh`,
 `53h` → `8Eh`. `KB.H` tvrdí `8Bh`/`8Ch` a mýli sa.
+
+Fyzicky je základná tabuľka na **`1DF05`** a indexuje sa scancodom
+priamo; `0DF05` je kód, nie tabuľka, a kto sa tam pozrie, nájde nezmysly.
+Kontrolné body: `[38h]` = `F8h` (ľavý Alt), `[3Bh..44h]` = `C0h..C9h`.
+
+**Mýli sa aj `KB.H` v tom, kde funkčné klávesy končia.** Hlavička má
+`K_F10` ako posledný, ale tabuľka pokračuje: scancode `57h` → **`CAh`**,
+`58h` → **`CBh`**, teda F11 a F12. F11 nie je výsada klávesnice PC —
+membrána ho má ako `d-akord` (`CAh` v tabuľke akordov vyššie), takže je to
+ten istý kláves z dvoch strán. F12 akord nemá. Odmerané na bežiacej ROM:
+
+| kláves | scancode | povie |
+|---|---|---|
+| F11 | `57h` | „ROM operacniho systemu“ — vojde do funkcie |
+| Alt+F11 | `38h 57h` | „data ROMu“ — len pomenuje |
+| F12 | `58h` | nič |
+| Alt+F12 | `38h 58h` | „nepouzito“ |
+
+Z toho plynie vec, ktorá platí pre **celú** radu funkčných klávesov a nie
+je nikde v manuáli: **Alt+Fn funkciu iba pomenuje, nespustí ju.** Rozhodol
+to Escape poslaný hneď za klávesom — po samotnom `F4` sa Eureka spýta
+„ukoncit?, ano nebo ne?“, teda je vnútri komunikácie; po `Alt+F4` mlčí,
+lebo zostala v hlavnom menu. Obe pritom povedia to isté slovo
+„komunikace“, takže zo samotnej reči sa to rozlíšiť nedá.
+
+Tabuľka `DFD6` (fyzicky `1DFD6`) je zoznam dvojíc ukončený `00 00`:
+`E0 1Ch` Enter z numerickej časti, `1Dh`/`9Dh` pravý Ctrl, `35h` lomka,
+`37h` PrtSc, `38h`/`B8h` pravý Alt, `47h`–`53h` kurzorová plocha. **Nie
+je v nej `5Bh`, `5Ch` ani `5Dh`** — klávesy Windows a kláves Aplikácie
+v roku 1992 neexistovali. Kláves Aplikácie je tak jediný kláves
+klávesnice PC, ktorý stroj nepozná vôbec.
 
 ## Poznámky pre emulátor
 

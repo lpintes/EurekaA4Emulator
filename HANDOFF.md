@@ -1901,8 +1901,8 @@ a po `F11` či `Shift+F11` sa `Alt+F4` chová ako všade inde, lebo
 `HostKeepsKey` ho vtedy pustí do `DefWindowProc`.
 
 **Opravené 27. 8. 2026: F11 a F12 stroj pozná.** Majiteľ si prechádzal
-nápovedu funkcií a našiel, že `Alt+F11` sú **dáta ROM** (to isté, čo
-D-akord) a `Alt+F12` je nepoužité. Predpoklad, na ktorom stálo celé
+nápovedu funkcií a našiel, že `Alt+F11` povie **dáta ROM** (to isté, čo
+D-akord) a `Alt+F12` že je nepoužité. Predpoklad, na ktorom stálo celé
 rozdelenie klávesnice — že F11 a F12 sú jediné klávesy, ktoré stroj
 nepozná — bol teda nesprávny. Vzišiel z toho, že `KB.H` končí na
 `K_F10`; lenže hlavička nie je stroj.
@@ -1913,15 +1913,9 @@ a indexuje sa scancodom (kontrolný bod: `[38h]` = `F8h`, ľavý Alt,
 = **`CBh`**, teda `10 | K_FUNCTION` a `11 | K_FUNCTION`. S bitom Altu
 `20h` je z toho `EAh` a `EBh`, čo presne sedí na to, čo hovorí nápoveda.
 
-Dve veci, ktoré z toho plynú a nie sú zrejmé:
-
-- **V režime PC by F11 a F12 chodili už dnes.** Emulátor tam neprekladá
-  nič — posiela surový scancode a prekladá ROM — takže ich zožiera len
-  akcelerátorová tabuľka okna.
-- **Na braillovskej klávesnici neexistujú.** Membrána má osem funkčných
-  klávesov na riadku 1 a F9 s F10 skladá z akordov s medzerníkom
-  (`1D541`), takže `PressMembraneKey` `CAh` zahodí. Zahodí ho **potichu**,
-  a to je presne to, čím tento projekt trpí.
+**V režime PC by F11 a F12 chodili už dnes.** Emulátor tam neprekladá nič
+— posiela surový scancode a prekladá ROM — takže ich zožiera len
+akcelerátorová tabuľka okna.
 
 Riešenie (voľba majiteľa): skratky sa **nepresúvajú**, F11 a F12 zostávajú
 oknu. Pribudla podponuka `Klávesnica → Poslať Eureke kláves` s položkami
@@ -1929,8 +1923,44 @@ F11, Alt+F11, F12 a Alt+F12. Nestojí to žiadny kláves, čítačka ponuku
 prečíta a `SyntheticKey` postaví udalosť tak, ako by prišla z Windows —
 scancode si vypýta od `MapVirtualKeyW`, nie z konštanty, lebo v režime PC
 je scancode celá správa. Alt drží pri stlačení a púšťa pri pustení, takže
-`SyncModifiers` po sebe nenechá visieť `38h`. V braillovskom režime sú
-položky **zošedené**, lebo ten kláves na membráne naozaj nie je.
+`SyncModifiers` po sebe nenechá visieť `38h`.
+
+#### Čo z toho vyliezlo pri kontrole dokumentácie
+
+Kontrola, či je všetko poznačené, našla tri veci a všetky sú **odmerané**
+dočasnou sondou v scratchpade (kópia `diag_probe` s dvoma tokenmi navyše:
+`sXX…` pošle surové scancody na sériovú klávesnicu, `bXX` jeden braillovský
+akord priamo cez `PressBraille`).
+
+**1. `Alt+Fn` funkciu iba pomenuje, nespustí ju.** To je tá rada, po ktorej
+majiteľ chodil. Zo samotnej reči sa to nepozná — `F4` aj `Alt+F4` povedia
+„komunikace“ — a rozhodne to až Escape poslaný hneď za klávesom: po `F4`
+sa Eureka spýta „ukoncit?, ano nebo ne?“, teda je vnútri komunikácie, po
+`Alt+F4` mlčí, lebo zostala v hlavnom menu. Predtým tu stálo, že „Alt+F4
+je komunikácia“; presnejšie je, že ju **pomenuje**.
+
+**2. F11 je skutočná funkcia a má ju aj braillovská klávesnica.** Odmerané:
+scancode `57h` → „ROM operacniho systemu“, `Alt+F11` → „data ROMu“,
+`58h` → ticho, `Alt+F12` → „nepouzito“. A `d-akord` (`9Ch`, medzerník +
+body 1,4,5) povie to isté čo `57h`. Ten akord stál v tabuľke
+v `hardware-map.md` roky — ako `CAh` — a `PressMembraneKey` ho napriek tomu
+**nemal**: `kCA` cez kód klávesu nerobil nič, kým tie isté body napísané
+priamo fungovali. Doplnené (`case 0xca: frame.row0 = 0x9c`), odmerané
+znovu, a `SpecialKey` preto končí na `VK_F11`, nie na `VK_F10`. F12 akord
+nemá, takže v braillovskom režime je z podponuky aktívne len F11.
+
+**3. Otvorené: `PressMembraneKey` zahadzuje bit Altu pri funkčných
+klávesoch.** Pre `kind == 0xc0` nastavuje len `row1` a `row2`, `row0` nie,
+takže medzerník sa na drôt nedostane. Odmerané: `kE3` (Alt+F4) sa správa
+presne ako `kC3` — **vojde do komunikácie namiesto toho, aby ju pomenovala**,
+a Escape za tým povie „ukoncit?“. V braillovskom režime je teda celá rada
+`Alt+F1`–`Alt+F8` nedostupná a mlčky robí niečo iné, než sa žiada. Na
+skutočnom stroji je medzerník + F1 stlačiteľný a dekodér na `1D4F3` z neho
+bit 5 (`k_alt`) poskladá, takže model je tu chudobnejší než hardvér.
+Oprava je asi na jeden riadok (`frame.row0 = alt ? 0x80 : 0` aj pre funkčné
+klávesy) plus otázka, či treba predsadiť ten istý rámec so samotným
+medzerníkom, aký sa dnes predsadzuje kurzorom (`kModifierMs`). **Neopravené
+— treba to odmerať, nie odhadnúť.**
 
 Pri hľadaní alternatív sa našlo aj toto, a môže sa hodiť: tabuľka
 rozšírených klávesov na `1DFD6` je zoznam dvojíc ukončený `00 00`

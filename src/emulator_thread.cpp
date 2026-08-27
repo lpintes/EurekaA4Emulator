@@ -77,14 +77,14 @@ uint8_t SpecialKey(const HostKeyEvent& key) {
   const bool shift = (key.modifiers & SHIFT_PRESSED) != 0;
   const bool alt = (key.modifiers & (LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED)) != 0;
   uint8_t code = 0;
-  // Stops at F10, and that is the machine and not KB.H saying so.  The ROM
-  // does know CAh and CBh -- 1DF05 maps scan codes 57h and 58h to them, which
-  // is where the Eureka's Alt+F11 "data ROM" comes from -- but only from the
-  // PC keyboard.  This function serves the built-in twenty keys, which carry
-  // eight function keys on row 1 and make F9 and F10 out of space-bar chords
-  // (1D541); there is no eleventh key to press.  Claiming otherwise here
-  // would only hand PressMembraneKey a code it drops in silence.
-  if (key.virtualKey >= VK_F1 && key.virtualKey <= VK_F10)
+  // Stops at F11, not at F10 where KB.H stops and not at F12 where the ROM's
+  // PC table does.  This function serves the built-in twenty keys: eight
+  // function keys on row 1, and F9, F10 and F11 made out of space-bar chords
+  // (1D541).  F11 is the "d" chord, 9Ch, and it really is F11 -- measured, it
+  // says "ROM operacniho systemu", the same as scan code 57h.  F12 is CBh and
+  // has no chord at all, so mapping it here would only hand PressMembraneKey
+  // a code it drops without a word; left at zero, the diagnostics say so.
+  if (key.virtualKey >= VK_F1 && key.virtualKey <= VK_F11)
     code = static_cast<uint8_t>(0xc0 + key.virtualKey - VK_F1);
   else {
     switch (key.virtualKey) {

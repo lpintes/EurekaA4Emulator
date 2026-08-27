@@ -213,28 +213,35 @@ v konflikte s hosťom. Platí:
 - **Alt neotvára ponuku** — je to modifikátor braillovskej klávesnice
   (`SpecialKey` mu nastavuje bit `0x20`). `WM_SYSKEYDOWN` sa preto
   spracuje a vráti 0. **Ani Alt+F4 nie je výnimka** — Alt+F1 až Alt+F10 je
-  súvislá rada funkcií Eureky (Alt+F4 je `E3h`, komunikácia) a diera
-  v jej strede, ktorá zabije emulátor, stojí viac než štandardné
-  zatváranie okna. Okno zatvára `Ctrl+Shift+Q` — je to akcelerátor, takže
+  rada, ktorá funkciu **pomenuje a nespustí** (Alt+F4 je `E3h` a povie
+  „komunikace“; samotné F4 do nej vojde — odmerané, viď nižšie). Je to
+  nápoveda, po ktorej sa chodí, a diera v jej strede, ktorá zabije
+  emulátor, stojí viac než štandardné zatváranie okna. Okno zatvára `Ctrl+Shift+Q` — je to akcelerátor, takže
   funguje v každom stave — a po `F11` alebo `Shift+F11` funguje aj Alt+F4.
 - **F10 ani Shift+F10 nie sú voľné** — Eureka nimi hovorí, kde ste, a robí
   sebakontrolu. Ponuku preto otvára **F12**, uvoľnenie klávesnice **F11**.
 - **Voľný kláves neexistuje, ani F11 a F12.** Roky tu stálo, že sú to
   jediné klávesy, ktoré stroj nepozná — z toho, že `KB.H` končí na
   `K_F10`. Hlavička nie je stroj: tabuľka klávesnice PC v ROM (`1DF05`
-  indexované scancodom) mapuje `57h` na `CAh` a `58h` na `CBh`, takže
-  `Alt+F11` je `EAh`, Eurekine **dáta ROM**, a `Alt+F12` `EBh`
-  (podľa jej nápovedy nepoužité). Každá hostiteľská skratka teda niečo
-  hosťovi berie; tieto dve berú najmenej z toho, čo bolo v ponuke.
+  indexované scancodom) mapuje `57h` na `CAh` a `58h` na `CBh`. Odmerané
+  na bežiacej ROM: **F11 je ROM operačného systému** (`Alt+F11` povie
+  „data ROMu“), F12 je nepoužité (samotné mlčí, `Alt+F12` povie
+  „nepouzito“). Každá hostiteľská skratka teda niečo hosťovi berie;
+  tieto dve berú najmenej z toho, čo bolo v ponuke.
   Späť ich dáva podponuka **Klávesnica → Poslať Eureke kláves**, ktorá
   nestojí žiadny kláves a čítačka ju prečíta.
-- **F11 a F12 sú len na klávesnici PC.** Membrána má osem funkčných
-  klávesov na riadku 1 a F9 s F10 robí akordmi s medzerníkom (`1D541`);
-  jedenásty kláves na nej nie je, takže `PressMembraneKey` kód `CAh`
-  zahodí — správne, ale **potichu**. Preto `SpecialKey` končí na `VK_F10`
-  (klávesy membrány, nie tabuľka ROM) a preto sú položky podponuky
-  v braillovskom režime zošedené. Zošedenie je tu na mieste, na rozdiel
-  od položiek režimu: ten kláves naozaj neexistuje.
+- **F11 má aj braillovská klávesnica, F12 nie.** Membrána má osem
+  funkčných klávesov na riadku 1 a F9, F10 aj **F11** skladá z akordov
+  s medzerníkom (`1D541`); F11 je „d-akord“, medzerník + body 1,4,5
+  (`9Ch`). Odmerané: povie to isté „ROM operacniho systemu“ ako scancode
+  `57h`. Preto `SpecialKey` končí na `VK_F11` a v podponuke je F11
+  aktívne v oboch režimoch. Zošedené sú len F12 (akord nemá) a Alt+F11
+  s Alt+F12 (Alt je medzerník a ten už akord používa).
+- **Tabuľka akordov v `hardware-map.md` je zdroj pravdy, nie zoznam
+  nápadov.** `d-akord` = `CAh` v nej stál roky a `PressMembraneKey` ho
+  napriek tomu nemal — kód bol dosiahnuteľný bodmi a nedosiahnuteľný
+  svojím kódom klávesu, a ten rozdiel bol **tichý**. Keď do tej funkcie
+  siahneš, porovnaj ju s tou tabuľkou.
 - **Akcelerátorová tabuľka je jediný vlastník hostiteľských skratiek.**
   `TranslateAccelerator` ich zje skôr, než ich okno uvidí, takže preklad
   klávesov na vlákne o nich nevie a vedieť nemá. Nepridávaj druhú
