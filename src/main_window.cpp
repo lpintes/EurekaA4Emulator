@@ -9,6 +9,19 @@ namespace {
 
 constexpr wchar_t kClassName[] = L"EurekaA4EmulatorWindow";
 
+// Read from another process by the NVDA add-on in nvda-addon/, which sleeps the
+// screen reader over this window while Eureka owns the keyboard and wakes it
+// again when Shift+F11 hands the keyboard back.  Two things about the choice:
+//
+// A window property rather than a named event or a mutex, because the state
+// belongs to *this* window -- two emulators running at once each answer for
+// themselves, which a process-wide name cannot do.
+//
+// Absent is a valid answer and means "not released": an emulator built before
+// this existed then reads as Eureka owning the keyboard, which is the state it
+// is almost always in.
+constexpr wchar_t kKeyboardReleasedProp[] = L"EurekaA4.KeyboardReleased";
+
 // A mode nobody can hear is the trap this machine keeps setting: a keyboard
 // that goes nowhere and a keyboard that is broken are both silence.  So every
 // change of where the keys go says so out loud, and says it in the host's own
@@ -63,7 +76,15 @@ constexpr wchar_t kShortcutHelp[] =
     L"\r\n"
     L"Eureku vypnete aj tak ako naozaj: v hlavnom menu podržte všetky\r\n"
     L"štyri kurzorové klávesy naraz. Vypne sa aj sama po piatich minútach\r\n"
-    L"nečinnosti, tridsať sekúnd vopred to ohlási tónmi.";
+    L"nečinnosti, tridsať sekúnd vopred to ohlási tónmi.\r\n"
+    L"\r\n"
+    L"NVDA:\r\n"
+    L"\r\n"
+    L"S doplnkom z priečinka nvda-addon mlčí NVDA nad týmto oknom, kým\r\n"
+    L"klávesnicu vlastní Eureka, ale v ponuke, v dialógoch aj po Shift+F11\r\n"
+    L"číta ako inde. NVDA+T povie titulok aj počas spánku a NVDA+Shift+S\r\n"
+    L"zostáva ako núdzová brzda. Kláves NVDA (Insert) si čítačka necháva\r\n"
+    L"aj v spánku; do Eureky ho pošlete dvoma rýchlymi stlačeniami za sebou.";
 
 }  // namespace
 
@@ -84,8 +105,15 @@ bool MainWindow::Create() {
                            260, menu))
     return false;
   RegisterCommands();
+  PublishKeyboardState();
   RefreshTitle();
   return true;
+}
+
+void MainWindow::PublishKeyboardState() const {
+  if (!hwnd_) return;
+  SetPropW(hwnd_, kKeyboardReleasedProp,
+           reinterpret_cast<HANDLE>(static_cast<UINT_PTR>(released_ ? 1 : 0)));
 }
 
 void MainWindow::RegisterCommands() {
@@ -197,10 +225,19 @@ void MainWindow::SetReleased(bool released) {
   // Whatever the guest believes is held has to go up now: no release for it is
   // ever coming while the keyboard is somewhere else.
   emulator_.PostFocusLost();
+  // Before the title, so that a screen reader woken by the property reads a
+  // title that already says the same thing.
+  PublishKeyboardState();
   RefreshTitle();
   if (released_) ToneLeaving(); else ToneReturning();
 }
 
+// Deliberately not published to the NVDA add-on, unlike the released state.
+// It looks as though it should be -- for one key the host owns the keyboard --
+// but a woken screen reader would then eat that very key as one of its own
+// commands, and the one-shot, which is only ever spent by a key this window
+// sees, would stay armed for good.  That is the sticky silent mode this file
+// already got caught by once; see HostKeepsKey.
 void MainWindow::SetPassOnce(bool armed) {
   // Meaningless while the keyboard is released -- every key already goes to
   // Windows -- and saying so beats arming something that can never fire.
@@ -295,6 +332,14 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case WM_INITMENUPOPUP:
       RefreshMenu();
+      break;
+
+    case WM_NCDESTROY:
+      // Windows keeps the property's atom alive until it is removed, so a
+      // window that dies with it still set leaks it for the rest of the
+      // process.  Nothing else here needs the message, so it goes on to the
+      // base class as usual.
+      RemovePropW(hwnd_, kKeyboardReleasedProp);
       break;
 
     case WM_EMU_STATE:

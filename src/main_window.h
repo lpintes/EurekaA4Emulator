@@ -24,6 +24,9 @@ class MainWindow : public win::Window {
  private:
   void RegisterCommands();
   void RefreshTitle() const;
+  // Puts the released state where another process can read it.  The NVDA
+  // add-on is the only reader; see kKeyboardReleasedProp.
+  void PublishKeyboardState() const;
   void RefreshMenu() const;
   void ForwardKey(bool down, WPARAM wParam, LPARAM lParam) const;
   std::wstring AboutText() const;
