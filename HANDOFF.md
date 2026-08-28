@@ -818,6 +818,31 @@ virtuálny disk je hostiteľský priečinok a mazať používateľove súbory
 preto, že emulovaný stroj formátoval, nie je rozhodnutie tohto modelu.
 Ak by sa to niekedy malo zmeniť, musí to byť vedomé a s potvrdením.
 
+**Doplnené 28. 8. 2026: teraz je médium, na ktorom formátovanie naozaj
+niečo robí** — nenaformátovaná disketa v pamäti (6.22). `VirtualDisk` má
+bitovú mapu naformátovaných stôp, Write Track ju zapĺňa a robí to **len
+pre `Media::kRam`**; nad priečinkom platí odsek vyššie bez zmeny. Držia
+to kontroly v `disk_test` aj režim `format` v `integration_test`.
+
+Pri tom sa odmeralo, ako formátovanie z pohľadu firmvéru vyzerá, a dve
+veci z toho boli prekvapenie:
+
+- **ROM sa pýta dvakrát.** Najprv „mám formátovat disk, ano nebo ne?“
+  a po potvrdení „disk je už naformátován. Přeformátovat, ano nebo ne?“
+  Tá druhá otázka príde **vždy**, aj na diskete, na ktorej nie je jediná
+  naformátovaná stopa. Nie je to zistenie o médiu, je to druhé
+  potvrdenie deštruktívneho úkonu — vyzerá to ako tvrdenie a nie je.
+- **Odpovedá sa `y`, nie `a`.** Otázka je česká, kláves anglický;
+  v manuáli tomu zodpovedá `GETYN.H`. `a` sa berie ako nie a stroj
+  povie „příkaz zrušen“. Zistené meraním, keď test odpovedal po česky.
+
+**Firmvér médium pri tom vôbec nečíta.** Odmerané inštrumentáciou
+`StartFdcCommand` a BIOS stubu: za celý beh do prvej otázky vydá ROM
+**tri** FDC príkazy, všetky Type I (Restore a dva Seeky), a **nula**
+BIOS čítaní. Až po druhom `y` ich je 1835. Preto neexistuje spôsob, ako
+by hláška „disk je už naformátován“ mohla o médiu čokoľvek vedieť —
+a preto sa aj nenaformátovaná disketa dá naformátovať bez obchádzok.
+
 ### 6.6 Disketa je nepovinná
 
 `VirtualDisk` má tri stavy: žiadne médium, hostiteľský priečinok
@@ -2463,9 +2488,10 @@ behu). Miesta, ktoré merať treba, sú v texte označené.
 tejto sekcie — perzistencia, výmena za behu, ponuka `Disketa` aj sloty
 rýchlej voľby pod `Ctrl+0` až `Ctrl+9`. Výmenu dvoch diskiet za behu
 odskúšal majiteľ v ten istý deň a prebehla správne, čím sa doložila aj
-6.17. Dialóg `Nová disketa` s nenaformátovaným médiom, zámok proti zápisu
-a rozdeľovač kolekcie **napísané nie sú**; všetko nižšie o nich platí ako
-návrh.
+6.17. Hotový je aj **dialóg `Nová disketa` vrátane nenaformátovaného
+média** — čo sa pri jeho meraní zistilo o formátovaní, je v 6.5. Zámok
+proti zápisu a rozdeľovač kolekcie **napísané nie sú**; všetko nižšie
+o nich platí ako návrh.
 
 Jedna vec sa oproti návrhu nižšie zmenila, a zmenila sa správne:
 **prázdny slot nie je zošedený.** Zošediť ho by znamenalo, že `Ctrl+3`
@@ -2677,7 +2703,8 @@ neprepisuje a zdroj sa neotvára na zápis vôbec.
 
 1. ~~Perzistencia, výmena za behu, ponuka `Disketa`, sloty~~ — **hotové
    28. 8. 2026.**
-2. Dialóg `Nová disketa` a nenaformátované médium.
+2. ~~Dialóg `Nová disketa` a nenaformátované médium~~ — **hotové
+   28. 8. 2026**, aj s režimom `format` v `integration_test`.
 3. `disk_layout` a testy, ešte bez GUI.
 4. Sprievodca rozdelenia nad hotovou vrstvou.
 
@@ -2748,14 +2775,13 @@ Zostáva to odskúšať v skutočnej relácii s NVDA; rozbor je na konci 6.18.
 4. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
    Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
    používa. Oplatí sa rozhodnúť naraz s uchovaním nastavení (6.18).
-5. **Správa diskiet** (6.22) — perzistencia, výmena za behu a rýchla
-   voľba **hotové** 28. 8. 2026. Ďalej v poradí je dialóg `Nová disketa`
-   s nenaformátovaným médiom (bitová mapa stôp vo `VirtualDisk`, Write
-   Track ju zapĺňa len pre médium v pamäti). Rozdeľovač kolekcie
-   (`disk_layout`) je na tom všetkom nezávislý a dá sa písať aj testovať
-   bez GUI a bez ROM. Že sa EurekaDOS po výmene preloguje sám, je od
-   28. 8. 2026 **odmerané** (koniec 6.17), zatiaľ ale len ručne — režim
-   `integration_test` na to neexistuje.
+5. **Správa diskiet** (6.22) — perzistencia, výmena za behu, rýchla
+   voľba aj dialóg `Nová disketa` s nenaformátovaným médiom **hotové**
+   28. 8. 2026. Ostáva **rozdeľovač kolekcie** (`disk_layout`), ktorý je
+   na zvyšku nezávislý a dá sa písať aj testovať bez GUI a bez ROM, a
+   **zámok proti zápisu**, ktorý patrí až za meranie firmvéru. Že sa
+   EurekaDOS po výmene preloguje sám, je odmerané (koniec 6.17), zatiaľ
+   ale len ručne — režim `integration_test` na to neexistuje.
 6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
 7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
@@ -2780,12 +2806,13 @@ integration_test ROM DISK_FOLDER power -> PASS (vypnutie štyrmi kurzormi)
 integration_test ROM DISK_FOLDER dc    -> PASS (výstup po reči sadne na ticho)
 integration_test ROM DISK_FOLDER rtc   -> PASS (budík sa nastaví a zazvoní)
 integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
-disk_test                              -> PASS (18 kontrol, bez ROM)
+integration_test ROM DISK_FOLDER format-> PASS (Shift+F8 naformátuje prázdnu)
+disk_test                              -> PASS (55 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 settings_test                          -> PASS (27 kontrol, bez ROM)
 ```
 
-Všetkých desať naraz spustí `run-tests.bat`: paralelne, s jedným súhrnom
+Všetkých jedenásť naraz spustí `run-tests.bat`: paralelne, s jedným súhrnom
 na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
 diskety si pripraví sám, takže ručne netreba nič.
 

@@ -473,6 +473,108 @@ bool CheckMusicStops(EurekaMachine& machine) {
 // checks here do, does not work in the clock application: it says nothing at
 // all, so "quiet" is its normal state and the wait would end before it had
 // finished opening a dialogue.
+// Defined further down, next to the other typing helpers; needed here because
+// formatting asks a question and waits for the answer to be typed.
+bool Type(EurekaMachine& machine, const std::string& text);
+
+// Formatting a diskette that has never been formatted.
+//
+// Until now the format routine only ever ran against a host folder, where it
+// is a no-op on purpose -- the diskette is the user's own folder and the
+// emulated machine formatting is no reason to delete their files (6.5).  So
+// the routine was known to run to the end and say "formatovani dokonceno",
+// but nothing it did was ever observable.  A RAM diskette created unformatted
+// is the first medium where it has to work for real: every track answers
+// Record Not Found until Write Track has been over it.
+//
+// Shift+F8 is "formatovat disk" in the main menu.  The shifted function keys
+// are D0h..D9h for F1..F10, so it is D7h: D8h is Shift+F9 and answers with the
+// battery state, which is how this test first found out it was off by one.
+bool CheckFormatsBlankDiskette(EurekaMachine& machine) {
+  // Booted with the blank already in the drive, rather than re-entering the
+  // shared snapshot: that one was booted with a real diskette, and the
+  // firmware carries what it learned about it in RAM.
+  machine.CreateRamDisk(false);
+  machine.Reset();
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step()) break;
+  if (machine.disk().TrackFormatted(0, 0) || machine.disk().has_format()) {
+    std::cout << "  cerstva nenaformatovana disketa uz je naformatovana\n";
+    return false;
+  }
+
+  machine.TakeSpeechInput();
+  machine.QueueKey(0xd7);
+  // It asks first -- "mam formatovat disk, ano nebo ne?" -- and waits.  Not a
+  // detail worth skipping past: a format that started on a keystroke alone
+  // would be a very expensive misprint.
+  //
+  // The answer is "y", not "a": the question is Czech but the key is the
+  // English one, which is what GETYN.H in the technical manual is named after.
+  // Answering "a" is taken as no and the machine says "prikaz zrusen".
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  if (!Type(machine, "y")) return false;
+  // And it asks a second time -- "disk je uz naformatovan, preformatovat?" --
+  // whatever is in the drive.  Measured: over the whole run the ROM issues
+  // three FDC commands, all Type I seeks, and not one BIOS read, so it never
+  // looks at the medium at all.  The line is a second confirmation of a
+  // destructive act, not a finding about the diskette.
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  if (!Type(machine, "y")) return false;
+
+  // Formatting walks 160 tracks and verifies each one, so this is long: the
+  // ceiling is a stop for a machine that has hung, not a measure of the work.
+  std::vector<uint8_t> spoken;
+  bool finished = false;
+  for (int step = 0; step < 120'000'000 && !finished; ++step) {
+    const auto said = machine.TakeSpeechInput();
+    spoken.insert(spoken.end(), said.begin(), said.end());
+    machine.TakeConsoleOutput();
+    machine.TakeAudio();
+    if (!machine.Step() && machine.powered_off()) break;
+    finished = machine.disk().TrackFormatted(79, 1);
+  }
+  if (!finished) {
+    // What the machine said matters more than the bare failure: this routine
+    // has its own refusals, and "vadny disk" and silence mean different
+    // things.
+    std::cout << "  posledna stopa (79/1) sa nenaformatovala, stroj povedal \"";
+    for (uint8_t byte : spoken)
+      std::cout << (byte >= 0x20 && byte < 0x7f ? static_cast<char>(byte) : '.');
+    std::cout << "\"\n";
+    return false;
+  }
+
+  // Every track, not just the last: a routine that skipped a cylinder in the
+  // middle would leave a diskette that works until the day something is
+  // written there.
+  for (unsigned cylinder = 0; cylinder < 80; ++cylinder) {
+    for (unsigned side = 0; side <= 1; ++side) {
+      if (machine.disk().TrackFormatted(cylinder, side)) continue;
+      std::cout << "  stopa " << cylinder << "/" << side
+                << " zostala nenaformatovana\n";
+      return false;
+    }
+  }
+  // And the diskette is usable afterwards, through the controller and through
+  // the BIOS stub alike.
+  uint8_t sector[512]{};
+  if (!machine.disk().ReadPhysicalSector(0, 0, 1, sector)) {
+    std::cout << "  naformatovana disketa sa neda citat\n";
+    return false;
+  }
+  // The flag the window title hangs on: "nenaformátovaná" has to stop being
+  // true the moment the guest has laid a format down, or the title would go
+  // on calling a working diskette blank.
+  if (!machine.disk().has_format()) {
+    std::cout << "  has_format() zostalo false aj po formatovani\n";
+    return false;
+  }
+  return true;
+}
+
 void Grind(EurekaMachine& machine, uint64_t instructions) {
   const uint64_t deadline = machine.instructions() + instructions;
   while (machine.instructions() < deadline) {
@@ -604,9 +706,10 @@ int wmain(int argc, wchar_t** argv) {
       (std::wstring(argv[3]) != L"com" && std::wstring(argv[3]) != L"bas" &&
        std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power" &&
        std::wstring(argv[3]) != L"dc" && std::wstring(argv[3]) != L"rtc" &&
-       std::wstring(argv[3]) != L"hudba")) {
+       std::wstring(argv[3]) != L"hudba" &&
+       std::wstring(argv[3]) != L"format")) {
     std::wcerr << L"usage: integration_test ROM DISK_FOLDER "
-                  L"com|bas|kbd|power|dc|rtc|hudba\n";
+                  L"com|bas|kbd|power|dc|rtc|hudba|format\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -621,6 +724,12 @@ int wmain(int argc, wchar_t** argv) {
   if (std::wstring(argv[3]) == L"hudba") {
     const bool passed = CheckMusicStops(*machine);
     std::cout << (passed ? "PASS" : "FAIL") << " mode=HUDBA\n";
+    return passed ? 0 : 1;
+  }
+
+  if (std::wstring(argv[3]) == L"format") {
+    const bool passed = CheckFormatsBlankDiskette(*machine);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=FORMAT\n";
     return passed ? 0 : 1;
   }
 

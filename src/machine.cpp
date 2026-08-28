@@ -884,13 +884,28 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
       fdcStatus_ = 0x03;
     }
   } else if (type == 0xc0) {
+    // Read Address hands back the first sector ID header it finds, so it is
+    // exactly how anything asks "is there a format on this track" -- and it is
+    // how the ROM's own format routine decides whether to warn that the disk
+    // is already formatted.  An unformatted track has no ID headers at all,
+    // so it has to come back Record Not Found; answering with a made-up
+    // header made a blank diskette claim to be formatted.
+    if (!disk_.present() ||
+        !disk_.TrackFormatted(fdcTrack_, outputLatch_ & 1)) {
+      fdcStatus_ = 0x10;
+      fdcIntrq_ = true;
+      return;
+    }
     fdcBuffer_ = {fdcTrack_, static_cast<uint8_t>(outputLatch_ & 1),
                   fdcSector_, 2, 0, 0};
     fdcStatus_ = 0x02;  // Read Address completes on its own, as above.
   } else if (type == 0xd0) {
     fdcStatus_ = 0;
   } else if (type == 0xe0) {
-    if (!disk_.present()) {
+    // Read Track reads the raw surface, so the same applies: nothing written
+    // means nothing to read.
+    if (!disk_.present() ||
+        !disk_.TrackFormatted(fdcTrack_, outputLatch_ & 1)) {
       fdcStatus_ = 0x10;
       fdcIntrq_ = true;
       return;
@@ -911,9 +926,13 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     fdcWriting_ = true;
     fdcFormattedCylinder_ = fdcTrack_;
     fdcFormattedSide_ = static_cast<int>(outputLatch_ & 1);
-    // The track image itself is discarded: the disk is a host folder, and
-    // erasing the user's files because the emulated machine formatted is not
-    // this model's call to make.  The operation still has to report success.
+    // The track the guest is laying down.  Behind a host folder this changes
+    // nothing -- the track image is discarded, because erasing the user's
+    // files because the emulated machine formatted is not this model's call
+    // to make (6.5) -- but on a diskette that lives in memory it is the whole
+    // point: an unformatted one has no track answering until this runs.
+    disk_.FormatTrack(fdcTrack_, outputLatch_ & 1);
+    // The operation reports success either way.
     fdcStatus_ = 0x03;
   } else {
     fdcStatus_ = 0;

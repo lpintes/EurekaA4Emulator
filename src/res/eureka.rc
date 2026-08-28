@@ -29,6 +29,7 @@ BEGIN
     POPUP "&Disketa"
     BEGIN
         MENUITEM "&Vložiť z priečinka…\tF11, Ctrl+I",           ID_DISK_INSERT
+        MENUITEM "&Nová disketa…\tF11, Ctrl+M",                 ID_DISK_NEW
         MENUITEM "V&ysunúť disketu\tF11, Ctrl+0",               ID_DISK_EJECT
         MENUITEM SEPARATOR
         MENUITEM "&Uložiť disketu do priečinka…\tF11, Ctrl+U",  ID_FILE_EXPORT
@@ -132,6 +133,7 @@ IDR_ACCELERATORS_HOST ACCELERATORS
 BEGIN
     "U",        ID_FILE_EXPORT,      VIRTKEY, CONTROL
     "I",        ID_DISK_INSERT,      VIRTKEY, CONTROL
+    "M",        ID_DISK_NEW,         VIRTKEY, CONTROL
     "Q",        ID_FILE_EXIT,        VIRTKEY, CONTROL
     "R",        ID_MACHINE_RESET,    VIRTKEY, CONTROL
     "V",        ID_MACHINE_POWEROFF, VIRTKEY, CONTROL
@@ -191,6 +193,42 @@ END
 // The body is a read-only multiline edit rather than static text, so a screen
 // reader can walk it with the review cursor instead of having to take it in
 // one announcement.  It is a tab stop for the same reason.
+
+/////////////////////////////////////////////////////////////////////////////
+// New diskette
+//
+// One dialog and not a wizard.  Four choices fit on one page, and one page is
+// one role, one tab order and one Enter for a screen reader to deal with,
+// where a property sheet would be three of each.
+//
+// No slot picker here: after this the diskette is in the drive, and "Sem
+// vloženú disketu" in the quick-choice dialog puts it in a slot in one step.
+
+IDD_NEWDISK DIALOGEX 0, 0, 292, 156
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Nová disketa"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    GROUPBOX        "Aká disketa", IDC_STATIC, 7, 7, 278, 78
+    CONTROL         "Z &existujúceho priečinka", IDC_NEW_FOLDER, "Button",
+                    BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, 16, 20, 260, 12
+    CONTROL         "&Nový prázdny priečinok — disketa prežije aj ukončenie",
+                    IDC_NEW_EMPTYFOLDER, "Button", BS_AUTORADIOBUTTON,
+                    16, 34, 260, 12
+    CONTROL         "Prázdna &v pamäti, naformátovaná — zanikne s emulátorom",
+                    IDC_NEW_RAM, "Button", BS_AUTORADIOBUTTON, 16, 48, 260, 12
+    CONTROL         "Prázdna v pamäti, ne&naformátovaná — Eureka ju ohlási "
+                    "ako vadný disk", IDC_NEW_UNFORMATTED, "Button",
+                    BS_AUTORADIOBUTTON, 16, 62, 260, 12
+
+    LTEXT           "&Priečinok:", IDC_STATIC, 7, 95, 40, 9
+    EDITTEXT        IDC_NEW_PATH, 50, 93, 176, 14, ES_AUTOHSCROLL | WS_GROUP |
+                    WS_TABSTOP
+    PUSHBUTTON      "P&rehľadávať…", IDC_NEW_BROWSE, 232, 93, 53, 14
+
+    DEFPUSHBUTTON   "OK", IDOK, 178, 135, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 235, 135, 50, 14
+END
 
 /////////////////////////////////////////////////////////////////////////////
 // Quick choice

@@ -339,6 +339,90 @@ void EjectLeavesAnEmptyDrive() {
         "po_vysunuti_sa_da_vlozit_znovu", Narrow(error));
 }
 
+// A diskette that has never been formatted.  It is in the drive -- the index
+// hole goes round -- but no track answers, which is how a real blank behaved
+// and how the machine reaches its own "vadny disk".  Formatting it track by
+// track is what Write Track does, and that is the only way it becomes usable.
+void UnformattedDisketteAnswersNothing() {
+  VirtualDisk disk;
+  disk.CreateRamDisk(false);
+  Check(disk.present(), "nenaformatovana_disketa_je_vlozena");
+
+  uint8_t sector[512]{};
+  Check(!disk.ReadPhysicalSector(0, 0, 1, sector),
+        "nenaformatovana_stopa_sa_neda_citat");
+  Check(!disk.WritePhysicalSector(0, 0, 1, sector),
+        "na_nenaformatovanu_stopu_sa_neda_pisat");
+  // The BIOS stub bypasses the controller entirely, so it has to refuse too:
+  // a diskette that says no to the FDC and yes to the BIOS is a machine that
+  // never existed.
+  uint8_t record[128]{};
+  Check(!disk.ReadRecord(0, 0, record), "bios_cesta_odmietne_nenaformatovanu");
+  Check(!disk.WriteRecord(0, 0, record),
+        "bios_zapis_odmietne_nenaformatovanu");
+  Check(disk.StoredFiles() == 0, "nenaformatovana_nema_adresar");
+
+  // One track laid down, and only that one works.
+  disk.FormatTrack(0, 0);
+  Check(disk.TrackFormatted(0, 0), "naformatovana_stopa_je_naformatovana");
+  Check(disk.ReadPhysicalSector(0, 0, 1, sector),
+        "po_naformatovani_sa_stopa_cita");
+  Check(sector[0] == 0xe5, "naformatovana_stopa_je_prazdna");
+  Check(!disk.TrackFormatted(0, 1), "susedna_strana_zostala_nenaformatovana");
+  Check(!disk.ReadPhysicalSector(1, 0, 1, sector),
+        "dalsi_cylinder_zostal_nenaformatovany");
+
+  // The whole diskette, the way the firmware's format routine walks it.
+  for (unsigned cylinder = 0; cylinder < 80; ++cylinder)
+    for (unsigned side = 0; side <= 1; ++side) disk.FormatTrack(cylinder, side);
+  Check(disk.ReadPhysicalSector(79, 1, 10, sector),
+        "po_celom_formatovani_odpoveda_aj_posledna_stopa");
+  Check(disk.ReadRecord(0, 0, record), "po_formatovani_odpoveda_aj_bios_cesta");
+}
+
+// A RAM diskette made formatted behaves like any other, and formatting over
+// data really does destroy it -- that is what formatting is.
+void FormattedRamDiskAndReformatting() {
+  VirtualDisk disk;
+  disk.CreateRamDisk();
+  uint8_t sector[512]{};
+  Check(disk.ReadPhysicalSector(0, 0, 1, sector),
+        "naformatovana_ram_disketa_sa_cita_hned");
+
+  std::fill_n(sector, sizeof(sector), 0x42);
+  Check(disk.WritePhysicalSector(3, 1, 5, sector), "na_ram_disketu_sa_da_pisat");
+  uint8_t back[512]{};
+  Check(disk.ReadPhysicalSector(3, 1, 5, back) && back[0] == 0x42,
+        "zapisane_data_sa_precitaju_spat");
+
+  disk.FormatTrack(3, 1);
+  Check(disk.ReadPhysicalSector(3, 1, 5, back) && back[0] == 0xe5,
+        "formatovanie_stopu_naozaj_zmaze");
+}
+
+// The same call behind a host folder must change nothing: the diskette is the
+// user's own folder and the emulated machine formatting is not a reason to
+// delete their files (6.5).
+void FormattingAFolderDiskChangesNothing() {
+  const fs::path folder = MakeFolder("format-priecinok");
+  MakeFile(folder / L"DOLEZITE.TXT", 3000, 7);
+  VirtualDisk disk;
+  std::wstring error;
+  Check(disk.Mount(folder, error), "priecinkova_disketa_sa_pripoji",
+        Narrow(error));
+
+  uint8_t before[512]{};
+  Check(disk.ReadPhysicalSector(0, 0, 1, before),
+        "priecinkova_disketa_sa_cita");
+  disk.FormatTrack(0, 0);
+  uint8_t after[512]{};
+  Check(disk.ReadPhysicalSector(0, 0, 1, after),
+        "po_formatovani_sa_stale_cita");
+  Check(std::memcmp(before, after, sizeof(before)) == 0,
+        "formatovanie_priecinkovej_diskety_adresar_nezmeni");
+  Check(disk.StoredFiles() == 1, "subor_v_priecinku_formatovanie_prezil");
+}
+
 void EmptyFolderAndMissingFolder() {
   const fs::path folder = MakeFolder("prazdny");
   VirtualDisk disk;
@@ -373,6 +457,9 @@ int main() {
   NameCollision();
   SwapReplacesTheWholeImage();
   EjectLeavesAnEmptyDrive();
+  UnformattedDisketteAnswersNothing();
+  FormattedRamDiskAndReformatting();
+  FormattingAFolderDiskChangesNothing();
   EmptyFolderAndMissingFolder();
 
   fs::remove_all(Root(), ec);

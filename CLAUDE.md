@@ -145,23 +145,23 @@ Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spú�
 
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých desať naraz — tri
-samostatné testy a sedem režimov `integration_test`. Sú to nezávislé
+`run-tests.bat` zostaví testy a pustí všetkých jedenásť naraz — tri
+samostatné testy a osem režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `eurekatech\TECHMAN1\READ.COM`, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`.
 
-Výstup drží pohromade `--output-sync=target`; bez neho sa riadky desiatich
+Výstup drží pohromade `--output-sync=target`; bez neho sa riadky jedenástich
 procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
 
 **Pasca, do ktorej som už spadol:** režimy sa v `Makefile` generujú ako
 výslovné pravidlá cez `foreach`/`eval`. Vzorové pravidlo `check-%` tam
 najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
-`.PHONY` cieľoch nehľadá, takže sedem režimov zostalo bez receptu, make ich
+`.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť desať — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
+byť jedenásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
 
 ## Diagnostická sonda
 
@@ -260,7 +260,7 @@ v konflikte s hosťom. Platí:
   siahneš, porovnaj ju s tou tabuľkou.
 - **Akcelerátorové tabuľky sú dve a to je celý trik.** `IDR_ACCELERATORS`
   platí vždy a je to celá trvalá cena: `F11`, `Shift+F11`, `F12`.
-  `IDR_ACCELERATORS_HOST` (`Ctrl+U I Q R V K N D H` a `Ctrl+0` až `Ctrl+9`
+  `IDR_ACCELERATORS_HOST` (`Ctrl+U I M Q R V K N D H` a `Ctrl+0` až `Ctrl+9`
   pre rýchlu voľbu diskiet) platí **len keď je
   klávesnica hosťova** — po `F11` alebo `Shift+F11`. Bez toho prefixu idú
   tie klávesy Eureke, takže `Ctrl+H` na exterke naozaj urobí to, čo robí

@@ -15,6 +15,15 @@ somewhere else. Runs without the ROM, in the system temp folder.
 
 `integration_test.cpp` boots the real ROM and has several modes:
 
+- `format` boots with an unformatted RAM diskette -- the only medium on which
+  the firmware's format routine has anything to do, since over a host folder it
+  is a deliberate no-op (6.5) -- presses Shift+F8 and answers the two questions
+  it asks. Then every one of the 160 tracks has to carry a format and the
+  diskette has to be readable through the controller and the BIOS stub alike.
+  Two things this measured, both in 6.5: the answer is `y` and not `a`, and the
+  ROM asks "disk je uz naformatovan, preformatovat?" even about a blank one --
+  it never reads the medium at all;
+
 - `com` starts `READ.COM` through Shift+F7 and verifies its prompt;
 - `bas` opens Eureka BASIC, loads `BEEP.BAS`, issues `RUN`, and verifies that
   the program keeps producing emulated output/audio;

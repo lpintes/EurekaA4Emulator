@@ -34,7 +34,10 @@ class EurekaMachine {
 
   bool LoadRom(const std::filesystem::path& path, std::wstring& error);
   bool MountDisk(const std::filesystem::path& folder, std::wstring& error);
-  void CreateRamDisk() { disk_.CreateRamDisk(); ForgetFormattedTrack(); }
+  void CreateRamDisk(bool formatted = true) {
+    disk_.CreateRamDisk(formatted);
+    ForgetFormattedTrack();
+  }
   void EjectDisk();
   bool FlushDisk(std::wstring& error) { return disk_.Flush(error); }
   bool ExportDisk(const std::filesystem::path& folder, std::wstring& error) {

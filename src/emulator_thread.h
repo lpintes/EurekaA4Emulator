@@ -86,6 +86,11 @@ DiskLabels DescribeDisk(const VirtualDisk& disk);
 // truth about what is in there now, error or not.
 struct DiskChange {
   bool ok = true;
+  // True when a diskette actually went in or came out, false when the same
+  // medium merely changed underfoot -- the guest formatting a blank one is
+  // the case.  The window sounds its tone only for a real swap: a tone for
+  // something the user did not do would say the wrong thing.
+  bool swapped = true;
   // Whether there is a diskette in the drive afterwards.  Its own field and
   // not something read back out of the labels: the labels are user-facing
   // text, and a swap that decides what it did by comparing them would come
@@ -136,6 +141,9 @@ class EmulatorThread {
   // the drive to go quiet before they touch anything -- see the worker.
   void PostMountDisk(std::wstring folder);
   void PostEjectDisk();
+  // A blank diskette that lives only in memory.  Unformatted, no track
+  // answers until the guest's own format routine has been over it.
+  void PostCreateRamDisk(bool formatted);
 
   // Read from the window thread; written by the worker.
   InputMode mode() const { return mode_.load(std::memory_order_relaxed); }
@@ -161,7 +169,7 @@ class EmulatorThread {
     enum class Type {
       kKey, kReset, kSetMode, kToggleMode, kSetDiagnostics,
       kDumpDiagnostics, kPowerOff, kFocusLost, kExportDisk,
-      kMountDisk, kEjectDisk, kQuit,
+      kMountDisk, kEjectDisk, kCreateRamDisk, kQuit,
     } type = Type::kQuit;
     HostKeyEvent key{};
     InputMode mode = InputMode::kPc;

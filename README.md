@@ -63,7 +63,7 @@ naozaj urobí to, čo `Ctrl+H` na skutočnom stroji. Po `Shift+F11` platia
 rovno, lebo vtedy je klávesnica hosťova aj tak — a ponuka vtedy prefix
 `F11` prestane ukazovať, aby neradila kláves, ktorý v tom stave nerobí nič.
 
-Písmená sú `Ctrl+U I Q R V K N D H`, k tomu `Ctrl+0` až `Ctrl+9` pre
+Písmená sú `Ctrl+U I M Q R V K N D H`, k tomu `Ctrl+0` až `Ctrl+9` pre
 rýchlu voľbu diskiet. Že je to `Ctrl` a nie `Ctrl+Shift`,
 má dôvod: do `Ctrl+Shift` si svoje **globálne** skratky vešajú iné
 programy a globálna skratka vyhrá nad oknom bez ohľadu na `F11`, takže
@@ -163,6 +163,34 @@ to dá kedykoľvek spýtať cez `NVDA+T`.
 Ak je v mechanike disketa v pamäti, do ktorej sa už zapisovalo, emulátor
 sa pred výmenou spýta, či ju najprv uložiť do priečinka — taká disketa
 totiž nikde inde neexistuje a výmenou by sa stratila.
+
+## Nová disketa
+
+Ponuka **Disketa → Nová disketa…** (`F11`, `Ctrl+M`) vyrobí disketu
+štyroch druhov:
+
+- **z existujúceho priečinka** — to isté ako Vložiť z priečinka,
+- **nový prázdny priečinok** — vytvorí sa a hneď vloží; taká disketa
+  prežije aj ukončenie emulátora,
+- **prázdna v pamäti, naformátovaná** — pripravená na písanie, ale
+  zanikne s emulátorom (pri ukončení sa emulátor spýta, či ju uložiť),
+- **prázdna v pamäti, nenaformátovaná** — Eureka ju ohlási ako **vadný
+  disk**, presne ako skutočná nová disketa z krabice.
+
+Tá posledná nie je len pre zábavu: je to jediné médium, na ktorom
+formátovanie **naozaj niečo robí**. Disketa z priečinka je hostiteľský
+priečinok a formátovanie na nej zámerne nemaže vaše súbory, takže
+`Shift+F8` na nej prejde a nezanechá stopu. Na nenaformátovanej diskete
+v pamäti prebehne celé a disketa začne fungovať.
+
+Formátovanie sa pýta **dvakrát**: „mám formátovat disk, ano nebo ne?"
+a potom „disk je už naformátován, přeformátovat, ano nebo ne?" — tú
+druhú otázku dostanete vždy, aj na úplne prázdnej diskete. Odpovedá sa
+klávesom **`y`**, nie `a`: otázka je česká, ale kláves anglický.
+
+Titulok okna hovorí, čo je v mechanike, aj to, či je disketa
+nenaformátovaná — takže `NVDA+T` odpovie kedykoľvek. Po naformátovaní
+sa titulok sám opraví.
 
 ## Rýchla voľba diskiet
 

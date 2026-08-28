@@ -10,12 +10,14 @@
 #define IDD_SETTINGS         200
 #define IDD_ABOUT            201
 #define IDD_SLOTS            202
+#define IDD_NEWDISK          203
 
 // Menu and accelerator commands.
 #define ID_FILE_EXPORT       40001
 #define ID_FILE_EXIT         40002
 #define ID_DISK_INSERT       40003
 #define ID_DISK_EJECT        40004
+#define ID_DISK_NEW          40005
 #define ID_MACHINE_RESET     40010
 #define ID_MACHINE_POWEROFF  40011
 #define ID_KEYBOARD_BRAILLE  40020
@@ -63,6 +65,14 @@
 
 // About dialog controls.
 #define IDC_ABOUT_TEXT       1010
+
+// New diskette dialog controls.
+#define IDC_NEW_FOLDER       1030
+#define IDC_NEW_EMPTYFOLDER  1031
+#define IDC_NEW_RAM          1032
+#define IDC_NEW_UNFORMATTED  1033
+#define IDC_NEW_PATH         1034
+#define IDC_NEW_BROWSE       1035
 
 // Quick-choice dialog controls.
 #define IDC_SLOT_LIST        1020

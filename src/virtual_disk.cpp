@@ -111,12 +111,16 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
   }
   folder_ = absolute;
   media_ = Media::kFolder;
+  // A host folder is a filesystem: it is formatted by definition, and there
+  // is no state in which some of its tracks are missing.
+  formatted_.set();
   if (BuildImage(error)) return true;
   // A refused diskette leaves nothing behind: the half-built file list would
   // otherwise still be reported as if it were mounted.
   media_ = Media::kNone;
   folder_.clear();
   imported_.clear();
+  formatted_.reset();
   return false;
 }
 
@@ -126,6 +130,7 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
 // every Type II command comes back Record Not Found (6.6).
 void VirtualDisk::Eject() {
   image_.fill(0);
+  formatted_.reset();
   imported_.clear();
   folder_.clear();
   media_ = Media::kNone;
@@ -135,12 +140,41 @@ void VirtualDisk::Eject() {
 // A scratch diskette that exists only for this session: 0E5h everywhere is
 // exactly what a freshly formatted CP/M disk looks like, so the firmware sees
 // an empty directory without any host folder behind it.
-void VirtualDisk::CreateRamDisk() {
+//
+// Unformatted, it is 0E5h too, but no track answers: the drive is what a blank
+// out of the box was, and the machine says "vadny disk" until Shift+F8 has
+// been through it.
+void VirtualDisk::CreateRamDisk(bool formatted) {
   image_.fill(0xe5);
+  if (formatted) formatted_.set(); else formatted_.reset();
   imported_.clear();
   folder_.clear();
   media_ = Media::kRam;
   dirty_ = false;
+}
+
+bool VirtualDisk::ValidTrack(unsigned cylinder, unsigned side) {
+  return cylinder < kLogicalTracks / 2 && side <= 1;
+}
+
+// The format routine walks one track at a time and verifies each one it wrote,
+// so this is what turns a blank into a working diskette -- and, on a diskette
+// that already had data, what wipes the track it just went over.  That is not
+// carelessness, it is what formatting is.
+void VirtualDisk::FormatTrack(unsigned cylinder, unsigned side) {
+  // A host folder is a filesystem, not a magnetic surface: the format still
+  // reports success, but nothing is laid down and no file is erased (6.5).
+  if (media_ != Media::kRam || !ValidTrack(cylinder, side)) return;
+  const unsigned track = cylinder * 2 + side;
+  formatted_.set(track);
+  const std::size_t offset = track * kRecordsPerTrack * kRecordSize;
+  std::fill_n(image_.data() + offset, kRecordsPerTrack * kRecordSize, 0xe5);
+  dirty_ = true;
+}
+
+bool VirtualDisk::TrackFormatted(unsigned cylinder, unsigned side) const {
+  if (!ValidTrack(cylinder, side)) return false;
+  return formatted_.test(cylinder * 2 + side);
 }
 
 std::size_t VirtualDisk::StoredFiles() const {
@@ -510,6 +544,11 @@ bool VirtualDisk::ReadRecord(unsigned track, unsigned record, uint8_t* destinati
   // CP/M BIOS logical sectors are numbered 0..SPT-1. Physical WD177x
   // sectors remain 1-based and are handled separately below.
   if (!present() || track >= kTracks || record >= kRecordsPerTrack) return false;
+  // The BIOS stub goes straight to the image and never near the controller,
+  // so the unformatted state has to be honoured here too.  Otherwise a blank
+  // diskette would refuse the FDC and answer the BIOS, which is a machine no
+  // real one ever was.
+  if (!formatted_.test(track)) return false;
   const std::size_t offset = (track * kRecordsPerTrack + record) * kRecordSize;
   std::copy_n(image_.data() + offset, kRecordSize, destination);
   return true;
@@ -517,6 +556,7 @@ bool VirtualDisk::ReadRecord(unsigned track, unsigned record, uint8_t* destinati
 
 bool VirtualDisk::WriteRecord(unsigned track, unsigned record, const uint8_t* source) {
   if (!present() || track >= kTracks || record >= kRecordsPerTrack) return false;
+  if (!formatted_.test(track)) return false;
   const std::size_t offset = (track * kRecordsPerTrack + record) * kRecordSize;
   std::copy_n(source, kRecordSize, image_.data() + offset);
   dirty_ = true;
@@ -527,6 +567,10 @@ bool VirtualDisk::ReadPhysicalSector(unsigned cylinder, unsigned side, unsigned 
                                      uint8_t* destination) const {
   if (!present() || cylinder >= 80 || side > 1 || sector == 0 || sector > 10)
     return false;
+  // An unformatted track has no sector headers on it, so the controller finds
+  // nothing to match: Record Not Found, which is what machine.cpp turns a
+  // false return into.
+  if (!TrackFormatted(cylinder, side)) return false;
   const std::size_t offset = ((cylinder * 2 + side) * 10 + sector - 1) * 512;
   std::copy_n(image_.data() + offset, 512, destination);
   return true;
@@ -536,6 +580,10 @@ bool VirtualDisk::WritePhysicalSector(unsigned cylinder, unsigned side, unsigned
                                       const uint8_t* source) {
   if (!present() || cylinder >= 80 || side > 1 || sector == 0 || sector > 10)
     return false;
+  // An unformatted track has no sector headers on it, so the controller finds
+  // nothing to match: Record Not Found, which is what machine.cpp turns a
+  // false return into.
+  if (!TrackFormatted(cylinder, side)) return false;
   const std::size_t offset = ((cylinder * 2 + side) * 10 + sector - 1) * 512;
   std::copy_n(source, 512, image_.data() + offset);
   dirty_ = true;

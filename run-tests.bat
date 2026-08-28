@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-rem Zostavi testy a pusti vsetkych desat naraz. Su to samostatne procesy,
+rem Zostavi testy a pusti vsetkych jedenast naraz. Su to samostatne procesy,
 rem nic nezdielaju, takze paralelne bezia bez rizika. Wall time urcuje
 rem najdlhsi z nich -- rezim kbd.
 rem
@@ -43,7 +43,7 @@ if "%JOBS%"=="" set "JOBS=4"
 
 rem -k dobehne aj po prvom zlyhani, nech je vidiet vsetky naraz.
 rem --output-sync=target drzi vypis kazdeho testu pohromade; bez neho sa
-rem riadky desiatich procesov premiesaju a vysledok sa neda precitat.
+rem riadky jedenastich procesov premiesaju a vysledok sa neda precitat.
 echo.
 echo === Testy ===
 mingw32-make -j%JOBS% -k --output-sync=target MINGW64="%MINGW64:\=/%" ROM="%A4ROM:\=/%" DISK="%TESTDISK:\=/%" check

@@ -81,6 +81,9 @@ constexpr wchar_t kShortcutHelp[] =
     L"F11, Ctrl+I — vloží disketu z iného priečinka. Vymieňať sa dá za\r\n"
     L"      behu: EurekaDOS si nový disk prihlási sám, tak ako skutočný\r\n"
     L"      stroj.\r\n"
+    L"F11, Ctrl+M — nová disketa: z priečinka, nový prázdny priečinok, alebo\r\n"
+    L"      prázdna v pamäti. Tá sa dá vyrobiť aj nenaformátovaná — Eureka ju\r\n"
+    L"      ohlási ako vadný disk, kým ju Shift+F8 nenaformátuje.\r\n"
     L"F11, Ctrl+1 až Ctrl+9 — vloží disketu z rýchlej voľby. Čo je v ktorom\r\n"
     L"      slote, je napísané priamo v ponuke Disketa; priraďuje sa tam\r\n"
     L"      v položke Spravovať rýchlu voľbu.\r\n"
@@ -243,6 +246,40 @@ void MainWindow::RegisterCommands() {
   OnCommand(ID_DISK_EJECT, [this] {
     if (!KeepRamDiskFirst()) return;
     emulator_.PostEjectDisk();
+  });
+
+  OnCommand(ID_DISK_NEW, [this] {
+    NewDiskDialog dialog;
+    if (dialog.ShowModal(hwnd_, IDD_NEWDISK) != IDOK) return;
+    if (!KeepRamDiskFirst()) return;
+    switch (dialog.kind()) {
+      case NewDiskDialog::Kind::kRam:
+        emulator_.PostCreateRamDisk(true);
+        return;
+      case NewDiskDialog::Kind::kUnformattedRam:
+        emulator_.PostCreateRamDisk(false);
+        return;
+      case NewDiskDialog::Kind::kEmptyFolder: {
+        // Created here rather than on the worker: making a folder is the
+        // host's business, and a failure has to be reported where there is a
+        // window to report it in.
+        std::error_code ec;
+        if (!std::filesystem::create_directory(
+                std::filesystem::path(dialog.folder()), ec)) {
+          MessageBoxW(hwnd_,
+                      (L"Priečinok pre novú disketu sa nepodarilo "
+                       L"vytvoriť:\r\n\r\n" + dialog.folder())
+                          .c_str(),
+                      L"Nová disketa", MB_OK | MB_ICONERROR);
+          return;
+        }
+        emulator_.PostMountDisk(dialog.folder());
+        return;
+      }
+      case NewDiskDialog::Kind::kFolder:
+        emulator_.PostMountDisk(dialog.folder());
+        return;
+    }
   });
 
   for (int number = 1; number <= Settings::kSlots; ++number)
@@ -489,7 +526,8 @@ void MainWindow::RefreshMenu() const {
 void MainWindow::RefreshShortcutText(HMENU menu) const {
   static constexpr wchar_t kPrefix[] = L"F11, ";
   std::vector<UINT> ids = {ID_FILE_EXPORT,      ID_FILE_EXIT,
-                           ID_DISK_INSERT,      ID_DISK_EJECT,
+                           ID_DISK_INSERT,      ID_DISK_NEW,
+                           ID_DISK_EJECT,
                            ID_MACHINE_RESET,    ID_MACHINE_POWEROFF,
                            ID_KEYBOARD_TOGGLE,  ID_TOOLS_SETTINGS,
                            ID_TOOLS_DIAGDUMP,   ID_HELP_KEYS};
@@ -714,6 +752,11 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case WM_EMU_DISK_CHANGED: {
       const DiskChange change = emulator_.TakeDiskChange();
+      // An empty name means the payload has already been consumed by an
+      // earlier message, so there is nothing here to act on.  Belt and braces
+      // against a blanked title, which is what that looked like when it
+      // happened.
+      if (change.labels.name.empty()) return 0;
       SetDiskLabels(change.labels.description, change.labels.name,
                     change.folder, change.present);
       // The tone says what happened at the moment it happened; the title
@@ -723,6 +766,10 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       if (!change.ok) {
         MessageBoxW(hwnd_, change.error.c_str(), L"Eureka A4",
                     MB_OK | MB_ICONERROR);
+      } else if (!change.swapped) {
+        // The same diskette, in a different state -- the guest formatted it.
+        // The title has been updated above and that is all this needs: a tone
+        // here would announce an act the user did not perform.
       } else if (change.present) {
         ToneInserted();
         RememberDisk(change.folder);
