@@ -160,9 +160,15 @@ vysunutie jeden nízky. Sú zámerne iné než tie, ktoré ohlasujú prepnutie
 klávesnice. Čo je práve v mechanike, hovorí aj titulok okna, takže sa na
 to dá kedykoľvek spýtať cez `NVDA+T`.
 
-Ak je v mechanike disketa v pamäti, do ktorej sa už zapisovalo, emulátor
-sa pred výmenou spýta, či ju najprv uložiť do priečinka — taká disketa
-totiž nikde inde neexistuje a výmenou by sa stratila.
+**Zmena diskety sa na nič nepýta**, ani keď je v mechanike disketa
+v pamäti. Vymieňať je bežná práca — napríklad práve preto, aby ste mali
+odkiaľ kopírovať — a otázka pred každou výmenou by zavadzala. Disketa
+v pamäti sa výmenou stratí, ale to, že v mechanike je, hovorí titulok
+okna celý čas.
+
+Na uloženie sa emulátor spýta **pri ukončení**, čo je posledná chvíľa,
+keď to má zmysel. Uložiť ju môžete aj kedykoľvek predtým cez `F11`,
+`Ctrl+U`.
 
 ## Nová disketa
 

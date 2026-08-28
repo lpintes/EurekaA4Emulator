@@ -859,15 +859,6 @@ void EmulatorThread::Run() {
       if (notify) PostMessageW(notify, WM_EMU_DISK_CHANGED, 0, 0);
     }
 
-    // Published for the window, which asks before it throws a RAM diskette
-    // away.  A RAM diskette is never flushed -- there is nowhere to flush it
-    // to -- so its dirty flag stays set from the first write, and that is
-    // exactly the question being asked.
-    ramDiskDirty_.store(
-        machine.disk().media() == VirtualDisk::Media::kRam &&
-            machine.disk().dirty(),
-        std::memory_order_relaxed);
-
     // A parked change goes through as soon as the controller is idle and the
     // flush above has cleaned the image.  The ceiling is not a limit on the
     // guest's work -- a settle costs one second of guest time and is reached

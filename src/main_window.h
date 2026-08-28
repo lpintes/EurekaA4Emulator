@@ -47,10 +47,6 @@ class MainWindow : public win::Window {
   // keyboard is released and they no longer need it.
   void RefreshShortcutText(HMENU menu) const;
   void ForwardKey(bool down, WPARAM wParam, LPARAM lParam) const;
-  // Asks about a RAM diskette that would be thrown away by the swap the user
-  // just asked for, and offers to save it first.  False means they cancelled
-  // and the swap must not happen.
-  bool KeepRamDiskFirst();
   void SendGuestKey(WORD virtualKey, bool alt) const;
   std::wstring AboutText() const;
 

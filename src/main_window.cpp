@@ -228,7 +228,6 @@ void MainWindow::RegisterCommands() {
   });
 
   OnCommand(ID_DISK_INSERT, [this] {
-    if (!KeepRamDiskFirst()) return;
     const std::wstring folder = win::PickFolder(
         hwnd_, L"Vyberte priečinok s disketou, ktorá sa má vložiť");
     if (folder.empty()) return;
@@ -238,15 +237,11 @@ void MainWindow::RegisterCommands() {
     emulator_.PostMountDisk(folder);
   });
 
-  OnCommand(ID_DISK_EJECT, [this] {
-    if (!KeepRamDiskFirst()) return;
-    emulator_.PostEjectDisk();
-  });
+  OnCommand(ID_DISK_EJECT, [this] { emulator_.PostEjectDisk(); });
 
   OnCommand(ID_DISK_NEW, [this] {
     NewDiskDialog dialog(CurrentSlots());
     if (dialog.ShowModal(hwnd_, IDD_NEWDISK) != IDOK) return;
-    if (!KeepRamDiskFirst()) return;
 
     // What a slot would have to hold to bring this diskette back.  Worked out
     // before anything is posted, because for a folder kind it is the folder
@@ -325,32 +320,16 @@ void MainWindow::RegisterCommands() {
   });
 }
 
-// The one thing that would be lost silently by a swap.  A folder-backed
-// diskette is already on the host's disk and a fresh mount rebuilds it from
-// there, but a RAM one exists nowhere else: taking it out drops it.  So the
-// question is asked before the swap and not after, when the answer would be
-// too late to act on.
-bool MainWindow::KeepRamDiskFirst() {
-  if (!emulator_.ram_disk_dirty()) return true;
-  const int answer = MessageBoxW(
-      hwnd_,
-      L"Na diskete v pamäti sú zapísané dáta a tá disketa nemá za sebou "
-      L"žiadny priečinok — vysunutím sa jej obsah stratí.\r\n\r\n"
-      L"Chcete ju najprv uložiť do priečinka?",
-      L"Eureka A4", MB_YESNOCANCEL | MB_ICONWARNING);
-  if (answer == IDCANCEL) return false;
-  if (answer == IDNO) return true;
-  const std::wstring folder = win::PickFolder(
-      hwnd_, L"Vyberte priečinok, do ktorého sa disketa uloží");
-  // Cancelling the picker cancels the whole thing rather than falling through
-  // to the swap: they asked to keep the data, and losing it because a second
-  // dialog was dismissed is not what they asked for.
-  if (folder.empty()) return false;
-  // Queued ahead of the swap, and the queue keeps the order: the export runs
-  // on the same worker and is finished before the diskette is taken out.
-  emulator_.PostExportDisk(folder);
-  return true;
-}
+// Changing the diskette asks nothing.  A RAM diskette does get dropped by a
+// swap, and this used to offer to save it first -- but a question in front of
+// every change of medium is in the way of ordinary work, and swapping is
+// ordinary work: putting another diskette in to copy from is the obvious
+// reason to have a scratch one at all.  The offer belongs where the last
+// chance really is, and that is at exit, where main.cpp makes it.
+//
+// What keeps this from being a silent loss is that the title says "v pamäti"
+// the whole time, so what would be dropped is on screen -- and on NVDA+T --
+// before anybody reaches for Ctrl+I.
 
 void MainWindow::InsertSlot(int number) {
   const std::wstring slot = settings_.slot(number);
@@ -359,7 +338,6 @@ void MainWindow::InsertSlot(int number) {
   // process, so there is nothing to bring back -- which is why the slot is
   // named "nová prázdna v pamäti" wherever it is shown.
   if (SlotIsRam(slot) || SlotIsUnformattedRam(slot)) {
-    if (!KeepRamDiskFirst()) return;
     emulator_.PostCreateRamDisk(SlotIsRam(slot));
     return;
   }
@@ -392,7 +370,6 @@ void MainWindow::InsertSlot(int number) {
                 L"Rýchla voľba", MB_OK | MB_ICONWARNING);
     return;
   }
-  if (!KeepRamDiskFirst()) return;
   emulator_.PostMountDisk(folder);
 }
 

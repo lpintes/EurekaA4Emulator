@@ -2591,9 +2591,19 @@ Tri veci, ktoré sa pri tom nesmú prehliadnuť:
 - **`diskName_` a `diskDescription_` v `MainWindow` sú dnes konštanty
   z konštruktora.** Musia sa stať meniteľnými, inak titulok po výmene
   klame — a titulok je to, čo `NVDA+T` prečíta.
-- **Vysunutie RAM diskety so súbormi sa musí spýtať hneď.** Dnes sa pýta
-  `main.cpp` až pri ukončení; s výmenou za behu by sa obsah RAM diskety
-  pri výmene stratil **potichu**.
+- ~~**Vysunutie RAM diskety so súbormi sa musí spýtať hneď.**~~
+  **Neplatí od 28. 8. 2026 — zamietol to majiteľ a má pravdu.** Bolo to
+  napísané a hneď zrušené: otázka pred každou zmenou média zavadzia
+  presne tam, kde je výmena bežná práca — vložiť inú disketu, aby bolo
+  odkiaľ kopírovať, je hlavný dôvod, prečo si niekto vôbec drží
+  odkladaciu disketu v pamäti. Pýta sa preto **len pri ukončení**
+  (`main.cpp`), čo je posledná chvíľa, keď to má zmysel.
+  Nie je to tichá strata: titulok hovorí „v pamäti“ celý čas, takže to,
+  čo by sa zahodilo, je na obrazovke aj pod `NVDA+T` **skôr**, než
+  niekto siahne na `Ctrl+I`. A uložiť sa dá kedykoľvek cez `Ctrl+U`.
+  Poučenie je všeobecnejšie než tento dialóg: **stráženie, ktoré stojí
+  v ceste bežnému úkonu, je horšie než riziko, pred ktorým stráži** —
+  najmä keď stav aj tak stojí v titulku.
 - **Výmenu musí byť počuť.** Platí tu pravidlo „režim, ktorý nepočuť, je
   chyba": `Beep()` hostiteľa, dvojtón nahor = vložená, jeden nízky =
   vysunutá, odlišné od klávesnicových dvojíc.

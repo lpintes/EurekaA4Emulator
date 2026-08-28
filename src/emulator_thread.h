@@ -161,14 +161,6 @@ class EmulatorThread {
   InputMode mode() const { return mode_.load(std::memory_order_relaxed); }
   bool diagnostics() const { return diagnostics_.load(std::memory_order_relaxed); }
   bool running() const { return running_.load(std::memory_order_relaxed); }
-  // True while the diskette lives only in memory and has been written to, so
-  // taking it out would throw the guest's work away with no host folder behind
-  // it.  Read from the window thread before a swap: the machine belongs to the
-  // worker and cannot be asked directly, and this is one bool rather than a
-  // round trip.
-  bool ram_disk_dirty() const {
-    return ramDiskDirty_.load(std::memory_order_relaxed);
-  }
   // Last disk error the worker reported, for the WM_EMU_DISK_ERROR handler.
   std::wstring TakeDiskError();
   // Empty when the last export succeeded, otherwise why it did not.
@@ -209,7 +201,6 @@ class EmulatorThread {
   std::atomic<InputMode> mode_{InputMode::kPc};
   std::atomic<bool> diagnostics_{false};
   std::atomic<bool> running_{false};
-  std::atomic<bool> ramDiskDirty_{false};
 };
 
 #endif
