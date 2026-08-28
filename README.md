@@ -69,8 +69,15 @@ Prepína sa `Ctrl+K`:
 - **braillovská klávesnica** — dvadsať klávesov, ktoré stroj naozaj mal.
   `F D S` sú body 1, 2, 3 a `J K L` body 4, 5, 6, medzerník je medzerník;
   akord sa vydá pri pustení posledného prsta. Shift patrí do akordu: robí
-  veľké písmeno a so samotným medzerníkom je Escape. **Písmená sa v tomto
-  režime nepíšu** — píše sa bodmi, tak ako na stroji.
+  veľké písmeno a so samotným medzerníkom je Escape — kláves `Esc` stlačí
+  presne ten akord, takže funguje aj on. **Písmená sa v tomto režime
+  nepíšu** — píše sa bodmi, tak ako na stroji.
+
+  Shift je tu aj **kláves sám osebe: stlačený samotný zastaví reč.** Takto
+  sa pozastavuje plynulé čítanie v textovom procesore. Na klávesnici PC
+  taký kláves nie je — tam reč zastaví každý kláves, ktorý niečo doručí,
+  a shift ani Ctrl medzi ne nepatria; preto sa tam čítanie prerušuje
+  šípkou, ktorá navyše nechá kurzor tam, kde sa prestalo čítať.
 
 V oboch režimoch fungujú `F1`–`F10` so shiftom, kurzory aj ich akordy
 (`Home`, `End`, `PgUp`, `PgDn`, `Insert`, `Delete`).

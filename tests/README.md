@@ -26,7 +26,14 @@ the emulator). The executables land in `bin\` next to the emulator.
   the bare space bar, which is Escape and not a space (1D52F) -- the only key
   code on this machine that needs two rows held at once, so it is the sharpest
   check that the host presses shift as a key and not as a flag it keeps to
-  itself.  Last it types the same word again as IBM
+  itself.  Then it holds shift on its own in the middle of an utterance, which
+  has to stop it: C621h is FFh only while speech is playing, and a key going
+  down where the shadow has no bit copies it into spabrt (C620h) -- the way
+  continuous reading in the word processor has always been paused, named as
+  such in SYSJUMPS.11.  Measured, "hlavni menu" runs 783k cycles and ends after
+  203k with shift, so the check asks only that it stopped before half.  A chord
+  cannot fake this: a chord's shift arrives together with dots the shadow is
+  about to learn anyway.  Last it types the same word again as IBM
   PC scan codes down the serial port, which exercises the reset handshake, the
   CSI/O interrupt and the ROM's own Czech QWERTZ tables.  Last it presses AltGr
   and lets it go, then types the same key on its own: the right Alt is the one

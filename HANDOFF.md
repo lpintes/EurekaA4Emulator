@@ -326,7 +326,7 @@ riadiaci kláves nie je, riadiace znaky sa na nej robia akordom.
 Akord sa zbiera, kým sú prsty dole, a vydá sa naraz pri pustení
 posledného — to je perkinsovské správanie a `ReleaseKey` ho umožňuje.
 
-**Shift patrí do akordu, nie vedľa neho** (doplnené 26. 8. 2026).
+**Shift patrí do akordu, nie len vedľa neho** (doplnené 26. 8. 2026).
 Je to dvadsiaty kláves braillovej klávesnice a leží na riadku `8Ch`,
 bit 6. Dekodér ROM ho číta na dvoch miestach a obe robia niečo, čo sa
 bez neho nedá vyrobiť vôbec:
@@ -1309,9 +1309,10 @@ kurzorové a shift na `8Ch`. Nič iné na nej nie je.
 | kurzory vrátane akordov | riadok `8Ch` ako bitová množina | áno |
 | `Home` `End` `PgUp` `PgDn` `Insert` `Delete` | riadok `8Ch` | áno — sú to **kurzorové akordy**, Home je hore plus vľavo |
 | `Esc` | riadky `89h` a `8Ch` naraz — shift plus holý medzerník | áno — takto Escape vyrába aj stroj (1D52F) |
+| samotný `Shift` | riadok `8Ch` bit 6, držaný cez celú frontu rámcov | áno — je to dvadsiaty kláves a sám zastaví reč |
 | písmená, číslice, interpunkcia | vlastná fronta ROM (`C67B`) | **nie** |
 
-Prvých päť riadkov nie je obchádzka: každý z nich sa premietne na kláves
+Prvých šesť riadkov nie je obchádzka: každý z nich sa premietne na kláves
 alebo akord, ktorý stroj naozaj má, a `Home` až `Delete` sú len pohodlný
 názov pre kurzorový akord. Tie zostávajú.
 
