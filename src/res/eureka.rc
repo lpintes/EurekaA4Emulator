@@ -29,9 +29,24 @@ BEGIN
     POPUP "&Disketa"
     BEGIN
         MENUITEM "&Vložiť z priečinka…\tF11, Ctrl+I",           ID_DISK_INSERT
-        MENUITEM "V&ysunúť disketu",                            ID_DISK_EJECT
+        MENUITEM "V&ysunúť disketu\tF11, Ctrl+0",               ID_DISK_EJECT
         MENUITEM SEPARATOR
         MENUITEM "&Uložiť disketu do priečinka…\tF11, Ctrl+U",  ID_FILE_EXPORT
+        MENUITEM SEPARATOR
+        /* The nine slots.  Their text is rewritten at every WM_INITMENUPOPUP
+           from the settings file -- what stands here is only what an empty one
+           says, and the mnemonic, which is the slot number itself. */
+        MENUITEM "&1 (prázdny)\tF11, Ctrl+1",                   ID_DISK_SLOT1
+        MENUITEM "&2 (prázdny)\tF11, Ctrl+2",                   ID_DISK_SLOT2
+        MENUITEM "&3 (prázdny)\tF11, Ctrl+3",                   ID_DISK_SLOT3
+        MENUITEM "&4 (prázdny)\tF11, Ctrl+4",                   ID_DISK_SLOT4
+        MENUITEM "&5 (prázdny)\tF11, Ctrl+5",                   ID_DISK_SLOT5
+        MENUITEM "&6 (prázdny)\tF11, Ctrl+6",                   ID_DISK_SLOT6
+        MENUITEM "&7 (prázdny)\tF11, Ctrl+7",                   ID_DISK_SLOT7
+        MENUITEM "&8 (prázdny)\tF11, Ctrl+8",                   ID_DISK_SLOT8
+        MENUITEM "&9 (prázdny)\tF11, Ctrl+9",                   ID_DISK_SLOT9
+        MENUITEM SEPARATOR
+        MENUITEM "&Spravovať rýchlu voľbu…",                    ID_DISK_SLOTS
     END
     POPUP "&Stroj"
     BEGIN
@@ -124,6 +139,20 @@ BEGIN
     "N",        ID_TOOLS_SETTINGS,   VIRTKEY, CONTROL
     "D",        ID_TOOLS_DIAGDUMP,   VIRTKEY, CONTROL
     "H",        ID_HELP_KEYS,        VIRTKEY, CONTROL
+    /* The quick choice.  Nine keys look expensive and cost nothing: they are
+       in this table, so they apply only once the keyboard is the host's, and
+       Eureka never loses a single one of them.  Ctrl+0 ejects, which puts
+       "no diskette" in the same row as the nine that put one in. */
+    "0",        ID_DISK_EJECT,       VIRTKEY, CONTROL
+    "1",        ID_DISK_SLOT1,       VIRTKEY, CONTROL
+    "2",        ID_DISK_SLOT2,       VIRTKEY, CONTROL
+    "3",        ID_DISK_SLOT3,       VIRTKEY, CONTROL
+    "4",        ID_DISK_SLOT4,       VIRTKEY, CONTROL
+    "5",        ID_DISK_SLOT5,       VIRTKEY, CONTROL
+    "6",        ID_DISK_SLOT6,       VIRTKEY, CONTROL
+    "7",        ID_DISK_SLOT7,       VIRTKEY, CONTROL
+    "8",        ID_DISK_SLOT8,       VIRTKEY, CONTROL
+    "9",        ID_DISK_SLOT9,       VIRTKEY, CONTROL
 END
 
 /////////////////////////////////////////////////////////////////////////////
@@ -162,6 +191,31 @@ END
 // The body is a read-only multiline edit rather than static text, so a screen
 // reader can walk it with the review cursor instead of having to take it in
 // one announcement.  It is a tab stop for the same reason.
+
+/////////////////////////////////////////////////////////////////////////////
+// Quick choice
+//
+// A listbox and three buttons, and no coordinates computed anywhere: nine
+// slots always fit, so there is nothing to lay out at run time.  The list
+// carries the slot number at the front of every line, because that number is
+// the shortcut -- a screen reader reading "3: Slovník" has said which key
+// puts it in.
+
+IDD_SLOTS DIALOGEX 0, 0, 300, 168
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Rýchla voľba diskiet"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "&Sloty — vkladá ich F11 a číslo s Ctrl:", IDC_STATIC,
+                    7, 7, 286, 9
+    LISTBOX         IDC_SLOT_LIST, 7, 19, 286, 90,
+                    LBS_NOTIFY | WS_VSCROLL | WS_GROUP | WS_TABSTOP
+    PUSHBUTTON      "&Priradiť priečinok…", IDC_SLOT_ASSIGN, 7, 115, 90, 14
+    PUSHBUTTON      "Sem &vloženú disketu", IDC_SLOT_CURRENT, 103, 115, 90, 14
+    PUSHBUTTON      "&Vyprázdniť slot", IDC_SLOT_CLEAR, 199, 115, 94, 14
+    DEFPUSHBUTTON   "OK", IDOK, 186, 147, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 243, 147, 50, 14
+END
 
 IDD_ABOUT DIALOGEX 0, 0, 268, 156
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU

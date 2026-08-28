@@ -2452,12 +2452,18 @@ nesúvisia. Skutočné diagnostiky sú riadky `E[...]` **bez** `tweak:`.
 doložené je (6.6 nepovinná disketa, 6.12 kapacita z DPB, 6.17 výmena za
 behu). Miesta, ktoré merať treba, sú v texte označené.
 
-**Stav k 28. 8. 2026:** hotové sú prvé dva kusy poradia prác na konci
-tejto sekcie — perzistencia a výmena za behu vrátane ponuky `Disketa`.
-Sloty rýchlej voľby, dialóg `Nová disketa` s nenaformátovaným médiom,
-zámok proti zápisu a rozdeľovač kolekcie **napísané nie sú**; všetko
-nižšie o nich platí ako návrh. Čo je z výmeny odmerané a čo nie, je na
-konci 6.17.
+**Stav k 28. 8. 2026:** hotový je celý prvý kus poradia prác na konci
+tejto sekcie — perzistencia, výmena za behu, ponuka `Disketa` aj sloty
+rýchlej voľby pod `Ctrl+0` až `Ctrl+9`. Dialóg `Nová disketa`
+s nenaformátovaným médiom, zámok proti zápisu a rozdeľovač kolekcie
+**napísané nie sú**; všetko nižšie o nich platí ako návrh. Čo je z výmeny
+odmerané a čo nie, je na konci 6.17.
+
+Jedna vec sa oproti návrhu nižšie zmenila, a zmenila sa správne:
+**prázdny slot nie je zošedený.** Zošediť ho by znamenalo, že `Ctrl+3`
+z akcelerátorovej tabuľky — ktorá stav ponuky nepozná a `WM_COMMAND`
+pošle tak či tak — je jediná vec v tejto ponuke, ktorá odpovie tichom.
+Prázdny slot preto zostáva prístupný a povie dialógom, kde sa napĺňa.
 
 Zámerom je prestať sa na disketu pozerať ako na jeden priečinok zadaný
 pri štarte. Vzniknú tri veci: rýchla voľba diskety pod `Ctrl+číslo`,
@@ -2661,9 +2667,8 @@ neprepisuje a zdroj sa neotvára na zápis vôbec.
 
 #### Poradie prác
 
-1. ~~Perzistencia, výmena za behu, ponuka `Disketa`~~ — **hotové
-   28. 8. 2026.** Sloty rýchlej voľby z toho ešte chýbajú: súbor
-   s nastaveniami ich už unesie, ovládanie k nim nie.
+1. ~~Perzistencia, výmena za behu, ponuka `Disketa`, sloty~~ — **hotové
+   28. 8. 2026.**
 2. Dialóg `Nová disketa` a nenaformátované médium.
 3. `disk_layout` a testy, ešte bez GUI.
 4. Sprievodca rozdelenia nad hotovou vrstvou.
@@ -2735,13 +2740,13 @@ Zostáva to odskúšať v skutočnej relácii s NVDA; rozbor je na konci 6.18.
 4. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
    Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
    používa. Oplatí sa rozhodnúť naraz s uchovaním nastavení (6.18).
-5. **Správa diskiet** (6.22) — perzistencia a výmena za behu **hotové**
-   28. 8. 2026. Ďalej v poradí sú sloty rýchlej voľby pod `Ctrl+číslo`
-   (súbor s nastaveniami ich už unesie), potom dialóg `Nová disketa`
-   s nenaformátovaným médiom. Rozdeľovač kolekcie (`disk_layout`) je na
-   tom všetkom nezávislý a dá sa písať aj testovať bez GUI a bez ROM.
-   Neodmerané zostáva, či sa EurekaDOS po výmene naozaj preloguje —
-   koniec 6.17.
+5. **Správa diskiet** (6.22) — perzistencia, výmena za behu a rýchla
+   voľba **hotové** 28. 8. 2026. Ďalej v poradí je dialóg `Nová disketa`
+   s nenaformátovaným médiom (bitová mapa stôp vo `VirtualDisk`, Write
+   Track ju zapĺňa len pre médium v pamäti). Rozdeľovač kolekcie
+   (`disk_layout`) je na tom všetkom nezávislý a dá sa písať aj testovať
+   bez GUI a bez ROM. Neodmerané zostáva, či sa EurekaDOS po výmene
+   naozaj preloguje — koniec 6.17.
 6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
 7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,

@@ -9,6 +9,7 @@
 
 #define IDD_SETTINGS         200
 #define IDD_ABOUT            201
+#define IDD_SLOTS            202
 
 // Menu and accelerator commands.
 #define ID_FILE_EXPORT       40001
@@ -38,6 +39,23 @@
 // F10 both belong to the guest.
 #define ID_ACTIVATE_MENU     40050
 
+// Quick-choice slots.  Nine consecutive ids so the handler can work out which
+// slot it is by subtracting; the menu and Ctrl+digit both name them 1..9.
+// Spelled out one by one because the .rc cannot compute them, and a menu
+// carrying bare numbers would drift away from this header without a word.
+#define ID_DISK_SLOT1        40061
+#define ID_DISK_SLOT2        40062
+#define ID_DISK_SLOT3        40063
+#define ID_DISK_SLOT4        40064
+#define ID_DISK_SLOT5        40065
+#define ID_DISK_SLOT6        40066
+#define ID_DISK_SLOT7        40067
+#define ID_DISK_SLOT8        40068
+#define ID_DISK_SLOT9        40069
+#define ID_DISK_SLOT_FIRST   ID_DISK_SLOT1
+#define ID_DISK_SLOT_LAST    ID_DISK_SLOT9
+#define ID_DISK_SLOTS        40070
+
 // Settings dialog controls.
 #define IDC_MODE_BRAILLE     1001
 #define IDC_MODE_PC          1002
@@ -45,6 +63,12 @@
 
 // About dialog controls.
 #define IDC_ABOUT_TEXT       1010
+
+// Quick-choice dialog controls.
+#define IDC_SLOT_LIST        1020
+#define IDC_SLOT_ASSIGN      1021
+#define IDC_SLOT_CURRENT     1022
+#define IDC_SLOT_CLEAR       1023
 
 // Labels and group boxes need no id of their own.
 #ifndef IDC_STATIC

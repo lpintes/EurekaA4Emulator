@@ -17,7 +17,7 @@ class MainWindow : public win::Window {
   // the title carries -- see RefreshTitle.
   MainWindow(EmulatorThread& emulator, Settings& settings, std::wstring romPath,
              std::wstring diskDescription, std::wstring diskName,
-             bool diskPresent);
+             std::wstring diskFolder, bool diskPresent);
 
   bool Create();
   HACCEL accelerators() const { return accelerators_; }
@@ -31,7 +31,8 @@ class MainWindow : public win::Window {
   // The diskette can be changed while the machine runs, so neither of these is
   // fixed at construction any more.  The title is read out on every Alt+Tab
   // and NVDA+T, so it has to say what is in the drive now.
-  void SetDiskLabels(std::wstring description, std::wstring name, bool present);
+  void SetDiskLabels(std::wstring description, std::wstring name,
+                     std::wstring folder, bool present);
 
  protected:
   LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) override;
@@ -64,12 +65,22 @@ class MainWindow : public win::Window {
   // at the moment of the swap and not at exit, because a failed save has to be
   // reported while the user can still do something about it.
   void RememberDisk(const std::wstring& folder);
+  // Puts the diskette from one of the nine slots in.  Numbered 1..9 the way
+  // the menu and Ctrl+digit name them.
+  void InsertSlot(int number);
+  // Rewrites the nine menu items from the settings, so the menu names what is
+  // actually in each slot rather than what the .rc guessed.
+  void RefreshSlotItems(HMENU menu) const;
 
   EmulatorThread& emulator_;
   Settings& settings_;
   std::wstring romPath_;
   std::wstring diskDescription_;
   std::wstring diskName_;
+  // The host folder behind the diskette in the drive, empty for a RAM one or
+  // an empty drive.  Only needed so a slot can be filled from what is already
+  // in there.
+  std::wstring diskFolder_;
   // Whether there is a diskette in the drive, so the menu can grey out what an
   // empty one cannot do.
   bool diskPresent_ = false;

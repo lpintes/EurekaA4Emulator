@@ -63,7 +63,8 @@ naozaj urobí to, čo `Ctrl+H` na skutočnom stroji. Po `Shift+F11` platia
 rovno, lebo vtedy je klávesnica hosťova aj tak — a ponuka vtedy prefix
 `F11` prestane ukazovať, aby neradila kláves, ktorý v tom stave nerobí nič.
 
-Písmená sú `Ctrl+U I Q R V K N D H`. Že je to `Ctrl` a nie `Ctrl+Shift`,
+Písmená sú `Ctrl+U I Q R V K N D H`, k tomu `Ctrl+0` až `Ctrl+9` pre
+rýchlu voľbu diskiet. Že je to `Ctrl` a nie `Ctrl+Shift`,
 má dôvod: do `Ctrl+Shift` si svoje **globálne** skratky vešajú iné
 programy a globálna skratka vyhrá nad oknom bez ohľadu na `F11`, takže
 by kláves do emulátora vôbec nedošiel a bolo by to ticho.
@@ -163,12 +164,36 @@ Ak je v mechanike disketa v pamäti, do ktorej sa už zapisovalo, emulátor
 sa pred výmenou spýta, či ju najprv uložiť do priečinka — taká disketa
 totiž nikde inde neexistuje a výmenou by sa stratila.
 
+## Rýchla voľba diskiet
+
+Deväť diskiet sa dá mať poruke pod `F11` a číslom s `Ctrl`:
+
+- `F11`, `Ctrl+1` až `Ctrl+9` vloží disketu z príslušného slotu,
+- `F11`, `Ctrl+0` disketu vysunie.
+
+Sloty sa priraďujú v ponuke **Disketa → Spravovať rýchlu voľbu…**.
+V dialógu si vyberiete slot a buď mu priradíte priečinok, alebo doň
+uložíte disketu, ktorá je práve vložená. Zmeny sa zapíšu až tlačidlom OK.
+
+Čo je v ktorom slote, **je napísané priamo v ponuke Disketa**, takže sa to
+dá prečítať aj bez toho, aby ste si to pamätali: položka `3 Slovník`
+znamená, že `F11`, `Ctrl+3` vloží Slovník. Prázdny slot je označený ako
+`(prázdny)` a keď ho stlačíte, emulátor povie, kde sa napĺňa.
+
+Sloty sú **stabilné**: menia sa len vtedy, keď ich zmeníte vy. Zámerne
+sa nenapĺňajú automaticky z histórie — slot, ktorý sa mení pod prstom, by
+bol horší než žiadny.
+
+Skratky platia až po `F11`, tak ako všetky ostatné hostiteľské skratky.
+Vďaka tomu deväť diskiet poruke nestojí Eureku ani jeden kláves.
+
 ## Čo si emulátor pamätá
 
-Zatiaľ jedinú vec: **disketu, ktorú ste mali naposledy**. Vloží sa pri
-ďalšom štarte, takže sa program nepýta na priečinok pri každom spustení.
-Zapíše sa vždy, keď disketu vložíte — pri štarte aj pri výmene za behu.
-Pamätá sa len disketa z priečinka — disketa v pamäti nemá čo obnovovať.
+Dve veci: **disketu, ktorú ste mali naposledy**, a **deväť slotov rýchlej
+voľby**. Posledná disketa sa vloží pri ďalšom štarte, takže sa program
+nepýta na priečinok pri každom spustení; zapíše sa vždy, keď disketu
+vložíte — pri štarte, pri výmene za behu aj z rýchlej voľby. Pamätá sa
+len disketa z priečinka — disketa v pamäti nemá čo obnovovať.
 
 Keď priečinok medzitým zmizne (typicky odpojený USB disk), Eureka
 naštartuje s prázdnou mechanikou a spýta sa, či si ho má pamätať aj

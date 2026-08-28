@@ -284,7 +284,8 @@ int Run() {
 
   EmulatorThread emulator;
   MainWindow window(emulator, settings, rom.wstring(), labels.description,
-                    labels.name, machine->disk().present());
+                    labels.name, machine->disk().folder().wstring(),
+                    machine->disk().present());
   if (!window.Create()) {
     CoUninitialize();
     return Fail(L"Okno emulátora sa nepodarilo vytvoriť.");

@@ -1,5 +1,9 @@
 #include "main_window.h"
 
+#include <filesystem>
+#include <system_error>
+#include <vector>
+
 #include "dialogs.h"
 #include "host_console.h"
 #include "res/resource.h"
@@ -76,7 +80,11 @@ constexpr wchar_t kShortcutHelp[] =
     L"F11, Ctrl+V — vypne Eureku tak, ako to robí ona sama.\r\n"
     L"F11, Ctrl+I — vloží disketu z iného priečinka. Vymieňať sa dá za\r\n"
     L"      behu: EurekaDOS si nový disk prihlási sám, tak ako skutočný\r\n"
-    L"      stroj. Vysunúť sa dá v ponuke Disketa.\r\n"
+    L"      stroj.\r\n"
+    L"F11, Ctrl+1 až Ctrl+9 — vloží disketu z rýchlej voľby. Čo je v ktorom\r\n"
+    L"      slote, je napísané priamo v ponuke Disketa; priraďuje sa tam\r\n"
+    L"      v položke Spravovať rýchlu voľbu.\r\n"
+    L"F11, Ctrl+0 — vysunie disketu, teda nechá mechaniku prázdnu.\r\n"
     L"F11, Ctrl+U — uloží disketu do priečinka.\r\n"
     L"F11, Ctrl+D — výpis diagnostiky na konzolu.\r\n"
     L"F11, Ctrl+N — nastavenia.\r\n"
@@ -130,12 +138,14 @@ constexpr wchar_t kShortcutHelp[] =
 
 MainWindow::MainWindow(EmulatorThread& emulator, Settings& settings,
                        std::wstring romPath, std::wstring diskDescription,
-                       std::wstring diskName, bool diskPresent)
+                       std::wstring diskName, std::wstring diskFolder,
+                       bool diskPresent)
     : emulator_(emulator),
       settings_(settings),
       romPath_(std::move(romPath)),
       diskDescription_(std::move(diskDescription)),
       diskName_(std::move(diskName)),
+      diskFolder_(std::move(diskFolder)),
       diskPresent_(diskPresent) {}
 
 bool MainWindow::Create() {
@@ -235,6 +245,26 @@ void MainWindow::RegisterCommands() {
     emulator_.PostEjectDisk();
   });
 
+  for (int number = 1; number <= Settings::kSlots; ++number)
+    OnCommand(ID_DISK_SLOT_FIRST + number - 1,
+              [this, number] { InsertSlot(number); });
+
+  OnCommand(ID_DISK_SLOTS, [this] {
+    SlotsDialog::Slots slots;
+    for (int number = 1; number <= Settings::kSlots; ++number)
+      slots[static_cast<std::size_t>(number - 1)] = settings_.slot(number);
+    SlotsDialog dialog(slots, diskFolder_);
+    if (dialog.ShowModal(hwnd_, IDD_SLOTS) != IDOK) return;
+    for (int number = 1; number <= Settings::kSlots; ++number)
+      settings_.SetSlot(number, dialog.slots()[static_cast<std::size_t>(number - 1)]);
+    // Reported here and not swallowed: the user has just arranged their
+    // slots, and slots that quietly go back to how they were at the next
+    // start are the worst of both worlds.
+    std::wstring error;
+    if (!settings_.Save(error))
+      MessageBoxW(hwnd_, error.c_str(), L"Eureka A4", MB_OK | MB_ICONWARNING);
+  });
+
   OnCommand(ID_TOOLS_SETTINGS, [this] {
     SettingsDialog dialog(emulator_.mode(), emulator_.diagnostics());
     if (dialog.ShowModal(hwnd_, IDD_SETTINGS) != IDOK) return;
@@ -285,6 +315,73 @@ bool MainWindow::KeepRamDiskFirst() {
   return true;
 }
 
+void MainWindow::InsertSlot(int number) {
+  const std::wstring folder = settings_.slot(number);
+  // An empty slot answers, rather than doing nothing.  The menu item is left
+  // enabled on purpose: greying it would make Ctrl+digit -- which fires from
+  // the accelerator table whatever the menu says -- the one thing here that
+  // is silent, and silence is the failure mode this program keeps chasing.
+  if (folder.empty()) {
+    MessageBoxW(hwnd_,
+                (L"Slot " + std::to_wstring(number) +
+                 L" je prázdny.\r\n\r\nPriradiť mu priečinok môžete v ponuke "
+                 L"Disketa → Spravovať rýchlu voľbu.")
+                    .c_str(),
+                L"Rýchla voľba", MB_OK | MB_ICONINFORMATION);
+    return;
+  }
+  std::error_code ec;
+  // Checked here rather than left to the mount, so the message can name the
+  // slot: "the folder is gone" is far less useful than knowing which of the
+  // nine keys has gone stale.
+  if (!std::filesystem::is_directory(std::filesystem::path(folder), ec)) {
+    MessageBoxW(hwnd_,
+                (L"Priečinok zo slotu " + std::to_wstring(number) +
+                 L" sa nedá nájsť:\r\n\r\n" + folder +
+                 L"\r\n\r\nAk je to odpojený disk, pripojte ho. Inak slotu "
+                 L"priraďte iný priečinok v ponuke Disketa → Spravovať "
+                 L"rýchlu voľbu.")
+                    .c_str(),
+                L"Rýchla voľba", MB_OK | MB_ICONWARNING);
+    return;
+  }
+  if (!KeepRamDiskFirst()) return;
+  emulator_.PostMountDisk(folder);
+}
+
+// The .rc carries only what an empty slot says; the real names come from the
+// settings and change under the user's hands.  The keys after the tab are left
+// alone -- RefreshShortcutText owns those, and it runs straight after this.
+void MainWindow::RefreshSlotItems(HMENU menu) const {
+  for (int number = 1; number <= Settings::kSlots; ++number) {
+    const UINT id = static_cast<UINT>(ID_DISK_SLOT_FIRST + number - 1);
+    wchar_t existing[256];
+    if (!GetMenuStringW(menu, id, existing, ARRAYSIZE(existing), MF_BYCOMMAND))
+      continue;
+    const std::wstring current(existing);
+    const std::size_t tab = current.find(L'\t');
+    if (tab == std::wstring::npos) continue;
+
+    const std::wstring folder = settings_.slot(number);
+    std::wstring label = L"&" + std::to_wstring(number) + L" ";
+    if (folder.empty()) {
+      label += L"(prázdny)";
+    } else {
+      const std::filesystem::path path(folder);
+      std::filesystem::path leaf = path.filename();
+      if (leaf.empty()) leaf = path.parent_path().filename();
+      label += leaf.empty() ? folder : leaf.wstring();
+    }
+    std::wstring wanted = label + current.substr(tab);
+    if (wanted == current) continue;
+    MENUITEMINFOW info{};
+    info.cbSize = sizeof(info);
+    info.fMask = MIIM_STRING;
+    info.dwTypeData = wanted.data();
+    SetMenuItemInfoW(menu, id, FALSE, &info);
+  }
+}
+
 void MainWindow::RememberDisk(const std::wstring& folder) {
   // A RAM diskette and an empty drive are both "nothing to put back": neither
   // is cleared here, so unplugging a diskette for one session does not lose
@@ -297,9 +394,10 @@ void MainWindow::RememberDisk(const std::wstring& folder) {
 }
 
 void MainWindow::SetDiskLabels(std::wstring description, std::wstring name,
-                               bool present) {
+                               std::wstring folder, bool present) {
   diskDescription_ = std::move(description);
   diskName_ = std::move(name);
+  diskFolder_ = std::move(folder);
   diskPresent_ = present;
   RefreshTitle();
 }
@@ -373,6 +471,9 @@ void MainWindow::RefreshMenu() const {
       MF_BYCOMMAND | (diskPresent_ ? MF_ENABLED : MF_GRAYED);
   EnableMenuItem(menu, ID_DISK_EJECT, hasDisk);
   EnableMenuItem(menu, ID_FILE_EXPORT, hasDisk);
+  // Before RefreshShortcutText, which reads the item text back and would
+  // otherwise be working on the names this is about to replace.
+  RefreshSlotItems(menu);
   RefreshShortcutText(menu);
 }
 
@@ -387,9 +488,14 @@ void MainWindow::RefreshMenu() const {
 // on and take it off again.
 void MainWindow::RefreshShortcutText(HMENU menu) const {
   static constexpr wchar_t kPrefix[] = L"F11, ";
-  for (UINT id : {ID_FILE_EXPORT, ID_FILE_EXIT, ID_DISK_INSERT,
-                  ID_MACHINE_RESET, ID_MACHINE_POWEROFF, ID_KEYBOARD_TOGGLE,
-                  ID_TOOLS_SETTINGS, ID_TOOLS_DIAGDUMP, ID_HELP_KEYS}) {
+  std::vector<UINT> ids = {ID_FILE_EXPORT,      ID_FILE_EXIT,
+                           ID_DISK_INSERT,      ID_DISK_EJECT,
+                           ID_MACHINE_RESET,    ID_MACHINE_POWEROFF,
+                           ID_KEYBOARD_TOGGLE,  ID_TOOLS_SETTINGS,
+                           ID_TOOLS_DIAGDUMP,   ID_HELP_KEYS};
+  for (int number = 1; number <= Settings::kSlots; ++number)
+    ids.push_back(static_cast<UINT>(ID_DISK_SLOT_FIRST + number - 1));
+  for (UINT id : ids) {
     wchar_t text[128];
     // MF_BYCOMMAND searches the submenus too, so the ids are enough.
     if (!GetMenuStringW(menu, id, text, ARRAYSIZE(text), MF_BYCOMMAND)) continue;
@@ -609,7 +715,7 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     case WM_EMU_DISK_CHANGED: {
       const DiskChange change = emulator_.TakeDiskChange();
       SetDiskLabels(change.labels.description, change.labels.name,
-                    change.present);
+                    change.folder, change.present);
       // The tone says what happened at the moment it happened; the title
       // answers "what is in there now" at any time afterwards.  Same division
       // of labour as the keyboard state, and for the same reason: there is
