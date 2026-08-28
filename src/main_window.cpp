@@ -43,7 +43,7 @@ void ToneDisarmed() { Tone(600, 50); }
 // Kept in one place so the menu, the help text and this list cannot drift
 // apart.  A shortcut a screen reader never reads is a shortcut nobody has.
 constexpr wchar_t kShortcutHelp[] =
-    L"Skratky emulátora (patria oknu, do Eureky sa neposielajú):\r\n"
+    L"Okno berie Eureke tri klávesy a nič viac:\r\n"
     L"\r\n"
     L"F12 — otvorí ponuku. Alt ani F10 to nerobia, tie patria Eureke.\r\n"
     L"      Pozor, F11 aj F12 sú na klávesnici PC platné klávesy Eureky\r\n"
@@ -56,16 +56,23 @@ constexpr wchar_t kShortcutHelp[] =
     L"      správa ako hociktoré iné okno Windows. Klesajúca dvojica tónov\r\n"
     L"      znamená, že klávesy Eureku opúšťajú, stúpajúca že sa vracajú.\r\n"
     L"      Kým to platí, je to napísané aj v titulku okna.\r\n"
-    L"Ctrl+K — prepne klávesnicu medzi braillovskou a externou PC.\r\n"
-    L"Ctrl+Shift+R — reset.\r\n"
-    L"Ctrl+Shift+V — vypne Eureku tak, ako to robí ona sama.\r\n"
-    L"Ctrl+Shift+U — uloží disketu do priečinka.\r\n"
-    L"Ctrl+Shift+D — výpis diagnostiky na konzolu.\r\n"
-    L"Ctrl+Shift+N — nastavenia.\r\n"
-    L"Ctrl+Shift+H — toto okno.\r\n"
-    L"Ctrl+Shift+Q — uloží disketu a skončí.\r\n"
+    L"\r\n"
+    L"Ostatné skratky sú dvojhmatové: najprv F11, potom Ctrl s písmenom.\r\n"
+    L"Bez F11 idú tie klávesy Eureke, takže jej okno neberie ani jeden.\r\n"
+    L"Po Shift+F11 platia rovno, bez F11, lebo vtedy je klávesnica hosťova\r\n"
+    L"aj tak. Všetky sú aj v ponuke a tá ich nepotrebuje.\r\n"
+    L"\r\n"
+    L"F11, Ctrl+K — prepne klávesnicu medzi braillovskou a externou PC.\r\n"
+    L"F11, Ctrl+R — reset.\r\n"
+    L"F11, Ctrl+V — vypne Eureku tak, ako to robí ona sama.\r\n"
+    L"F11, Ctrl+U — uloží disketu do priečinka.\r\n"
+    L"F11, Ctrl+D — výpis diagnostiky na konzolu.\r\n"
+    L"F11, Ctrl+N — nastavenia.\r\n"
+    L"F11, Ctrl+H — toto okno.\r\n"
+    L"F11, Ctrl+Q — uloží disketu a skončí.\r\n"
     L"      Alt+F4 to už nerobí, ten patrí Eureke. Keď ho potrebujete pre\r\n"
-    L"      Windows, stlačte najprv F11.\r\n"
+    L"      Windows, stlačte najprv F11, tak ako tu.\r\n"
+    L"      Bezpodmienečná cesta von je F12, teda ponuka Súbor → Skončiť.\r\n"
     L"\r\n"
     L"Všetko ostatné ide do Eureky:\r\n"
     L"\r\n"
@@ -119,6 +126,8 @@ bool MainWindow::Create() {
   const HINSTANCE instance = GetModuleHandleW(nullptr);
   HMENU menu = LoadMenuW(instance, MAKEINTRESOURCEW(IDR_MAIN_MENU));
   accelerators_ = LoadAcceleratorsW(instance, MAKEINTRESOURCEW(IDR_ACCELERATORS));
+  hostAccelerators_ =
+      LoadAcceleratorsW(instance, MAKEINTRESOURCEW(IDR_ACCELERATORS_HOST));
   // Resizable on purpose.  There is nothing in the client area to lay out, but
   // a fixed window cannot be maximised or snapped, and that is something a
   // screen reader user does as much as anyone.
@@ -361,9 +370,9 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       // "komunikace", and Alt+F1..Alt+F10 is one continuous row of functions
       // the user walks along to find out what is where.  A hole in the middle
       // of that row which kills the emulator costs more than the standard
-      // close does: Ctrl+Shift+Q is an accelerator and works in every state,
-      // and F11 or Shift+F11 hands Alt+F4 back to Windows for as long as it
-      // is wanted.
+      // close does: F12 opens the menu in every state and File -> Quit is
+      // right there, and F11 or Shift+F11 hands Alt+F4 back to Windows for as
+      // long as it is wanted.
       if (HostKeepsKey(wParam, message == WM_SYSKEYDOWN)) break;
       ForwardKey(message == WM_SYSKEYDOWN, wParam, lParam);
       return 0;
@@ -386,6 +395,21 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       // state and survives; this is not.
       SetPassOnce(false);
       return 0;
+
+    case WM_COMMAND:
+      // Spends the one-shot on a shortcut that only fired because it was
+      // armed.  It has to happen here: TranslateAccelerator takes the press,
+      // so HostKeepsKey never sees it and cannot spend it -- and an unspent
+      // one-shot stays armed for good, which is the silent sticky mode this
+      // file has been caught by before.  HIWORD 1 means "accelerator", so
+      // choosing the same command from the menu does not spend anything.
+      //
+      // The two keyboard-state commands are excluded because they own that
+      // state: F11 would disarm itself, and each would sound its tone twice.
+      if (HIWORD(wParam) == 1 && LOWORD(wParam) != ID_KEYBOARD_PASSONCE &&
+          LOWORD(wParam) != ID_KEYBOARD_RELEASE)
+        SetPassOnce(false);
+      break;
 
     case WM_INITMENUPOPUP:
       RefreshMenu();

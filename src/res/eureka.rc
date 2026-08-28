@@ -24,24 +24,24 @@ IDR_MAIN_MENU MENU
 BEGIN
     POPUP "&Súbor"
     BEGIN
-        MENUITEM "&Uložiť disketu do priečinka…\tCtrl+Shift+U", ID_FILE_EXPORT
+        MENUITEM "&Uložiť disketu do priečinka…\tF11, Ctrl+U",  ID_FILE_EXPORT
         MENUITEM SEPARATOR
-        MENUITEM "S&končiť\tCtrl+Shift+Q",                      ID_FILE_EXIT
+        MENUITEM "S&končiť\tF11, Ctrl+Q",                       ID_FILE_EXIT
     END
     POPUP "&Stroj"
     BEGIN
-        MENUITEM "&Reset\tCtrl+Shift+R",                        ID_MACHINE_RESET
-        MENUITEM "&Vypnúť Eureku\tCtrl+Shift+V",                ID_MACHINE_POWEROFF
+        MENUITEM "&Reset\tF11, Ctrl+R",                         ID_MACHINE_RESET
+        MENUITEM "&Vypnúť Eureku\tF11, Ctrl+V",                 ID_MACHINE_POWEROFF
     END
     POPUP "&Klávesnica"
     BEGIN
         MENUITEM "&Braillovská",                                ID_KEYBOARD_BRAILLE
         MENUITEM "Externá &PC",                                 ID_KEYBOARD_PC
         MENUITEM SEPARATOR
-        MENUITEM "&Prepnúť\tCtrl+K",                            ID_KEYBOARD_TOGGLE
+        MENUITEM "&Prepnúť\tF11, Ctrl+K",                       ID_KEYBOARD_TOGGLE
         MENUITEM SEPARATOR
         MENUITEM "&Uvoľniť klávesnicu\tShift+F11",              ID_KEYBOARD_RELEASE
-        MENUITEM "&Jeden kláves do Windows\tF11",               ID_KEYBOARD_PASSONCE
+        MENUITEM "&Jeden kláves do Windows alebo skratka\tF11",  ID_KEYBOARD_PASSONCE
         MENUITEM SEPARATOR
         POPUP "P&oslať Eureke kláves"
         BEGIN
@@ -53,12 +53,12 @@ BEGIN
     END
     POPUP "&Nástroje"
     BEGIN
-        MENUITEM "&Nastavenia…\tCtrl+Shift+N",                  ID_TOOLS_SETTINGS
-        MENUITEM "&Výpis diagnostiky\tCtrl+Shift+D",            ID_TOOLS_DIAGDUMP
+        MENUITEM "&Nastavenia…\tF11, Ctrl+N",                   ID_TOOLS_SETTINGS
+        MENUITEM "&Výpis diagnostiky\tF11, Ctrl+D",             ID_TOOLS_DIAGDUMP
     END
     POPUP "&Pomocník"
     BEGIN
-        MENUITEM "&Klávesové skratky…\tCtrl+Shift+H",           ID_HELP_KEYS
+        MENUITEM "&Klávesové skratky…\tF11, Ctrl+H",            ID_HELP_KEYS
         MENUITEM "&O programe…",                                ID_HELP_ABOUT
     END
 END
@@ -66,35 +66,58 @@ END
 /////////////////////////////////////////////////////////////////////////////
 // Accelerators
 //
-// This table is the single owner of every host shortcut.  TranslateAccelerator
-// eats these presses before the window sees them, so the key translation on
-// the emulator thread no longer has to recognise any of them.
+// Two tables, because a host shortcut is not free: TranslateAccelerator eats
+// the press before the window sees it, so anything named here is a key the
+// guest can never receive.  Splitting them lets all but three be conditional.
 //
-// F12 opens the menu bar, because the two keys Windows would normally use for
-// it are the guest's: Alt is a modifier on the braille keyboard and F10 is the
+// IDR_ACCELERATORS is always in force and is the whole permanent cost.  F12
+// opens the menu bar, because the two keys Windows would normally use for it
+// are the guest's: Alt is a modifier on the braille keyboard and F10 is the
 // Eureka's own "where am I".
 //
-// F11 and F12 are *not* free, which this table used to claim on the strength
-// of KB.H stopping at K_F10.  The ROM's own table for the PC keyboard goes
-// further: scan code 57h maps to CAh and 58h to CBh (1DF05), so with the Alt
-// bit those are the Eureka's Alt+F11, "data ROM", and Alt+F12, which its help
-// calls unused.  Every host shortcut here therefore costs the guest something;
-// these two cost the least of what was on offer, and the Keyboard menu hands
-// both keys back on demand.
+// F11 and F12 are *not* free either, which this table used to claim on the
+// strength of KB.H stopping at K_F10.  The ROM's own table for the PC keyboard
+// goes further: scan code 57h maps to CAh and 58h to CBh (1DF05), so with the
+// Alt bit those are the Eureka's Alt+F11, "data ROM", and Alt+F12, which its
+// help calls unused.  These three cost the least of what was on offer, and the
+// Keyboard menu hands both keys back on demand.
 
 IDR_ACCELERATORS ACCELERATORS
 BEGIN
-    "U",        ID_FILE_EXPORT,      VIRTKEY, CONTROL, SHIFT
-    "Q",        ID_FILE_EXIT,        VIRTKEY, CONTROL, SHIFT
-    "R",        ID_MACHINE_RESET,    VIRTKEY, CONTROL, SHIFT
-    "V",        ID_MACHINE_POWEROFF, VIRTKEY, CONTROL, SHIFT
-    "K",        ID_KEYBOARD_TOGGLE,  VIRTKEY, CONTROL
-    "N",        ID_TOOLS_SETTINGS,   VIRTKEY, CONTROL, SHIFT
-    "D",        ID_TOOLS_DIAGDUMP,   VIRTKEY, CONTROL, SHIFT
-    "H",        ID_HELP_KEYS,        VIRTKEY, CONTROL, SHIFT
     VK_F11,     ID_KEYBOARD_PASSONCE, VIRTKEY
     VK_F11,     ID_KEYBOARD_RELEASE,  VIRTKEY, SHIFT
-    VK_F12,     ID_ACTIVATE_MENU,    VIRTKEY
+    VK_F12,     ID_ACTIVATE_MENU,     VIRTKEY
+END
+
+// IDR_ACCELERATORS_HOST is in force only while the keyboard is the host's:
+// after F11 (one key to Windows) or Shift+F11 (let go of it altogether).  The
+// rest of the time Ctrl+K, Ctrl+H and the others reach Eureka untouched, which
+// is the point -- the ROM's decoder folds Ctrl+letter into a control character
+// with AND 1Fh (1DE0E), and taking eight of those away from the guest bought
+// nothing that F11 does not buy.
+//
+// Ctrl+letter and not Ctrl+Shift+letter, even so.  Ctrl+Shift is where other
+// programs put their *global* hotkeys, and a global hotkey (RegisterHotKey)
+// beats an accelerator table whatever gates it -- the press never reaches the
+// window at all, and the failure is silent.  It had already happened on the
+// owner's machine: an organiser held Ctrl+Shift+H and Ctrl+Shift+R, so Help
+// and Reset did nothing.  Measured with RegisterHotKey on 28. 8. 2026: all
+// eight of these are free there, and the probe rang on those two.
+//
+// Whoever adds an entry here: the window never sees the press, so it cannot
+// spend the one-shot on it.  MainWindow's WM_COMMAND does that instead, and
+// without it F11 would stay armed for good -- silently.
+
+IDR_ACCELERATORS_HOST ACCELERATORS
+BEGIN
+    "U",        ID_FILE_EXPORT,      VIRTKEY, CONTROL
+    "Q",        ID_FILE_EXIT,        VIRTKEY, CONTROL
+    "R",        ID_MACHINE_RESET,    VIRTKEY, CONTROL
+    "V",        ID_MACHINE_POWEROFF, VIRTKEY, CONTROL
+    "K",        ID_KEYBOARD_TOGGLE,  VIRTKEY, CONTROL
+    "N",        ID_TOOLS_SETTINGS,   VIRTKEY, CONTROL
+    "D",        ID_TOOLS_DIAGDUMP,   VIRTKEY, CONTROL
+    "H",        ID_HELP_KEYS,        VIRTKEY, CONTROL
 END
 
 /////////////////////////////////////////////////////////////////////////////
@@ -119,7 +142,7 @@ BEGIN
                     16, 38, 200, 12
 
     GROUPBOX        "Diagnostika", IDC_STATIC, 7, 65, 218, 40
-    CONTROL         "&Zapnutá — záznam ide na konzolu, výpis Ctrl+Shift+D",
+    CONTROL         "&Zapnutá — záznam ide na konzolu, výpis F11, Ctrl+D",
                     IDC_DIAGNOSTICS, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
                     16, 79, 200, 12
 

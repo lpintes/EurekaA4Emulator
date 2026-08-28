@@ -2,7 +2,10 @@
 #define EUREKA_RESOURCE_H
 
 #define IDR_MAIN_MENU        100
+// Two accelerator tables: the first always applies, the second only while the
+// keyboard belongs to the host.  See the comments in eureka.rc.
 #define IDR_ACCELERATORS     101
+#define IDR_ACCELERATORS_HOST 102
 
 #define IDD_SETTINGS         200
 #define IDD_ABOUT            201

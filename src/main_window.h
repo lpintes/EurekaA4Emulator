@@ -17,6 +17,12 @@ class MainWindow : public win::Window {
 
   bool Create();
   HACCEL accelerators() const { return accelerators_; }
+  HACCEL hostAccelerators() const { return hostAccelerators_; }
+
+  // True while the keyboard belongs to the host, so the Ctrl shortcuts apply.
+  // The rest of the time they are Eureka's keys and the window never sees
+  // them: that is the whole reason there are two tables.
+  bool HostShortcutsActive() const { return released_ || passOnce_; }
 
  protected:
   LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) override;
@@ -42,6 +48,7 @@ class MainWindow : public win::Window {
   std::wstring romPath_;
   std::wstring diskDescription_;
   HACCEL accelerators_ = nullptr;
+  HACCEL hostAccelerators_ = nullptr;
 
   // Shift+F11: the keyboard is let go of altogether and the window behaves
   // like any other Windows window until it is taken back.

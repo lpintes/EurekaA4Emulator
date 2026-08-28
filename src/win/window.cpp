@@ -110,12 +110,16 @@ LRESULT Window::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
   return Default(message, wParam, lParam);
 }
 
-int RunMessageLoop(HWND window, HACCEL accelerators) {
+int RunMessageLoop(HWND window, HACCEL always, HACCEL conditional,
+                   std::function<bool()> conditionalActive) {
   MSG message{};
   BOOL result = 0;
   while ((result = GetMessageW(&message, nullptr, 0, 0)) != 0) {
     if (result == -1) break;
-    if (accelerators && TranslateAcceleratorW(window, accelerators, &message))
+    if (always && TranslateAcceleratorW(window, always, &message)) continue;
+    // Asked afresh every message: the answer changes while the program runs.
+    if (conditional && conditionalActive && conditionalActive() &&
+        TranslateAcceleratorW(window, conditional, &message))
       continue;
     TranslateMessage(&message);
     DispatchMessageW(&message);

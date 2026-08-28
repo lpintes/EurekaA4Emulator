@@ -60,7 +60,15 @@ class Window {
 // emulator runs on its own thread precisely so that a dropped-down menu or a
 // modal dialog -- each of which spins its own message loop in here -- cannot
 // stop the machine and dry the sound out.
-int RunMessageLoop(HWND window, HACCEL accelerators);
+//
+// Two tables rather than one, asked about per message: `always` is in force
+// whatever the window is doing, `conditional` only while `conditionalActive`
+// says so.  A window whose shortcut set depends on its state cannot express
+// that any other way, because TranslateAccelerator eats the press before the
+// window gets a say.  Either table may be null, and so may the predicate --
+// then `conditional` never applies.
+int RunMessageLoop(HWND window, HACCEL always, HACCEL conditional = nullptr,
+                   std::function<bool()> conditionalActive = nullptr);
 
 }  // namespace win
 

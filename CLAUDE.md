@@ -216,8 +216,9 @@ v konflikte s hosťom. Platí:
   rada, ktorá funkciu **pomenuje a nespustí** (Alt+F4 je `E3h` a povie
   „komunikace“; samotné F4 do nej vojde — odmerané, viď nižšie). Je to
   nápoveda, po ktorej sa chodí, a diera v jej strede, ktorá zabije
-  emulátor, stojí viac než štandardné zatváranie okna. Okno zatvára `Ctrl+Shift+Q` — je to akcelerátor, takže
-  funguje v každom stave — a po `F11` alebo `Shift+F11` funguje aj Alt+F4.
+  emulátor, stojí viac než štandardné zatváranie okna. Okno zatvára
+  `F12` → ponuka Súbor → Skončiť — tá cesta je bezpodmienečná — alebo
+  `F11`, `Ctrl+Q`; a po `F11` či `Shift+F11` funguje aj Alt+F4.
 - **F10 ani Shift+F10 nie sú voľné** — Eureka nimi hovorí, kde ste, a robí
   sebakontrolu. Ponuku preto otvára **F12**, uvoľnenie klávesnice **F11**.
 - **Voľný kláves neexistuje, ani F11 a F12.** Roky tu stálo, že sú to
@@ -242,7 +243,28 @@ v konflikte s hosťom. Platí:
   napriek tomu nemal — kód bol dosiahnuteľný bodmi a nedosiahnuteľný
   svojím kódom klávesu, a ten rozdiel bol **tichý**. Keď do tej funkcie
   siahneš, porovnaj ju s tou tabuľkou.
-- **Akcelerátorová tabuľka je jediný vlastník hostiteľských skratiek.**
+- **Akcelerátorové tabuľky sú dve a to je celý trik.** `IDR_ACCELERATORS`
+  platí vždy a je to celá trvalá cena: `F11`, `Shift+F11`, `F12`.
+  `IDR_ACCELERATORS_HOST` (`Ctrl+U Q R V K N D H`) platí **len keď je
+  klávesnica hosťova** — po `F11` alebo `Shift+F11`. Bez toho prefixu idú
+  tie klávesy Eureke, takže `Ctrl+H` na exterke naozaj urobí to, čo robí
+  na stroji. Bránu vyhodnocuje `MainWindow::HostShortcutsActive()` a pýta
+  sa na ňu `win::RunMessageLoop` pri **každej správe**, nie raz na štarte.
+- **Kto pridá položku do tej druhej tabuľky, musí vedieť o jednorazovke.**
+  Okno stlačenie nevidí (zje ho `TranslateAccelerator`), takže ho
+  `HostKeepsKey` nemá na čom minúť a `F11` by zostalo nachystané navždy —
+  presne ten tichý sticky režim. Míňa to `WM_COMMAND` v `main_window.cpp`
+  podľa `HIWORD(wParam) == 1`, s výnimkou `ID_KEYBOARD_PASSONCE`
+  a `ID_KEYBOARD_RELEASE`, ktoré ten stav vlastnia samy.
+- **Hostiteľské skratky sú `Ctrl` s písmenom, nie `Ctrl+Shift`.** Nie je to
+  vec vkusu: do `Ctrl+Shift` vešajú iné programy svoje **globálne** skratky
+  (`RegisterHotKey`) a tie vyhrávajú nad akcelerátorovou tabuľkou okna, nech
+  ju bráni čokoľvek — kláves do aplikácie nedôjde vôbec a je to **ticho**.
+  Na stroji majiteľa takto roky nefungovali `Ctrl+Shift+H` a `Ctrl+Shift+R`.
+  Diagnostika: skúsiť si kombináciu zaregistrovať sám; `RegisterHotKey`
+  vráti chybu **1409** (`ERROR_HOTKEY_ALREADY_REGISTERED`), keď ju už
+  niekto drží.
+- **Akcelerátorové tabuľky sú jediný vlastník hostiteľských skratiek.**
   `TranslateAccelerator` ich zje skôr, než ich okno uvidí, takže preklad
   klávesov na vlákne o nich nevie a vedieť nemá. Nepridávaj druhú
   kontrolu skratky do prekladu.

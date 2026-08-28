@@ -424,9 +424,11 @@ void EmulatorThread::Run() {
       // the accelerator table eats presses but never releases, so the guard
       // would swallow the one event that lets it go.
       machine.HoldShift((key.modifiers & SHIFT_PRESSED) != 0);
-      // Ctrl is not a key on the braille keyboard, so a release that arrives
-      // with it held belongs to a host shortcut whose press the accelerator
-      // table ate.  Letting it in would corrupt the chord being built.
+      // Ctrl is not a key on the braille keyboard, so nothing pressed with it
+      // held ever became a dot -- either the down path below dropped it, or,
+      // while the host owns the keyboard, the accelerator table ate the press
+      // outright.  Either way its release must not land in the chord being
+      // built.
       if ((key.modifiers & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0 &&
           (key.modifiers & RIGHT_ALT_PRESSED) == 0)
         return;
@@ -470,9 +472,12 @@ void EmulatorThread::Run() {
       return;
     }
 
-    // The emulator's own shortcuts are gone from here: they are entries in the
+    // The emulator's own shortcuts are gone from here: they are entries in an
     // accelerator table now, so TranslateAccelerator eats those presses before
-    // the window ever sees them.  One owner, one place to look.
+    // the window ever sees them.  One owner, one place to look.  Note that
+    // Ctrl+letter does reach this function in the ordinary case -- the table
+    // that holds those is only in force after F11 or Shift+F11 -- so in PC
+    // mode the guest gets its control character as it always did.
     const uint8_t wanted = WantedModifiers(key.modifiers);
     const bool ctrl = (wanted & kModCtrl) != 0;
     const bool shift = (wanted & kModShift) != 0;

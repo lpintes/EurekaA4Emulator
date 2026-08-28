@@ -104,15 +104,16 @@ void PrintUsage() {
       L"ROM sa hľadá v premennej A4ROM, vedľa EXE, o úroveň vyššie a\r\n"
       L"v aktuálnom priečinku.\r\n"
       L"Štartuje sa v režime externej klávesnice PC; --braille štartuje rovno\r\n"
-      L"v braillovskom. Prepína sa aj za behu, cez Ctrl+K alebo v ponuke.\r\n"
+      L"v braillovskom. Prepína sa aj za behu, cez F11, Ctrl+K alebo\r\n"
+      L"v ponuke.\r\n"
       L"--diag zapne záznam zahodených zápisov, portov bez modelu a zmien\r\n"
       L"riadiacich latchov, a k tomu záznam každej klávesovej udalosti.\r\n"
-      L"Záznam ide na konzolu; výpis je Ctrl+Shift+D a aj pri ukončení.\r\n"
+      L"Záznam ide na konzolu; výpis je F11, Ctrl+D a aj pri ukončení.\r\n"
       L"Dá sa zapnúť aj za behu v Nastaveniach.\r\n"
       L"Konzola sa otvorí len s --diag alebo pri zapnutí diagnostiky; bez\r\n"
       L"nej má emulátor iba svoje okno.\r\n\r\n"
       L"Ponuku okna otvára F12 — nie Alt ani F10, tie patria Eureke.\r\n"
-      L"Zoznam skratiek je v ponuke Pomocník alebo pod Ctrl+Shift+H.\r\n");
+      L"Zoznam skratiek je v ponuke Pomocník alebo pod F11, Ctrl+H.\r\n");
 }
 
 // Holds the argv that CommandLineToArgvW allocates, so no path out of
@@ -274,7 +275,9 @@ int Run() {
   window.Show(SW_SHOW);
   SetFocus(window.handle());
 
-  win::RunMessageLoop(window.handle(), window.accelerators());
+  win::RunMessageLoop(window.handle(), window.accelerators(),
+                      window.hostAccelerators(),
+                      [&window] { return window.HostShortcutsActive(); });
 
   // The machine comes back here to be shut down, so nothing below shares it
   // with a running thread.

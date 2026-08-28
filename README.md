@@ -51,11 +51,23 @@ Rovnako sa dá stlačiť aj priamo bodmi. `F12` akord nemá a `Alt` je na tej
 klávesnici medzerník, ktorý akord už používa, takže zvyšné tri sú
 zošedené.
 
-Ukončenie a bezpečné uloženie disku: `Ctrl+Shift+Q`. Reset:
-`Ctrl+Shift+R`. Úplný zoznam skratiek je v ponuke Pomocník alebo pod
-`Ctrl+Shift+H`. Nápoveda k prepínačom príkazového riadka: `--help`.
+Ukončenie a bezpečné uloženie disku: `F11`, `Ctrl+Q`. Reset: `F11`,
+`Ctrl+R`. Úplný zoznam skratiek je v ponuke Pomocník alebo pod `F11`,
+`Ctrl+H`. Nápoveda k prepínačom príkazového riadka: `--help`.
 
-Skratky emulátora sa do Eureky neposielajú; všetko ostatné áno.
+**Okno berie Eureke tri klávesy a nič viac:** `F12` (ponuka), `F11`
+a `Shift+F11`. Ostatné skratky sú dvojhmatové — najprv `F11`, potom
+`Ctrl` s písmenom. Bez `F11` idú tie klávesy Eureke, takže `Ctrl+H`
+naozaj urobí to, čo `Ctrl+H` na skutočnom stroji. Po `Shift+F11` platia
+rovno, lebo vtedy je klávesnica hosťova aj tak.
+
+Písmená sú `Ctrl+U Q R V K N D H`. Že je to `Ctrl` a nie `Ctrl+Shift`,
+má dôvod: do `Ctrl+Shift` si svoje **globálne** skratky vešajú iné
+programy a globálna skratka vyhrá nad oknom bez ohľadu na `F11`, takže
+by kláves do emulátora vôbec nedošiel a bolo by to ticho.
+
+Do ponuky sa dostanete vždy a bez prefixu, takže cesta ku všetkému je
+otvorená aj vtedy, keď niektorú skratku zoberie cudzí program.
 
 ## Dve klávesnice
 
@@ -222,8 +234,8 @@ Prepínač `--diag` zapne záznam hardvérových prístupov, ktoré model neobsl
   napríklad písmeno v braillovskom režime — od klávesu, ktorý vôbec
   neprišiel. Oboje je inak ticho.
 
-Výpis: `Ctrl+Shift+D` počas behu, a tiež pri ukončení. Zapnúť sa dá aj za
-behu v Nastaveniach (`Ctrl+Shift+N`); vtedy sa otvorí okno konzoly, do
+Výpis: `F11`, `Ctrl+D` počas behu, a tiež pri ukončení. Zapnúť sa dá aj
+za behu v Nastaveniach (`F11`, `Ctrl+N`); vtedy sa otvorí okno konzoly, do
 ktorého sa dá čítať. Bez `--diag` nemá záznam žiadnu réžiu.
 
 Obe otázky, kvôli ktorým vznikol, sú medzitým zodpovedané: zapisovateľná

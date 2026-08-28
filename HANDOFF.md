@@ -288,7 +288,7 @@ nie v pokoji — v pokoji hlási minimum vždy.
 
 ### Dva režimy písania
 
-Toľko, koľko mal stroj klávesníc. Prepína sa medzi nimi `Ctrl+K`:
+Toľko, koľko mal stroj klávesníc. Prepína sa medzi nimi `F11`, `Ctrl+K`:
 
 | režim | čo je pod rukami |
 |---|---|
@@ -308,15 +308,17 @@ teda všetky nad `7Fh`, a staré `QueueKey` posielalo každý taký bajt do
 Napísať `ä` znamenalo šípku vľavo a napísať `Á` (`8Fh`) štyri kurzory
 naraz, teda vypnutie stroja.
 
-`Ctrl+K` a nie `Ctrl+Shift+K` je rozhodnutie majiteľa, spravené s vedomím,
-že ROM na exterke Ctrl+písmeno **rešpektuje**: dekodér ho na `1DE0E`
-maskuje cez `AND 1Fh` na riadiaci znak, takže hosťovi tým v tom režime
-zaniká `0Bh`. Zmerané, že sa písmeno nenapíše: `a`, `b`, Ctrl+K, `c`, `d`
-dá riadok „abcd". Žiadna aplikácia ROM na to viditeľne nereaguje.
+~~`Ctrl+K` a nie `Ctrl+Shift+K`~~ — a od 28. 8. 2026 `F11`, `Ctrl+K`, lebo
+okno už Eureke `Ctrl+písmeno` neberie vôbec (viď 6.18). Meranie, ktoré
+k tomu patrí, platí ďalej a je dobré ho mať: ROM na exterke Ctrl+písmeno
+**rešpektuje**, dekodér ho na `1DE0E` maskuje cez `AND 1Fh` na riadiaci
+znak. Zmerané, že sa písmeno nenapíše: `a`, `b`, Ctrl+K, `c`, `d` dá riadok
+„abcd". Žiadna aplikácia ROM na to viditeľne nereaguje — ale rozhodovať
+sa podľa toho už netreba, hosť tie kódy dostáva.
 
 ### Braillovská klávesnica
 
-`Ctrl+K` prepne písanie na šesť bodových klávesov: `F D S` sú
+`F11`, `Ctrl+K` prepne písanie na šesť bodových klávesov: `F D S` sú
 body 1, 2, 3 a `J K L` body 4, 5, 6, medzerník zostáva medzerníkom.
 **Písmená sa v tomto režime nepíšu** — kto v ňom chce písať, píše bodmi,
 tak ako na stroji. Stlačené `a` neurobí nič a pri `--diag` to trasovanie
@@ -436,7 +438,7 @@ a je opravený.
 
 ### Klávesnica IBM PC na sériovom porte
 
-`Ctrl+K` prepne hostiteľskú klávesnicu na tú, ktorá sa k Eureke
+`F11`, `Ctrl+K` prepne hostiteľskú klávesnicu na tú, ktorá sa k Eureke
 pripájala zvonku. Emulátor **neprekladá zase nič**: Windows dáva
 v `wVirtualScanCode` rovno scancode XT sady 1 a príznak `ENHANCED_KEY`
 je na drôte prefix `E0h`, takže je to vodič, nie tabuľka.
@@ -603,7 +605,7 @@ zaniká.
 
 `--diag` zapne záznam: zahodené zápisy pod `kRamBase`, externé porty bez
 modelu, interné registre Z180 bez správania, zmeny troch riadiacich
-latchov po bitoch, kruhový záznam 512 udalostí. Výpis `Ctrl+Shift+D`
+latchov po bitoch, kruhový záznam 512 udalostí. Výpis `F11`, `Ctrl+D`
 alebo pri ukončení. Voliteľné trasovanie konkrétnych portov aj vtedy, keď
 ich model implementuje (`Diagnostics::set_trace`).
 
@@ -1843,8 +1845,9 @@ na Win32 aplikáciu. Čo pribudlo a prečo tak:
   (Pôvodné odôvodnenie pokračovalo tým, že F11 a F12 stroj nepozná. To je
   **nesprávne** a je to opravené nižšie, 27. 8. 2026.)
 - **Skratky vlastní akcelerátorová tabuľka**, jedno miesto. Preklad
-  klávesov na vlákne o nich už nevie; `Ctrl+Shift+Q/R/D` a `Ctrl+K` z neho
-  vypadli. Rezervované sú navyše `Ctrl+Shift+U/V/N/H`.
+  klávesov na vlákne o nich už nevie; `Ctrl+Q/R/D` a `Ctrl+K` z neho
+  vypadli. Rezervované sú navyše `Ctrl+U/V/N/H`. (Vtedy to bolo
+  `Ctrl+Shift+…`; Shift padol 28. 8. 2026, viď koniec 6.18.)
 - Z toho, čo táto sekcia sľubovala, je hotové aj **`WM_KILLFOCUS`**
   (pustí všetko deterministicky; `ForgetStaleArrows` zostal ako poistka na
   release stratený inak) a **explicitný autorepeat z `lParam` bitu 30**
@@ -1932,7 +1935,7 @@ odložil v prospech niečoho jednoduchšieho, a je to lepšie riešenie:
 - Pri zmene sa posiela `PostFocusLost()`, aby hosťovi nezostal visieť
   modifikátor.
 - Položky režimu sa počas uvoľnenia **nezošedievajú**: vybrať si, ako sa
-  klávesnica vráti, je zmysluplné, a `Ctrl+K` cez akcelerátor ide ďalej —
+  klávesnica vráti, je zmysluplné, a `F11`, `Ctrl+K` ide ďalej —
   zošedená položka vedľa fungujúcej skratky hovorí dve rôzne veci.
 
 **Dve pasce z toho, obe odmerané:**
@@ -1956,7 +1959,7 @@ s príčinnosťou: **Alt tu nie je modifikátor hostiteľa, je to kláves stroja
 a `F4` samotné je `C3h` — iná funkcia. Rada `Alt+F1`–`Alt+F10` je jedna
 súvislá ponuka, po ktorej sa chodí, a diera v jej strede, ktorá zabije
 proces, stojí viac než štandardné zatváranie okna. Výnimka je preč; okno
-zatvára `Ctrl+Shift+Q` (akcelerátor, funguje v každom stave, disketu uloží)
+zatvára `F12` → Súbor → Skončiť (cesta bez podmienky, disketu uloží)
 a po `F11` či `Shift+F11` sa `Alt+F4` chová ako všade inde, lebo
 `HostKeepsKey` ho vtedy pustí do `DefWindowProc`.
 
@@ -2181,10 +2184,102 @@ našli presne tie dve zabraté.
 Z toho plynie, že **ponuka musí zostať plnohodnotnou cestou ku všetkému** —
 je to jediná cesta, ktorú cudzí program nezoberie. Dnes to tak je.
 
-**Rozhodnuté: skratky sa kvôli tomu presúvať nebudú.** Znie to lákavo pri
-Resete, ktorý je vecná funkcia, ale ktorúkoľvek náhradu môže mať obsadenú
-zase niekto iný — je to iná lotéria, nie riešenie. Kto má kolíziu, prerobí
-si ju u seba v tom programe, ktorý skratku drží, alebo použije ponuku.
+~~**Rozhodnuté: skratky sa kvôli tomu presúvať nebudú.**~~ Argument znel, že
+ktorúkoľvek náhradu môže mať obsadenú zase niekto iný, takže je to iná
+lotéria a nie riešenie. **Prehodnotené 28. 8. 2026 (viď nižšie): nie je to
+tá istá lotéria.**
+
+#### Hotové 28. 8. 2026: skratky sú `Ctrl+písmeno`, nie `Ctrl+Shift+písmeno`
+
+`Ctrl+Shift` nie je náhodná polovica priestoru — je to práve tá, kam si
+programy vešajú **globálne** skratky, lebo aplikácie ju samy používajú
+zriedka. Presun na holé `Ctrl` teda nie je výmena jedného lósu za druhý,
+ale odchod z inkasa, kde sa losuje. Rozhodol majiteľ.
+
+Sedem skratiek stratilo Shift, `Ctrl+K` bolo bez neho už predtým:
+
+| bolo | je | čo robí |
+| --- | --- | --- |
+| `Ctrl+Shift+U` | `Ctrl+U` | uloží disketu do priečinka |
+| `Ctrl+Shift+Q` | `Ctrl+Q` | uloží disketu a skončí |
+| `Ctrl+Shift+R` | `Ctrl+R` | reset |
+| `Ctrl+Shift+V` | `Ctrl+V` | vypne Eureku, ako to robí ona sama |
+| `Ctrl+K` | `Ctrl+K` | prepne klávesnicu (bez zmeny) |
+| `Ctrl+Shift+N` | `Ctrl+N` | nastavenia |
+| `Ctrl+Shift+D` | `Ctrl+D` | výpis diagnostiky |
+| `Ctrl+Shift+H` | `Ctrl+H` | klávesové skratky |
+
+**Odmerané tou istou sondou, ktorá kolíziu našla** (`RegisterHotKey`,
+chyba 1409 = zabraté). Všetkých osem nových kombinácií je na stroji
+majiteľa voľných. Kontrola, že sonda naozaj zvoní: na starej sade
+ohlásila presne `Ctrl+Shift+R` a `Ctrl+Shift+H`, teda tie dve, o ktorých
+sa už vie — ostatných päť voľných.
+
+Zmenené na piatich miestach a všetky sú len text alebo tabuľka:
+`src/res/eureka.rc` (akcelerátory + ponuka + reťazec v Nastaveniach),
+`src/main_window.cpp` (`kShortcutHelp`), `src/main.cpp` (`--help`),
+`README.md`, `CLAUDE.md`.
+
+Čo tým nezaniklo: **ponuka zostáva plnohodnotnou cestou ku všetkému.**
+Skratku môže zobrať cudzí program kedykoľvek a znovu to bude ticho —
+`Ctrl` je menej obľúbené miesto, nie chránené.
+
+Poznámka k cene, ktorá tu najprv stála zle: cena za `Ctrl+písmeno` **nebola
+nová**. Na exterke dekodér ROM na `1DE0E` skladá Ctrl+písmeno cez `AND 1Fh`
+na riadiaci znak, ale tabuľku podľa Shiftu vyberá skôr (`1DDD0`: `DF05h`
+bez, `DF5Eh` s ním) — a `55h & 1Fh` je to isté ako `75h & 1Fh`. Odmerané
+na všetkých ôsmich písmenách: `Ctrl+Shift+X` aj `Ctrl+X` dajú hosťovi
+rovnaký kód. Tých osem kódov mu brala už stará sada. Zanikli až
+o deň neskôr, viď ďalej.
+
+#### Hotové 28. 8. 2026: skratky sú dvojhmatové, `F11` a potom `Ctrl+písmeno`
+
+Predošlá zmena riešila globálne hooky a hosťa nechala tak, ako bol. Majiteľ
+chcel niečo iné a lepšie: **nekradnúť Eureke nič.** Skratky sú preto
+dvojhmatové — `F11`, `Ctrl+R` je reset, `F11`, `Ctrl+K` prepne klávesnicu.
+Bez `F11` idú tie klávesy Eureke, takže `Ctrl+H` na exterke robí `08h`, ako
+robí na skutočnom stroji.
+
+**Okno teraz berie Eureke tri klávesy a nič viac:** `F12`, `F11`,
+`Shift+F11`. Predtým ich bolo jedenásť.
+
+Ako to je spravené:
+
+- **Dve akcelerátorové tabuľky.** `IDR_ACCELERATORS` (`F11`, `Shift+F11`,
+  `F12`) platí vždy; `IDR_ACCELERATORS_HOST` (`Ctrl+U Q R V K N D H`) len
+  keď je klávesnica hosťova. Overené na hotovom EXE cez `FindResourceW`:
+  typ `RT_ACCELERATOR`, id 101 má 3 položky, id 102 osem.
+- **Bránu vyhodnocuje `MainWindow::HostShortcutsActive()`**
+  (`released_ || passOnce_`) a `win::RunMessageLoop` sa jej pýta pri každej
+  správe, nie raz na štarte. Slučka dostala druhú tabuľku a predikát;
+  `src/win/` o emulátore naďalej nevie nič.
+- **Jednorazovku míňa `WM_COMMAND`,** nie `HostKeepsKey`. Toto je to
+  miesto, kde sa to dá pokaziť: okno stlačenie skratky nevidí, lebo ho zje
+  `TranslateAccelerator`, takže by `F11` zostalo nachystané navždy — ten
+  istý tichý sticky režim, na ktorom sa `HostKeepsKey` už raz popálilo.
+  Rozlišuje sa podľa `HIWORD(wParam) == 1` (akcelerátor, nie ponuka),
+  s výnimkou `ID_KEYBOARD_PASSONCE` a `ID_KEYBOARD_RELEASE` — tie ten stav
+  vlastnia samy a inak by si `F11` odzvonilo dva tóny a odzbrojilo sa.
+
+Dôsledky, ktoré treba mať povedané:
+
+- **`Ctrl+Q` už nezatvára okno na jeden hmat.** Bezpodmienečná cesta von je
+  `F12` → Súbor → Skončiť. Preto `F12` prefix **nedostalo**: ponuka musí
+  byť dosiahnuteľná vždy a Eureku nestojí nič (samotné mlčí, `Alt+F12`
+  povie „nepouzito“).
+- **Položka ponuky sa volá „Jeden kláves do Windows alebo skratka“**, aby
+  bolo z čoho zistiť, že `F11` je prefix. Ponuka ukazuje skratky ako
+  `F11, Ctrl+R`, čítačka to prečíta.
+- **V braillovskom režime sa nemení nič**: Ctrl na tej klávesnici nie je
+  kláves a `emulator_thread` ho tam zahadzuje na stlačení aj na pustení.
+  Komentár pri tom guarde bol po tejto zmene nepresný (odvolával sa na to,
+  že stlačenie zjedla tabuľka) a je prepísaný.
+
+Deväť testov prechádza. **Neodskúšané v ostrej relácii** zostáva samotné
+správanie okna — `main.cpp` ani `main_window.cpp` testy nepokrývajú.
+Odskúšať treba: že `Ctrl+K` bez `F11` klávesnicu neprepne, že `F11`,
+`Ctrl+K` ju prepne, a že po skratke zaznie nižší tón, teda že sa
+jednorazovka minula a nezostala visieť.
 
 **Rozhodnuté: doplnok v repozitári zostáva.** Je pod GPL v2+, kým zvyšok je
 MIT, a to je v poriadku — nie je to zmiešanie licencií v jednom diele, ale
