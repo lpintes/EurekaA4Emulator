@@ -103,7 +103,7 @@ void PrintUsage() {
       L"--no-disk spustí Eureku bez diskety a bez pýtania.\r\n"
       L"ROM sa hľadá v premennej A4ROM, vedľa EXE, o úroveň vyššie a\r\n"
       L"v aktuálnom priečinku.\r\n"
-      L"Štartuje sa v režime externej klávesnice PC; --braille štartuje rovno\r\n"
+      L"Štartuje sa v režime externej klávesnice; --braille štartuje rovno\r\n"
       L"v braillovskom. Prepína sa aj za behu, cez F11, Ctrl+K alebo\r\n"
       L"v ponuke.\r\n"
       L"--diag zapne záznam zahodených zápisov, portov bez modelu a zmien\r\n"

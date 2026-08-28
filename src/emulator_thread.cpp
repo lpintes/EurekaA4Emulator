@@ -261,7 +261,7 @@ void TraceKey(const HostKeyEvent& key, InputMode mode, const wchar_t* took) {
 }  // namespace
 
 const wchar_t* ModeName(InputMode mode) {
-  return mode == InputMode::kBraille ? L"braillovská" : L"externá PC";
+  return mode == InputMode::kBraille ? L"braillovská" : L"externá";
 }
 
 HostKeyEvent KeyEventFromMessage(bool down, WPARAM wParam, LPARAM lParam) {

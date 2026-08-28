@@ -36,7 +36,7 @@ BEGIN
     POPUP "&Klávesnica"
     BEGIN
         MENUITEM "&Braillovská",                                ID_KEYBOARD_BRAILLE
-        MENUITEM "Externá &PC",                                 ID_KEYBOARD_PC
+        MENUITEM "&Externá",                                    ID_KEYBOARD_PC
         MENUITEM SEPARATOR
         MENUITEM "&Prepnúť\tF11, Ctrl+K",                       ID_KEYBOARD_TOGGLE
         MENUITEM SEPARATOR
@@ -137,7 +137,7 @@ BEGIN
     CONTROL         "&Braillovská (body F D S J K L, píše sa akordmi)",
                     IDC_MODE_BRAILLE, "Button", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP,
                     16, 21, 200, 12
-    CONTROL         "Externá &PC (píše sa po českej klávesnici)",
+    CONTROL         "&Externá (píše sa písmenami, rozloženie je české)",
                     IDC_MODE_PC, "Button", BS_AUTORADIOBUTTON,
                     16, 38, 200, 12
 

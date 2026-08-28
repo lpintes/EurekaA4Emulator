@@ -40,7 +40,7 @@ samotné `F4` do komunikácie vojde), takže sa ňou dá prejsť, čo kde je, a
 diera v jej strede by bola na obtiaž. Keď `Alt+F4` chcete pre Windows,
 stlačte najprv `F11`.
 
-Naopak `F11` a `F12` si berie okno, hoci na klávesnici PC sú to platné
+Naopak `F11` a `F12` si berie okno, hoci na externej klávesnici sú to platné
 klávesy Eureky: `F11` je ROM operačného systému (`Alt+F11` povie „data
 ROMu"), `F12` je nepoužité. Pošle ich ponuka **Klávesnica → Poslať Eureke
 kláves**.
@@ -75,7 +75,7 @@ otvorená aj vtedy, keď niektorú skratku zoberie cudzí program.
 Eureka mala dve klávesnice a emulátor môže byť ktoroukoľvek z nich.
 Prepína sa `F11`, `Ctrl+K` alebo v ponuke Klávesnica:
 
-- **externá klávesnica PC** — takto sa štartuje. Píše sa normálne;
+- **externá klávesnica** — takto sa štartuje. Píše sa normálne;
   emulátor posiela scancody po sériovom porte a ROM si ich prekladá sama.
   Pozor, ROM čaká **českú** klávesnicu: `z` a `y` sú prehodené,
   nezhiftovaná číselná rada dáva `ěščřžýáíé` a číslice sú až so shiftom.
@@ -87,8 +87,8 @@ Prepína sa `F11`, `Ctrl+K` alebo v ponuke Klávesnica:
   nepíšu** — píše sa bodmi, tak ako na stroji.
 
   Shift je tu aj **kláves sám osebe: stlačený samotný zastaví reč.** Takto
-  sa pozastavuje plynulé čítanie v textovom procesore. Na klávesnici PC
-  taký kláves nie je — tam reč zastaví každý kláves, ktorý niečo doručí,
+  sa pozastavuje plynulé čítanie v textovom procesore. Na externej
+  klávesnici taký kláves nie je — tam reč zastaví každý kláves, ktorý niečo doručí,
   a shift ani Ctrl medzi ne nepatria; preto sa tam čítanie prerušuje
   šípkou, ktorá navyše nechá kurzor tam, kde sa prestalo čítať.
 
