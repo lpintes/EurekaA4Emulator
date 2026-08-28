@@ -280,12 +280,9 @@ int Run() {
   // Described by the same function the worker uses when a diskette is swapped
   // in later, so the drive cannot be named one way at start-up and another way
   // afterwards.
-  const DiskLabels labels = DescribeDisk(machine->disk());
-
   EmulatorThread emulator;
-  MainWindow window(emulator, settings, rom.wstring(), labels.description,
-                    labels.name, machine->disk().folder().wstring(),
-                    machine->disk().present());
+  MainWindow window(emulator, settings, rom.wstring(),
+                    DescribeDisk(machine->disk()));
   if (!window.Create()) {
     CoUninitialize();
     return Fail(L"Okno emulátora sa nepodarilo vytvoriť.");

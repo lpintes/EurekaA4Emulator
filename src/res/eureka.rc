@@ -204,7 +204,7 @@ END
 // No slot picker here: after this the diskette is in the drive, and "Sem
 // vloženú disketu" in the quick-choice dialog puts it in a slot in one step.
 
-IDD_NEWDISK DIALOGEX 0, 0, 292, 156
+IDD_NEWDISK DIALOGEX 0, 0, 292, 178
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Nová disketa"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
@@ -226,8 +226,12 @@ BEGIN
                     WS_TABSTOP
     PUSHBUTTON      "P&rehľadávať…", IDC_NEW_BROWSE, 232, 93, 53, 14
 
-    DEFPUSHBUTTON   "OK", IDOK, 178, 135, 50, 14, WS_GROUP
-    PUSHBUTTON      "Zrušiť", IDCANCEL, 235, 135, 50, 14
+    LTEXT           "&Uložiť do slotu:", IDC_STATIC, 7, 117, 60, 9
+    COMBOBOX        IDC_NEW_SLOT, 70, 115, 215, 100,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_GROUP | WS_TABSTOP
+
+    DEFPUSHBUTTON   "OK", IDOK, 178, 157, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 235, 157, 50, 14
 END
 
 /////////////////////////////////////////////////////////////////////////////

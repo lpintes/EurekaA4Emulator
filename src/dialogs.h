@@ -28,6 +28,9 @@ class SettingsDialog : public win::Dialog {
   bool diagnostics_;
 };
 
+// The nine quick-choice slots as the dialogs pass them around.
+using SlotList = std::array<std::wstring, Settings::kSlots>;
+
 // Making a diskette.  Four kinds, and the unformatted one is not a joke: it
 // is the only medium on which the firmware's own format routine has anything
 // to do (6.5 leaves a host folder alone), so it is also the only way to try
@@ -36,9 +39,15 @@ class NewDiskDialog : public win::Dialog {
  public:
   enum class Kind { kFolder, kEmptyFolder, kRam, kUnformattedRam };
 
+  // slots is what the nine hold now, so the picker can name them and so the
+  // user can see they are about to overwrite one.
+  explicit NewDiskDialog(SlotList slots) : slots_(std::move(slots)) {}
+
   Kind kind() const { return kind_; }
   // The chosen folder, for kFolder and kEmptyFolder.  Empty otherwise.
   const std::wstring& folder() const { return folder_; }
+  // 0 when the diskette is not to be put in a slot, otherwise 1..kSlots.
+  int slot() const { return slot_; }
 
  protected:
   bool OnInit() override;
@@ -54,6 +63,8 @@ class NewDiskDialog : public win::Dialog {
 
   Kind kind_ = Kind::kFolder;
   std::wstring folder_;
+  int slot_ = 0;
+  SlotList slots_;
 };
 
 // Editing the nine quick-choice slots.  It works on a copy and hands it back
@@ -61,10 +72,11 @@ class NewDiskDialog : public win::Dialog {
 // never touches the file itself.
 class SlotsDialog : public win::Dialog {
  public:
-  using Slots = std::array<std::wstring, Settings::kSlots>;
+  using Slots = SlotList;
 
-  // currentDisk is the folder in the drive right now, empty when there is no
-  // folder-backed diskette in it; that is what "Sem vloženú disketu" assigns.
+  // currentDisk is what a slot would have to hold to bring back the diskette
+  // in the drive right now -- a folder, or a marker for one in memory.  Empty
+  // when the drive is empty; that is what "Sem vloženú disketu" assigns.
   SlotsDialog(Slots slots, std::wstring currentDisk)
       : slots_(std::move(slots)), currentDisk_(std::move(currentDisk)) {}
 

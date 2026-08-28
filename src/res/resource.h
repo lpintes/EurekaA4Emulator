@@ -73,6 +73,7 @@
 #define IDC_NEW_UNFORMATTED  1033
 #define IDC_NEW_PATH         1034
 #define IDC_NEW_BROWSE       1035
+#define IDC_NEW_SLOT         1036
 
 // Quick-choice dialog controls.
 #define IDC_SLOT_LIST        1020

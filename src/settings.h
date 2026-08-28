@@ -65,6 +65,26 @@ class Settings {
   std::array<std::wstring, kSlots> slots_;
 };
 
+// A slot holds either a host folder or one of these markers.  A Windows path
+// can never begin with '*' -- the shell forbids it in a name -- so the two
+// cannot be mistaken for each other, and the settings file stays readable:
+// "slot3=*pamat" says what it does.
+//
+// A marker slot does not restore a diskette, it makes a fresh empty one.  That
+// is the honest thing for a medium that lives only in memory: the one that was
+// there is gone when the emulator closes, and pretending otherwise would be a
+// slot that quietly hands back nothing.  The names below say "nová" for that
+// reason.
+inline constexpr wchar_t kSlotRam[] = L"*pamat";
+inline constexpr wchar_t kSlotUnformattedRam[] = L"*pamat-nenaformatovana";
+
+bool SlotIsRam(const std::wstring& slot);
+bool SlotIsUnformattedRam(const std::wstring& slot);
+
+// What the menu and the dialogs call a slot.  In one place, so a slot cannot
+// read one way in the menu and another way in the dialog that fills it.
+std::wstring SlotDisplayName(const std::wstring& slot);
+
 // Where the EXE lives.  Here rather than in main.cpp because the ROM search
 // and the settings file ask the same question, and two answers to "where am I"
 // would be one too many.

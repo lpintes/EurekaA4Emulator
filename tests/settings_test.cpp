@@ -230,6 +230,52 @@ void NowhereToSaveIsReported() {
   Check(settings.last_disk().empty(), "citanie z prazdnej cesty je ticho");
 }
 
+// A slot can hold a diskette that lives only in memory, and that is written
+// into the same field as a folder path.  The two must never be mistaken for
+// each other: '*' cannot start a Windows path, which is the whole reason the
+// markers look the way they do.
+void MemorySlotsSurviveTheFile() {
+  const fs::path file = FileNamed("pamat.txt");
+  std::wstring error;
+  {
+    Settings settings(file);
+    settings.SetSlot(1, kSlotRam);
+    settings.SetSlot(2, kSlotUnformattedRam);
+    settings.SetSlot(3, L"C:\\Diskety\\Príbehy");
+    Check(settings.Save(error), "ulozenie so slotmi v pamati", Narrow(error));
+  }
+  Settings loaded(file);
+  loaded.Load();
+  Check(SlotIsRam(loaded.slot(1)), "slot s naformatovanou v pamati prezije");
+  Check(SlotIsUnformattedRam(loaded.slot(2)),
+        "slot s nenaformatovanou v pamati prezije");
+  Check(!SlotIsRam(loaded.slot(3)) && !SlotIsUnformattedRam(loaded.slot(3)),
+        "cesta sa nepomyli s pamatou");
+  Check(!SlotIsRam(L"") && !SlotIsUnformattedRam(L""),
+        "prazdny slot nie je pamat");
+  // The two markers are different things and must not fold together: one
+  // makes a usable diskette, the other one the machine calls a bad disk.
+  Check(!SlotIsRam(kSlotUnformattedRam) && !SlotIsUnformattedRam(kSlotRam),
+        "markery sa navzajom nezamiennaju");
+}
+
+void SlotNamesAreReadable() {
+  Check(SlotDisplayName(L"") == L"(prázdny)", "prazdny slot sa vola prazdny",
+        Narrow(SlotDisplayName(L"")));
+  Check(SlotDisplayName(kSlotRam) == L"nová prázdna v pamäti",
+        "naformatovana v pamati ma meno", Narrow(SlotDisplayName(kSlotRam)));
+  Check(SlotDisplayName(kSlotUnformattedRam) ==
+            L"nová prázdna v pamäti, nenaformátovaná",
+        "nenaformatovana v pamati ma meno");
+  // The name is the leaf, not the whole path: it goes in a menu item that a
+  // screen reader reads out, where a full path is noise.
+  Check(SlotDisplayName(L"C:\\Diskety\\Slovník") == L"Slovník",
+        "slot s cestou sa vola podla priecinka",
+        Narrow(SlotDisplayName(L"C:\\Diskety\\Slovník")));
+  Check(SlotDisplayName(L"C:\\Diskety\\Slovník\\") == L"Slovník",
+        "koncova lomka meno nezrusi");
+}
+
 void RealFileIsFoundSomewhere() {
   const fs::path file = Settings::FindFile();
   // Nothing is created here -- this only asks where it would go.
@@ -263,6 +309,8 @@ int main() {
   BothLineEndingsRead();
   SpacesAroundEqualsAreTrimmed();
   SlotRangeIsSafe();
+  MemorySlotsSurviveTheFile();
+  SlotNamesAreReadable();
   UnwritablePlaceIsReported();
   NowhereToSaveIsReported();
   RealFileIsFoundSomewhere();

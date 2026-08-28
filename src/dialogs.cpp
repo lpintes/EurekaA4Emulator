@@ -21,22 +21,36 @@ bool SettingsDialog::OnOk() {
 
 namespace {
 
-// "3: Slovník — C:\Diskety\Slovnik", or "3: prázdny".  The number leads
+// "3: Slovník — C:\Diskety\Slovnik", or "3: (prázdny)".  The number leads
 // because it is the shortcut: a screen reader reading the line has already
-// said which key puts that diskette in.
-std::wstring SlotLine(int number, const std::wstring& path) {
-  std::wstring line = std::to_wstring(number) + L": ";
-  if (path.empty()) return line + L"prázdny";
-  const std::filesystem::path folder(path);
-  std::filesystem::path leaf = folder.filename();
-  if (leaf.empty()) leaf = folder.parent_path().filename();
-  return line + (leaf.empty() ? path : leaf.wstring()) + L" — " + path;
+// said which key puts that diskette in.  The path is appended only when there
+// is one -- a slot holding a diskette in memory has no path to show.
+std::wstring SlotLine(int number, const std::wstring& slot) {
+  std::wstring line =
+      std::to_wstring(number) + L": " + SlotDisplayName(slot);
+  if (!slot.empty() && !SlotIsRam(slot) && !SlotIsUnformattedRam(slot))
+    line += L" — " + slot;
+  return line;
 }
 
 }  // namespace
 
 bool NewDiskDialog::OnInit() {
   SetChecked(IDC_NEW_FOLDER, true);
+  const HWND slots = Item(IDC_NEW_SLOT);
+  SendMessageW(slots, CB_ADDSTRING, 0,
+               reinterpret_cast<LPARAM>(L"nenastavený"));
+  // Every slot says what is in it now, so choosing one that is taken is a
+  // decision and not a surprise.  The overwrite is confirmed in OnOk anyway,
+  // but a picker that reads "3 — Slovník" has already said it.
+  for (int number = 1; number <= Settings::kSlots; ++number) {
+    const std::wstring line =
+        std::to_wstring(number) + L" — " +
+        SlotDisplayName(slots_[static_cast<std::size_t>(number - 1)]);
+    SendMessageW(slots, CB_ADDSTRING, 0,
+                 reinterpret_cast<LPARAM>(line.c_str()));
+  }
+  SendMessageW(slots, CB_SETCURSEL, 0, 0);
   RefreshEnabled();
   // false: let the dialog manager focus the first tab stop, which is the radio
   // group.  It then announces the whole group, not just one button.
@@ -86,6 +100,21 @@ bool NewDiskDialog::OnCommand(int id, int notification) {
 bool NewDiskDialog::OnOk() {
   kind_ = SelectedKind();
   folder_.clear();
+  const LRESULT chosen = SendMessageW(Item(IDC_NEW_SLOT), CB_GETCURSEL, 0, 0);
+  slot_ = chosen == CB_ERR ? 0 : static_cast<int>(chosen);
+  if (slot_ > 0 && !slots_[static_cast<std::size_t>(slot_ - 1)].empty()) {
+    // Overwriting a slot the user set up earlier is worth one question.  It
+    // is the only thing in this dialog that destroys something.
+    const std::wstring question =
+        L"V slote " + std::to_wstring(slot_) + L" už je:\r\n\r\n" +
+        SlotDisplayName(slots_[static_cast<std::size_t>(slot_ - 1)]) +
+        L"\r\n\r\nMá ho nová disketa nahradiť?";
+    if (MessageBoxW(hwnd_, question.c_str(), L"Nová disketa",
+                    MB_YESNO | MB_ICONQUESTION) != IDYES) {
+      SetFocus(Item(IDC_NEW_SLOT));
+      return false;
+    }
+  }
   if (kind_ != Kind::kFolder && kind_ != Kind::kEmptyFolder) return true;
 
   folder_ = GetText(IDC_NEW_PATH);

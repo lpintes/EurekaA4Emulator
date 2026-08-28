@@ -192,6 +192,10 @@ Titulok okna hovorí, čo je v mechanike, aj to, či je disketa
 nenaformátovaná — takže `NVDA+T` odpovie kedykoľvek. Po naformátovaní
 sa titulok sám opraví.
 
+V dialógu sa dá novej diskete rovno priradiť **slot rýchlej voľby**.
+Zoznam pri každom slote ukáže, čo v ňom práve je, a ak doň niečo
+priraďujete cez existujúcu disketu, emulátor sa spýta.
+
 ## Rýchla voľba diskiet
 
 Deväť diskiet sa dá mať poruke pod `F11` a číslom s `Ctrl`:
@@ -202,6 +206,13 @@ Deväť diskiet sa dá mať poruke pod `F11` a číslom s `Ctrl`:
 Sloty sa priraďujú v ponuke **Disketa → Spravovať rýchlu voľbu…**.
 V dialógu si vyberiete slot a buď mu priradíte priečinok, alebo doň
 uložíte disketu, ktorá je práve vložená. Zmeny sa zapíšu až tlačidlom OK.
+Slot sa dá priradiť aj rovno pri vytváraní novej diskety.
+
+V slote môže byť aj **disketa v pamäti**. Pozor na to, čo to znamená:
+taká disketa nikde neexistuje po ukončení emulátora, takže slot ju
+nevracia — **vyrobí novú prázdnu**. Preto sa v ponuke aj v dialógu volá
+„nová prázdna v pamäti". Je to rýchly spôsob, ako mať čistú disketu na
+jeden hmat.
 
 Čo je v ktorom slote, **je napísané priamo v ponuke Disketa**, takže sa to
 dá prečítať aj bez toho, aby ste si to pamätali: položka `3 Slovník`

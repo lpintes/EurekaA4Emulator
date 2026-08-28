@@ -140,16 +140,11 @@ constexpr wchar_t kShortcutHelp[] =
 }  // namespace
 
 MainWindow::MainWindow(EmulatorThread& emulator, Settings& settings,
-                       std::wstring romPath, std::wstring diskDescription,
-                       std::wstring diskName, std::wstring diskFolder,
-                       bool diskPresent)
+                       std::wstring romPath, DiskState disk)
     : emulator_(emulator),
       settings_(settings),
       romPath_(std::move(romPath)),
-      diskDescription_(std::move(diskDescription)),
-      diskName_(std::move(diskName)),
-      diskFolder_(std::move(diskFolder)),
-      diskPresent_(diskPresent) {}
+      disk_(std::move(disk)) {}
 
 bool MainWindow::Create() {
   const HINSTANCE instance = GetModuleHandleW(nullptr);
@@ -249,16 +244,24 @@ void MainWindow::RegisterCommands() {
   });
 
   OnCommand(ID_DISK_NEW, [this] {
-    NewDiskDialog dialog;
+    NewDiskDialog dialog(CurrentSlots());
     if (dialog.ShowModal(hwnd_, IDD_NEWDISK) != IDOK) return;
     if (!KeepRamDiskFirst()) return;
+
+    // What a slot would have to hold to bring this diskette back.  Worked out
+    // before anything is posted, because for a folder kind it is the folder
+    // and for a memory kind it is a marker -- and the slot has to be written
+    // even though the worker has not made the diskette yet.
+    std::wstring slotValue;
     switch (dialog.kind()) {
       case NewDiskDialog::Kind::kRam:
         emulator_.PostCreateRamDisk(true);
-        return;
+        slotValue = kSlotRam;
+        break;
       case NewDiskDialog::Kind::kUnformattedRam:
         emulator_.PostCreateRamDisk(false);
-        return;
+        slotValue = kSlotUnformattedRam;
+        break;
       case NewDiskDialog::Kind::kEmptyFolder: {
         // Created here rather than on the worker: making a folder is the
         // host's business, and a failure has to be reported where there is a
@@ -274,12 +277,15 @@ void MainWindow::RegisterCommands() {
           return;
         }
         emulator_.PostMountDisk(dialog.folder());
-        return;
+        slotValue = dialog.folder();
+        break;
       }
       case NewDiskDialog::Kind::kFolder:
         emulator_.PostMountDisk(dialog.folder());
-        return;
+        slotValue = dialog.folder();
+        break;
     }
+    if (dialog.slot() > 0) SaveSlot(dialog.slot(), slotValue);
   });
 
   for (int number = 1; number <= Settings::kSlots; ++number)
@@ -287,19 +293,13 @@ void MainWindow::RegisterCommands() {
               [this, number] { InsertSlot(number); });
 
   OnCommand(ID_DISK_SLOTS, [this] {
-    SlotsDialog::Slots slots;
-    for (int number = 1; number <= Settings::kSlots; ++number)
-      slots[static_cast<std::size_t>(number - 1)] = settings_.slot(number);
-    SlotsDialog dialog(slots, diskFolder_);
+    // The slot value and not the folder: a diskette in memory has no folder
+    // but can still be put in a slot, which then makes a fresh empty one.
+    SlotsDialog dialog(CurrentSlots(), disk_.slotValue);
     if (dialog.ShowModal(hwnd_, IDD_SLOTS) != IDOK) return;
     for (int number = 1; number <= Settings::kSlots; ++number)
       settings_.SetSlot(number, dialog.slots()[static_cast<std::size_t>(number - 1)]);
-    // Reported here and not swallowed: the user has just arranged their
-    // slots, and slots that quietly go back to how they were at the next
-    // start are the worst of both worlds.
-    std::wstring error;
-    if (!settings_.Save(error))
-      MessageBoxW(hwnd_, error.c_str(), L"Eureka A4", MB_OK | MB_ICONWARNING);
+    SaveSettings();
   });
 
   OnCommand(ID_TOOLS_SETTINGS, [this] {
@@ -353,7 +353,17 @@ bool MainWindow::KeepRamDiskFirst() {
 }
 
 void MainWindow::InsertSlot(int number) {
-  const std::wstring folder = settings_.slot(number);
+  const std::wstring slot = settings_.slot(number);
+  // A slot holding a diskette in memory makes a fresh empty one.  It cannot
+  // bring back the one that was there: that medium exists nowhere but in this
+  // process, so there is nothing to bring back -- which is why the slot is
+  // named "nová prázdna v pamäti" wherever it is shown.
+  if (SlotIsRam(slot) || SlotIsUnformattedRam(slot)) {
+    if (!KeepRamDiskFirst()) return;
+    emulator_.PostCreateRamDisk(SlotIsRam(slot));
+    return;
+  }
+  const std::wstring folder = slot;
   // An empty slot answers, rather than doing nothing.  The menu item is left
   // enabled on purpose: greying it would make Ctrl+digit -- which fires from
   // the accelerator table whatever the menu says -- the one thing here that
@@ -399,16 +409,8 @@ void MainWindow::RefreshSlotItems(HMENU menu) const {
     const std::size_t tab = current.find(L'\t');
     if (tab == std::wstring::npos) continue;
 
-    const std::wstring folder = settings_.slot(number);
-    std::wstring label = L"&" + std::to_wstring(number) + L" ";
-    if (folder.empty()) {
-      label += L"(prázdny)";
-    } else {
-      const std::filesystem::path path(folder);
-      std::filesystem::path leaf = path.filename();
-      if (leaf.empty()) leaf = path.parent_path().filename();
-      label += leaf.empty() ? folder : leaf.wstring();
-    }
+    const std::wstring label = L"&" + std::to_wstring(number) + L" " +
+                               SlotDisplayName(settings_.slot(number));
     std::wstring wanted = label + current.substr(tab);
     if (wanted == current) continue;
     MENUITEMINFOW info{};
@@ -417,6 +419,27 @@ void MainWindow::RefreshSlotItems(HMENU menu) const {
     info.dwTypeData = wanted.data();
     SetMenuItemInfoW(menu, id, FALSE, &info);
   }
+}
+
+SlotList MainWindow::CurrentSlots() const {
+  SlotList slots;
+  for (int number = 1; number <= Settings::kSlots; ++number)
+    slots[static_cast<std::size_t>(number - 1)] = settings_.slot(number);
+  return slots;
+}
+
+// Reported and not swallowed: the user has just arranged their slots, and
+// slots that quietly go back to how they were at the next start are the worst
+// of both worlds.
+void MainWindow::SaveSettings() {
+  std::wstring error;
+  if (!settings_.Save(error))
+    MessageBoxW(hwnd_, error.c_str(), L"Eureka A4", MB_OK | MB_ICONWARNING);
+}
+
+void MainWindow::SaveSlot(int number, std::wstring value) {
+  settings_.SetSlot(number, std::move(value));
+  SaveSettings();
 }
 
 void MainWindow::RememberDisk(const std::wstring& folder) {
@@ -430,12 +453,8 @@ void MainWindow::RememberDisk(const std::wstring& folder) {
     MessageBoxW(hwnd_, error.c_str(), L"Eureka A4", MB_OK | MB_ICONWARNING);
 }
 
-void MainWindow::SetDiskLabels(std::wstring description, std::wstring name,
-                               std::wstring folder, bool present) {
-  diskDescription_ = std::move(description);
-  diskName_ = std::move(name);
-  diskFolder_ = std::move(folder);
-  diskPresent_ = present;
+void MainWindow::SetDiskState(DiskState disk) {
+  disk_ = std::move(disk);
   RefreshTitle();
 }
 
@@ -446,7 +465,7 @@ std::wstring MainWindow::AboutText() const {
          L"Procesor Hitachi HD64180 na 6,144 MHz, zvuk 48 kHz.\r\n"
          L"\r\n"
          L"ROM: " + romPath_ + L"\r\n" +
-         L"Disk: " + diskDescription_ + L"\r\n" +
+         L"Disk: " + disk_.labels.description + L"\r\n" +
          L"Klávesnica: " + ModeName(emulator_.mode()) + L"\r\n" +
          L"Diagnostika: " + (emulator_.diagnostics() ? L"zapnutá" : L"vypnutá") +
          L"\r\n";
@@ -465,10 +484,10 @@ void MainWindow::RefreshTitle() const {
   SetTitle(released_
                ? L"Eureka A4 — klávesnica uvoľnená, vráti ju Shift+F11 — "
                  L"režim: " + std::wstring(ModeName(emulator_.mode())) +
-                     L" — disketa: " + diskName_
+                     L" — disketa: " + disk_.labels.name
                : L"Eureka A4 — klávesnica: " +
                      std::wstring(ModeName(emulator_.mode())) +
-                     L" — disketa: " + diskName_);
+                     L" — disketa: " + disk_.labels.name);
 }
 
 void MainWindow::RefreshMenu() const {
@@ -505,7 +524,7 @@ void MainWindow::RefreshMenu() const {
   // either.  Greying says so where a screen reader reads it; the alternative
   // is a menu item that answers with a beep or with nothing at all.
   const UINT hasDisk =
-      MF_BYCOMMAND | (diskPresent_ ? MF_ENABLED : MF_GRAYED);
+      MF_BYCOMMAND | (disk_.present ? MF_ENABLED : MF_GRAYED);
   EnableMenuItem(menu, ID_DISK_EJECT, hasDisk);
   EnableMenuItem(menu, ID_FILE_EXPORT, hasDisk);
   // Before RefreshShortcutText, which reads the item text back and would
@@ -756,9 +775,8 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       // earlier message, so there is nothing here to act on.  Belt and braces
       // against a blanked title, which is what that looked like when it
       // happened.
-      if (change.labels.name.empty()) return 0;
-      SetDiskLabels(change.labels.description, change.labels.name,
-                    change.folder, change.present);
+      if (change.state.labels.name.empty()) return 0;
+      SetDiskState(change.state);
       // The tone says what happened at the moment it happened; the title
       // answers "what is in there now" at any time afterwards.  Same division
       // of labour as the keyboard state, and for the same reason: there is
@@ -770,9 +788,9 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         // The same diskette, in a different state -- the guest formatted it.
         // The title has been updated above and that is all this needs: a tone
         // here would announce an act the user did not perform.
-      } else if (change.present) {
+      } else if (change.state.present) {
         ToneInserted();
-        RememberDisk(change.folder);
+        RememberDisk(change.state.folder);
       } else {
         ToneEjected();
       }

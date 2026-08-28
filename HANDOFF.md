@@ -2493,6 +2493,23 @@ média** — čo sa pri jeho meraní zistilo o formátovaní, je v 6.5. Zámok
 proti zápisu a rozdeľovač kolekcie **napísané nie sú**; všetko nižšie
 o nich platí ako návrh.
 
+**Slot unesie aj disketu v pamäti** (doplnené po pripomienke majiteľa
+28. 8. 2026). Pôvodne bol slot len cesta k priečinku, takže disketa
+v pamäti sa doň nedala priradiť — ani pri vytvorení, ani neskôr, čo
+znamenalo, že rozmyslieť si to už nešlo. Slot preto nesie buď cestu,
+alebo značku `*pamat`, resp. `*pamat-nenaformatovana`; cesta na Windows
+nikdy nezačína `*`, takže sa to nemá ako pomýliť a súbor zostáva
+čitateľný.
+
+Podstatné je, čo taký slot **robí**: nevracia tú disketu, lebo tá po
+ukončení emulátora nikde nie je — **vyrobí novú prázdnu**. Preto sa
+všade volá „nová prázdna v pamäti“. Slot, ktorý by sľuboval návrat
+a ticho podal prázdnu disketu, by bol horší než žiadny.
+
+Mená slotov počíta `SlotDisplayName` v `settings.cpp` a robí to na
+jednom mieste zámerne: predtým sa to počítalo zvlášť v ponuke a zvlášť
+v dialógu, a to sú dve miesta, ktoré sa rozídu.
+
 Jedna vec sa oproti návrhu nižšie zmenila, a zmenila sa správne:
 **prázdny slot nie je zošedený.** Zošediť ho by znamenalo, že `Ctrl+3`
 z akcelerátorovej tabuľky — ktorá stav ponuky nepozná a `WM_COMMAND`

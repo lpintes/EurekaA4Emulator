@@ -3,6 +3,7 @@
 
 #include <string>
 
+#include "dialogs.h"
 #include "emulator_thread.h"
 #include "settings.h"
 #include "win/window.h"
@@ -16,8 +17,7 @@ class MainWindow : public win::Window {
   // diskDescription is the long form for O programe, diskName the short one
   // the title carries -- see RefreshTitle.
   MainWindow(EmulatorThread& emulator, Settings& settings, std::wstring romPath,
-             std::wstring diskDescription, std::wstring diskName,
-             std::wstring diskFolder, bool diskPresent);
+             DiskState disk);
 
   bool Create();
   HACCEL accelerators() const { return accelerators_; }
@@ -28,11 +28,10 @@ class MainWindow : public win::Window {
   // them: that is the whole reason there are two tables.
   bool HostShortcutsActive() const { return released_ || passOnce_; }
 
-  // The diskette can be changed while the machine runs, so neither of these is
-  // fixed at construction any more.  The title is read out on every Alt+Tab
-  // and NVDA+T, so it has to say what is in the drive now.
-  void SetDiskLabels(std::wstring description, std::wstring name,
-                     std::wstring folder, bool present);
+  // The diskette can be changed while the machine runs, so this is not fixed
+  // at construction any more.  The title is read out on every Alt+Tab and
+  // NVDA+T, so it has to say what is in the drive now.
+  void SetDiskState(DiskState disk);
 
  protected:
   LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) override;
@@ -65,6 +64,10 @@ class MainWindow : public win::Window {
   // at the moment of the swap and not at exit, because a failed save has to be
   // reported while the user can still do something about it.
   void RememberDisk(const std::wstring& folder);
+  // The nine slots as the dialogs want them.
+  SlotList CurrentSlots() const;
+  void SaveSettings();
+  void SaveSlot(int number, std::wstring value);
   // Puts the diskette from one of the nine slots in.  Numbered 1..9 the way
   // the menu and Ctrl+digit name them.
   void InsertSlot(int number);
@@ -75,15 +78,9 @@ class MainWindow : public win::Window {
   EmulatorThread& emulator_;
   Settings& settings_;
   std::wstring romPath_;
-  std::wstring diskDescription_;
-  std::wstring diskName_;
-  // The host folder behind the diskette in the drive, empty for a RAM one or
-  // an empty drive.  Only needed so a slot can be filled from what is already
-  // in there.
-  std::wstring diskFolder_;
-  // Whether there is a diskette in the drive, so the menu can grey out what an
-  // empty one cannot do.
-  bool diskPresent_ = false;
+  // What is in the drive: its labels for the title and About, the folder
+  // behind it, and what a slot would have to hold to bring it back.
+  DiskState disk_;
   HACCEL accelerators_ = nullptr;
   HACCEL hostAccelerators_ = nullptr;
 

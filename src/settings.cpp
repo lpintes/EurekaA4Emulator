@@ -66,6 +66,24 @@ fs::path RoamingFolder() {
 
 }  // namespace
 
+bool SlotIsRam(const std::wstring& slot) { return slot == kSlotRam; }
+
+bool SlotIsUnformattedRam(const std::wstring& slot) {
+  return slot == kSlotUnformattedRam;
+}
+
+std::wstring SlotDisplayName(const std::wstring& slot) {
+  if (slot.empty()) return L"(prázdny)";
+  if (SlotIsRam(slot)) return L"nová prázdna v pamäti";
+  if (SlotIsUnformattedRam(slot))
+    return L"nová prázdna v pamäti, nenaformátovaná";
+  const fs::path path(slot);
+  fs::path leaf = path.filename();
+  // A trailing separator ("C:\disky\eureka\") leaves filename() empty.
+  if (leaf.empty()) leaf = path.parent_path().filename();
+  return leaf.empty() ? slot : leaf.wstring();
+}
+
 fs::path ExecutableDirectory() {
   std::wstring buffer(32768, L'\0');
   const DWORD length = GetModuleFileNameW(nullptr, buffer.data(),

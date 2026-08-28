@@ -24,6 +24,7 @@
 #include <thread>
 
 #include "machine.h"
+#include "settings.h"
 
 // How the host keyboard is presented to the machine.  The Eureka had exactly
 // two keyboards -- the braille one built in and the optional PC one on the
@@ -78,7 +79,24 @@ struct DiskLabels {
   std::wstring name;
   std::wstring description;
 };
-DiskLabels DescribeDisk(const VirtualDisk& disk);
+
+// Everything the window needs to know about what is in the drive.  One struct
+// rather than four parameters, because these four always travel together and
+// four of them in a row is how one ends up passed in the wrong order.
+struct DiskState {
+  bool present = false;
+  // The host folder behind it, empty for a RAM diskette or an empty drive.
+  // Kept apart from the labels because those are text for the user, not data
+  // to parse back.
+  std::wstring folder;
+  // What a quick-choice slot would have to hold to bring this diskette back:
+  // the folder, or one of the markers for a diskette in memory.  Empty for an
+  // empty drive, which is nothing to remember.
+  std::wstring slotValue;
+  DiskLabels labels;
+};
+
+DiskState DescribeDisk(const VirtualDisk& disk);
 
 // The outcome of a swap, picked up by the window when WM_EMU_DISK_CHANGED
 // arrives.  A failed mount leaves the drive empty rather than half-loaded --
@@ -91,17 +109,11 @@ struct DiskChange {
   // the case.  The window sounds its tone only for a real swap: a tone for
   // something the user did not do would say the wrong thing.
   bool swapped = true;
-  // Whether there is a diskette in the drive afterwards.  Its own field and
-  // not something read back out of the labels: the labels are user-facing
-  // text, and a swap that decides what it did by comparing them would come
-  // apart the day one of them is reworded.
-  bool present = false;
-  // The host folder behind it, empty for a RAM diskette or an empty drive.
-  // Carried separately from the labels for the same reason as present: the
-  // labels are text for the user, not data to parse back.
-  std::wstring folder;
   std::wstring error;
-  DiskLabels labels;
+  // What is in the drive afterwards.  A refused mount leaves it empty --
+  // VirtualDisk::Mount unwinds itself -- so this is always the truth about
+  // now, error or not.
+  DiskState state;
 };
 
 class EmulatorThread {

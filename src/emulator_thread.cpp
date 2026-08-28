@@ -380,24 +380,30 @@ void EmulatorThread::PostExportDisk(std::wstring folder) {
 // The title carries the diskette's name and not its path: a screen reader
 // reads the whole title on every Alt+Tab and on NVDA+T, and a path spelled out
 // that often is noise.  The path stays in Pomocník -> O programe.
-DiskLabels DescribeDisk(const VirtualDisk& disk) {
+DiskState DescribeDisk(const VirtualDisk& disk) {
+  DiskState state;
+  state.present = disk.present();
   switch (disk.media()) {
     case VirtualDisk::Media::kFolder: {
-      std::filesystem::path leaf = disk.folder().filename();
-      // A trailing separator ("C:\disky\eureka\") leaves filename() empty.
-      if (leaf.empty()) leaf = disk.folder().parent_path().filename();
-      return {leaf.empty() ? disk.folder().wstring() : leaf.wstring(),
-              disk.folder().wstring()};
+      state.folder = disk.folder().wstring();
+      state.slotValue = state.folder;
+      state.labels = {SlotDisplayName(state.folder), state.folder};
+      break;
     }
     case VirtualDisk::Media::kRam:
-      return disk.has_format()
-                 ? DiskLabels{L"v pamäti", L"disketa v pamäti"}
-                 : DiskLabels{L"v pamäti, nenaformátovaná",
-                              L"nenaformátovaná disketa v pamäti — "
-                              L"naformátuje ju Shift+F8"};
+      state.slotValue = disk.has_format() ? kSlotRam : kSlotUnformattedRam;
+      state.labels =
+          disk.has_format()
+              ? DiskLabels{L"v pamäti", L"disketa v pamäti"}
+              : DiskLabels{L"v pamäti, nenaformátovaná",
+                           L"nenaformátovaná disketa v pamäti — "
+                           L"naformátuje ju Shift+F8"};
+      break;
     default:
-      return {L"žiadna", L"žiadna, mechanika je prázdna"};
+      state.labels = {L"žiadna", L"žiadna, mechanika je prázdna"};
+      break;
   }
+  return state;
 }
 
 void EmulatorThread::PostMountDisk(std::wstring folder) {
@@ -632,9 +638,7 @@ void EmulatorThread::Run() {
     if (!result.ok) result.error = changeError;
     // Read after the change, so this is what is in the drive now.  A refused
     // mount leaves it empty, which the labels then say.
-    result.labels = DescribeDisk(machine.disk());
-    result.present = machine.disk().present();
-    result.folder = machine.disk().folder().wstring();
+    result.state = DescribeDisk(machine.disk());
     // Taken here as well, so the format watch below does not immediately fire
     // a second notification for the same event.  Two of them in a row is not
     // merely noise: the window consumes the payload, so the second one
@@ -847,9 +851,7 @@ void EmulatorThread::Run() {
       diskHadFormat = formatNow;
       DiskChange formatted;
       formatted.swapped = false;
-      formatted.labels = DescribeDisk(machine.disk());
-      formatted.present = machine.disk().present();
-      formatted.folder = machine.disk().folder().wstring();
+      formatted.state = DescribeDisk(machine.disk());
       {
         std::lock_guard<std::mutex> lock(errorMutex_);
         diskChange_ = std::move(formatted);
@@ -882,8 +884,7 @@ void EmulatorThread::Run() {
             L"Disketu sa nepodarilo vymeniť: mechanika päť sekúnd "
             L"neprestala zapisovať.\r\n\r\nPôvodná disketa zostala v "
             L"mechanike. Skúste to znova, keď Eureka dopracuje.";
-        refused.labels = DescribeDisk(machine.disk());
-        refused.present = machine.disk().present();
+        refused.state = DescribeDisk(machine.disk());
         {
           std::lock_guard<std::mutex> lock(errorMutex_);
           diskChange_ = std::move(refused);
