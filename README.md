@@ -73,7 +73,7 @@ otvorená aj vtedy, keď niektorú skratku zoberie cudzí program.
 ## Dve klávesnice
 
 Eureka mala dve klávesnice a emulátor môže byť ktoroukoľvek z nich.
-Prepína sa `Ctrl+K`:
+Prepína sa `F11`, `Ctrl+K` alebo v ponuke Klávesnica:
 
 - **externá klávesnica PC** — takto sa štartuje. Píše sa normálne;
   emulátor posiela scancody po sériovom porte a ROM si ich prekladá sama.
@@ -95,8 +95,7 @@ Prepína sa `Ctrl+K`:
 V oboch režimoch fungujú `F1`–`F10` so shiftom, kurzory aj ich akordy
 (`Home`, `End`, `PgUp`, `PgDn`, `Insert`, `Delete`).
 
-Ak by `Ctrl+K` žral terminál, dá sa štartovať rovno v braillovskom režime
-prepínačom `--braille`.
+Dá sa štartovať rovno v braillovskom režime prepínačom `--braille`.
 
 Eureku možno vypnúť aj tak, ako sa vypínala naozaj: v hlavnom menu
 podržte **všetky štyri kurzorové klávesy naraz**. Stroj zahlási „konec“
