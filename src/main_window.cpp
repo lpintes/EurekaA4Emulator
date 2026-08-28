@@ -118,10 +118,11 @@ constexpr wchar_t kShortcutHelp[] =
 }  // namespace
 
 MainWindow::MainWindow(EmulatorThread& emulator, std::wstring romPath,
-                       std::wstring diskDescription)
+                       std::wstring diskDescription, std::wstring diskName)
     : emulator_(emulator),
       romPath_(std::move(romPath)),
-      diskDescription_(std::move(diskDescription)) {}
+      diskDescription_(std::move(diskDescription)),
+      diskName_(std::move(diskName)) {}
 
 bool MainWindow::Create() {
   const HINSTANCE instance = GetModuleHandleW(nullptr);
@@ -222,13 +223,16 @@ void MainWindow::RefreshTitle() const {
   // the title answers "what is it now" at any time afterwards.
   // The mode stays in the title even while released, because "which keyboard
   // does it come back as" is a fair question to ask at that moment.
+  // The diskette is named, not spelled out as a path: this whole line is read
+  // aloud on every Alt+Tab and every NVDA+T, so it holds the answer and not
+  // the paperwork.  The path is in Pomocník -> O programe.
   SetTitle(released_
                ? L"Eureka A4 — klávesnica uvoľnená, vráti ju Shift+F11 — "
                  L"režim: " + std::wstring(ModeName(emulator_.mode())) +
-                     L" — disk: " + diskDescription_
+                     L" — disketa: " + diskName_
                : L"Eureka A4 — klávesnica: " +
-                     std::wstring(ModeName(emulator_.mode())) + L" — disk: " +
-                     diskDescription_);
+                     std::wstring(ModeName(emulator_.mode())) +
+                     L" — disketa: " + diskName_);
 }
 
 void MainWindow::RefreshMenu() const {

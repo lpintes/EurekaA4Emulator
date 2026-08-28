@@ -12,8 +12,10 @@
 // output is speech, and the host console keeps the text for diagnostics.
 class MainWindow : public win::Window {
  public:
+  // diskDescription is the long form for O programe, diskName the short one
+  // the title carries -- see RefreshTitle.
   MainWindow(EmulatorThread& emulator, std::wstring romPath,
-             std::wstring diskDescription);
+             std::wstring diskDescription, std::wstring diskName);
 
   bool Create();
   HACCEL accelerators() const { return accelerators_; }
@@ -50,6 +52,7 @@ class MainWindow : public win::Window {
   EmulatorThread& emulator_;
   std::wstring romPath_;
   std::wstring diskDescription_;
+  std::wstring diskName_;
   HACCEL accelerators_ = nullptr;
   HACCEL hostAccelerators_ = nullptr;
 

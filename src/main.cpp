@@ -68,6 +68,16 @@ std::wstring CountItems(std::size_t number) {
   return std::to_wstring(number) + L" " + word;
 }
 
+// The title carries the diskette's name, not its path: a screen reader reads
+// the whole title on every Alt+Tab and on NVDA+T, and a path spelled out that
+// often is noise.  The full path stays in Pomocník -> O programe.
+std::wstring FolderName(const fs::path& folder) {
+  fs::path leaf = folder.filename();
+  // A trailing separator ("C:\disky\eureka\") leaves filename() empty.
+  if (leaf.empty()) leaf = folder.parent_path().filename();
+  return leaf.empty() ? folder.wstring() : leaf.wstring();
+}
+
 // Start-up failures happen before there is a window to report them in, and
 // this program has no console to fall back on.  A message box is the one
 // surface that always exists, and a screen reader announces it as a dialog and
@@ -233,15 +243,18 @@ int Run() {
   }
 
   std::wstring diskDescription = L"žiadna, mechanika je prázdna";
+  std::wstring diskName = L"žiadna";
   if (ramDisk) {
     machine->CreateRamDisk();
     diskDescription = L"prázdna disketa v pamäti";
+    diskName = L"v pamäti";
   } else if (!disk.empty()) {
     if (!machine->MountDisk(disk, error)) {
       CoUninitialize();
       return Fail(error);
     }
     diskDescription = disk.wstring();
+    diskName = FolderName(disk);
     // A subfolder cannot go on a CP/M diskette.  Said out loud, because from
     // inside the machine an absent file looks exactly like a lost one.
     const std::vector<std::wstring>& skipped = machine->disk().skipped_entries();
@@ -263,7 +276,7 @@ int Run() {
   machine->Reset();
 
   EmulatorThread emulator;
-  MainWindow window(emulator, rom.wstring(), diskDescription);
+  MainWindow window(emulator, rom.wstring(), diskDescription, diskName);
   if (!window.Create()) {
     CoUninitialize();
     return Fail(L"Okno emulátora sa nepodarilo vytvoriť.");
