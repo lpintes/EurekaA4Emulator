@@ -39,6 +39,14 @@ void ToneReturning() { Tone(440, 70); Tone(880, 90); }
 void ToneArmed() { Tone(1200, 50); }
 void ToneDisarmed() { Tone(600, 50); }
 
+// A diskette going in and coming out.  Deliberately a different shape from the
+// keyboard pair above -- two short notes rather than two long ones -- because
+// these two things happen in the same window and telling them apart by ear is
+// the whole point of having a sound at all.  A real drive is audible; this one
+// would otherwise change under the user in silence.
+void ToneInserted() { Tone(660, 45); Tone(990, 45); }
+void ToneEjected() { Tone(330, 90); }
+
 
 // Kept in one place so the menu, the help text and this list cannot drift
 // apart.  A shortcut a screen reader never reads is a shortcut nobody has.
@@ -66,6 +74,9 @@ constexpr wchar_t kShortcutHelp[] =
     L"F11, Ctrl+K — prepne klávesnicu medzi braillovskou a externou.\r\n"
     L"F11, Ctrl+R — reset.\r\n"
     L"F11, Ctrl+V — vypne Eureku tak, ako to robí ona sama.\r\n"
+    L"F11, Ctrl+I — vloží disketu z iného priečinka. Vymieňať sa dá za\r\n"
+    L"      behu: EurekaDOS si nový disk prihlási sám, tak ako skutočný\r\n"
+    L"      stroj. Vysunúť sa dá v ponuke Disketa.\r\n"
     L"F11, Ctrl+U — uloží disketu do priečinka.\r\n"
     L"F11, Ctrl+D — výpis diagnostiky na konzolu.\r\n"
     L"F11, Ctrl+N — nastavenia.\r\n"
@@ -117,12 +128,15 @@ constexpr wchar_t kShortcutHelp[] =
 
 }  // namespace
 
-MainWindow::MainWindow(EmulatorThread& emulator, std::wstring romPath,
-                       std::wstring diskDescription, std::wstring diskName)
+MainWindow::MainWindow(EmulatorThread& emulator, Settings& settings,
+                       std::wstring romPath, std::wstring diskDescription,
+                       std::wstring diskName, bool diskPresent)
     : emulator_(emulator),
+      settings_(settings),
       romPath_(std::move(romPath)),
       diskDescription_(std::move(diskDescription)),
-      diskName_(std::move(diskName)) {}
+      diskName_(std::move(diskName)),
+      diskPresent_(diskPresent) {}
 
 bool MainWindow::Create() {
   const HINSTANCE instance = GetModuleHandleW(nullptr);
@@ -205,6 +219,22 @@ void MainWindow::RegisterCommands() {
     if (!folder.empty()) emulator_.PostExportDisk(folder);
   });
 
+  OnCommand(ID_DISK_INSERT, [this] {
+    if (!KeepRamDiskFirst()) return;
+    const std::wstring folder = win::PickFolder(
+        hwnd_, L"Vyberte priečinok s disketou, ktorá sa má vložiť");
+    if (folder.empty()) return;
+    // The worker does the swap, and only between two sector transfers: the
+    // machine is its own and a diskette pulled mid-write would tear the image
+    // (6.17).  The tone and the title wait for it to report back.
+    emulator_.PostMountDisk(folder);
+  });
+
+  OnCommand(ID_DISK_EJECT, [this] {
+    if (!KeepRamDiskFirst()) return;
+    emulator_.PostEjectDisk();
+  });
+
   OnCommand(ID_TOOLS_SETTINGS, [this] {
     SettingsDialog dialog(emulator_.mode(), emulator_.diagnostics());
     if (dialog.ShowModal(hwnd_, IDD_SETTINGS) != IDOK) return;
@@ -226,6 +256,52 @@ void MainWindow::RegisterCommands() {
     AboutDialog dialog(AboutText());
     dialog.ShowModal(hwnd_, IDD_ABOUT);
   });
+}
+
+// The one thing that would be lost silently by a swap.  A folder-backed
+// diskette is already on the host's disk and a fresh mount rebuilds it from
+// there, but a RAM one exists nowhere else: taking it out drops it.  So the
+// question is asked before the swap and not after, when the answer would be
+// too late to act on.
+bool MainWindow::KeepRamDiskFirst() {
+  if (!emulator_.ram_disk_dirty()) return true;
+  const int answer = MessageBoxW(
+      hwnd_,
+      L"Na diskete v pamäti sú zapísané dáta a tá disketa nemá za sebou "
+      L"žiadny priečinok — vysunutím sa jej obsah stratí.\r\n\r\n"
+      L"Chcete ju najprv uložiť do priečinka?",
+      L"Eureka A4", MB_YESNOCANCEL | MB_ICONWARNING);
+  if (answer == IDCANCEL) return false;
+  if (answer == IDNO) return true;
+  const std::wstring folder = win::PickFolder(
+      hwnd_, L"Vyberte priečinok, do ktorého sa disketa uloží");
+  // Cancelling the picker cancels the whole thing rather than falling through
+  // to the swap: they asked to keep the data, and losing it because a second
+  // dialog was dismissed is not what they asked for.
+  if (folder.empty()) return false;
+  // Queued ahead of the swap, and the queue keeps the order: the export runs
+  // on the same worker and is finished before the diskette is taken out.
+  emulator_.PostExportDisk(folder);
+  return true;
+}
+
+void MainWindow::RememberDisk(const std::wstring& folder) {
+  // A RAM diskette and an empty drive are both "nothing to put back": neither
+  // is cleared here, so unplugging a diskette for one session does not lose
+  // the folder the next start would have opened.
+  if (folder.empty() || settings_.last_disk() == folder) return;
+  settings_.SetLastDisk(folder);
+  std::wstring error;
+  if (!settings_.Save(error))
+    MessageBoxW(hwnd_, error.c_str(), L"Eureka A4", MB_OK | MB_ICONWARNING);
+}
+
+void MainWindow::SetDiskLabels(std::wstring description, std::wstring name,
+                               bool present) {
+  diskDescription_ = std::move(description);
+  diskName_ = std::move(name);
+  diskPresent_ = present;
+  RefreshTitle();
 }
 
 std::wstring MainWindow::AboutText() const {
@@ -290,6 +366,13 @@ void MainWindow::RefreshMenu() const {
                   ID_KEYBOARD_SEND_AF12})
     EnableMenuItem(menu, id, pcOnly);
   EnableMenuItem(menu, ID_KEYBOARD_SEND_F11, MF_BYCOMMAND | MF_ENABLED);
+  // Nothing to take out of an empty drive, and nothing to save out of one
+  // either.  Greying says so where a screen reader reads it; the alternative
+  // is a menu item that answers with a beep or with nothing at all.
+  const UINT hasDisk =
+      MF_BYCOMMAND | (diskPresent_ ? MF_ENABLED : MF_GRAYED);
+  EnableMenuItem(menu, ID_DISK_EJECT, hasDisk);
+  EnableMenuItem(menu, ID_FILE_EXPORT, hasDisk);
   RefreshShortcutText(menu);
 }
 
@@ -304,9 +387,9 @@ void MainWindow::RefreshMenu() const {
 // on and take it off again.
 void MainWindow::RefreshShortcutText(HMENU menu) const {
   static constexpr wchar_t kPrefix[] = L"F11, ";
-  for (UINT id : {ID_FILE_EXPORT, ID_FILE_EXIT, ID_MACHINE_RESET,
-                  ID_MACHINE_POWEROFF, ID_KEYBOARD_TOGGLE, ID_TOOLS_SETTINGS,
-                  ID_TOOLS_DIAGDUMP, ID_HELP_KEYS}) {
+  for (UINT id : {ID_FILE_EXPORT, ID_FILE_EXIT, ID_DISK_INSERT,
+                  ID_MACHINE_RESET, ID_MACHINE_POWEROFF, ID_KEYBOARD_TOGGLE,
+                  ID_TOOLS_SETTINGS, ID_TOOLS_DIAGDUMP, ID_HELP_KEYS}) {
     wchar_t text[128];
     // MF_BYCOMMAND searches the submenus too, so the ids are enough.
     if (!GetMenuStringW(menu, id, text, ARRAYSIZE(text), MF_BYCOMMAND)) continue;
@@ -522,6 +605,26 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                   L"stroji celé používateľské rozhranie, nie doplnok.",
                   L"Eureka A4", MB_OK | MB_ICONWARNING);
       return 0;
+
+    case WM_EMU_DISK_CHANGED: {
+      const DiskChange change = emulator_.TakeDiskChange();
+      SetDiskLabels(change.labels.description, change.labels.name,
+                    change.present);
+      // The tone says what happened at the moment it happened; the title
+      // answers "what is in there now" at any time afterwards.  Same division
+      // of labour as the keyboard state, and for the same reason: there is
+      // nothing on screen to look at.
+      if (!change.ok) {
+        MessageBoxW(hwnd_, change.error.c_str(), L"Eureka A4",
+                    MB_OK | MB_ICONERROR);
+      } else if (change.present) {
+        ToneInserted();
+        RememberDisk(change.folder);
+      } else {
+        ToneEjected();
+      }
+      return 0;
+    }
 
     case WM_EMU_EXPORT_DONE: {
       bool ok = false;

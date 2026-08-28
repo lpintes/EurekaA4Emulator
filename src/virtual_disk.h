@@ -22,6 +22,9 @@ class VirtualDisk {
 
   bool Mount(const std::filesystem::path& folder, std::wstring& error);
   void CreateRamDisk();
+  // Takes the medium out.  Whatever was owed to the host folder has to have
+  // been flushed already: this drops the image on the floor.
+  void Eject();
   bool Flush(std::wstring& error);
   bool ExportTo(const std::filesystem::path& folder, std::wstring& error);
 

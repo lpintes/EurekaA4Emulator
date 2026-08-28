@@ -13,6 +13,8 @@
 // Menu and accelerator commands.
 #define ID_FILE_EXPORT       40001
 #define ID_FILE_EXIT         40002
+#define ID_DISK_INSERT       40003
+#define ID_DISK_EJECT        40004
 #define ID_MACHINE_RESET     40010
 #define ID_MACHINE_POWEROFF  40011
 #define ID_KEYBOARD_BRAILLE  40020

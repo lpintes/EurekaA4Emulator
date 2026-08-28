@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <optional>
 
 #include "audio_player.h"
 #include "host_console.h"
@@ -376,6 +377,39 @@ void EmulatorThread::PostExportDisk(std::wstring folder) {
   Post(std::move(command));
 }
 
+// The title carries the diskette's name and not its path: a screen reader
+// reads the whole title on every Alt+Tab and on NVDA+T, and a path spelled out
+// that often is noise.  The path stays in Pomocník -> O programe.
+DiskLabels DescribeDisk(const VirtualDisk& disk) {
+  switch (disk.media()) {
+    case VirtualDisk::Media::kFolder: {
+      std::filesystem::path leaf = disk.folder().filename();
+      // A trailing separator ("C:\disky\eureka\") leaves filename() empty.
+      if (leaf.empty()) leaf = disk.folder().parent_path().filename();
+      return {leaf.empty() ? disk.folder().wstring() : leaf.wstring(),
+              disk.folder().wstring()};
+    }
+    case VirtualDisk::Media::kRam:
+      return {L"v pamäti", L"disketa v pamäti"};
+    default:
+      return {L"žiadna", L"žiadna, mechanika je prázdna"};
+  }
+}
+
+void EmulatorThread::PostMountDisk(std::wstring folder) {
+  Command command;
+  command.type = Command::Type::kMountDisk;
+  command.path = std::move(folder);
+  Post(std::move(command));
+}
+
+void EmulatorThread::PostEjectDisk() { PostType(Command::Type::kEjectDisk); }
+
+DiskChange EmulatorThread::TakeDiskChange() {
+  std::lock_guard<std::mutex> lock(errorMutex_);
+  return std::move(diskChange_);
+}
+
 std::wstring EmulatorThread::TakeDiskError() {
   std::lock_guard<std::mutex> lock(errorMutex_);
   return std::move(diskError_);
@@ -552,6 +586,41 @@ void EmulatorThread::Run() {
                L"ignorované, braillovská klávesnica text nepíše — píšte bodmi");
   };
 
+  // A diskette change waits for the drive to go quiet instead of forcing
+  // itself through: swapping mid-sector would tear the image, and what the
+  // guest wrote has to reach the host folder first.  It is parked here rather
+  // than spun on inside apply(), because spinning would stop feeding the sound
+  // device -- and at this loop's 22 ms of latency that is a gap in the middle
+  // of a word.
+  std::optional<Command> pendingDisk;
+  auto pendingSince = Clock::now();
+
+  const auto changeDisk = [&](const Command& command) {
+    DiskChange result;
+    // What the old diskette still owes its folder goes back first: after this
+    // its image is gone, and a write that never reached the host would look
+    // exactly like a file the user lost.
+    std::wstring changeError;
+    result.ok = machine.FlushDisk(changeError);
+    if (result.ok) {
+      if (command.type == Command::Type::kEjectDisk)
+        machine.EjectDisk();
+      else
+        result.ok = machine.MountDisk(command.path, changeError);
+    }
+    if (!result.ok) result.error = changeError;
+    // Read after the change, so this is what is in the drive now.  A refused
+    // mount leaves it empty, which the labels then say.
+    result.labels = DescribeDisk(machine.disk());
+    result.present = machine.disk().present();
+    result.folder = machine.disk().folder().wstring();
+    {
+      std::lock_guard<std::mutex> lock(errorMutex_);
+      diskChange_ = std::move(result);
+    }
+    if (notify) PostMessageW(notify, WM_EMU_DISK_CHANGED, 0, 0);
+  };
+
   // Everything from the window thread -- keys included -- comes through one
   // queue so the order the user produced is the order the machine sees: a mode
   // switch must never overtake the key typed after it.
@@ -641,6 +710,19 @@ void EmulatorThread::Run() {
         if (notify) PostMessageW(notify, WM_EMU_EXPORT_DONE, 0, 0);
         break;
       }
+      case Command::Type::kMountDisk:
+      case Command::Type::kEjectDisk:
+        // Done straight away when the drive is already quiet, which it nearly
+        // always is; otherwise it waits in the main loop below.  A second
+        // request replaces the first: the user changed their mind, and doing
+        // both would put in a diskette they no longer asked for.
+        if (machine.DiskSwappable()) {
+          changeDisk(command);
+        } else {
+          pendingDisk = command;
+          pendingSince = Clock::now();
+        }
+        break;
     }
   };
 
@@ -728,6 +810,42 @@ void EmulatorThread::Run() {
       running = false;
       if (notify) PostMessageW(notify, WM_EMU_DISK_ERROR, 0, 0);
       break;
+    }
+
+    // Published for the window, which asks before it throws a RAM diskette
+    // away.  A RAM diskette is never flushed -- there is nowhere to flush it
+    // to -- so its dirty flag stays set from the first write, and that is
+    // exactly the question being asked.
+    ramDiskDirty_.store(
+        machine.disk().media() == VirtualDisk::Media::kRam &&
+            machine.disk().dirty(),
+        std::memory_order_relaxed);
+
+    // A parked change goes through as soon as the controller is idle and the
+    // flush above has cleaned the image.  The ceiling is not a limit on the
+    // guest's work -- a settle costs one second of guest time and is reached
+    // long before this -- it is for a controller left mid-transfer by firmware
+    // that stopped feeding it, where waiting would be waiting for ever.
+    if (pendingDisk) {
+      if (machine.DiskSwappable()) {
+        changeDisk(*pendingDisk);
+        pendingDisk.reset();
+      } else if (Clock::now() - pendingSince > std::chrono::seconds(5)) {
+        DiskChange refused;
+        refused.ok = false;
+        refused.error =
+            L"Disketu sa nepodarilo vymeniť: mechanika päť sekúnd "
+            L"neprestala zapisovať.\r\n\r\nPôvodná disketa zostala v "
+            L"mechanike. Skúste to znova, keď Eureka dopracuje.";
+        refused.labels = DescribeDisk(machine.disk());
+        refused.present = machine.disk().present();
+        {
+          std::lock_guard<std::mutex> lock(errorMutex_);
+          diskChange_ = std::move(refused);
+        }
+        pendingDisk.reset();
+        if (notify) PostMessageW(notify, WM_EMU_DISK_CHANGED, 0, 0);
+      }
     }
     timer.Wait(2.0);
   }

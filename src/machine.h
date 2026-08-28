@@ -34,7 +34,8 @@ class EurekaMachine {
 
   bool LoadRom(const std::filesystem::path& path, std::wstring& error);
   bool MountDisk(const std::filesystem::path& folder, std::wstring& error);
-  void CreateRamDisk() { disk_.CreateRamDisk(); }
+  void CreateRamDisk() { disk_.CreateRamDisk(); ForgetFormattedTrack(); }
+  void EjectDisk();
   bool FlushDisk(std::wstring& error) { return disk_.Flush(error); }
   bool ExportDisk(const std::filesystem::path& folder, std::wstring& error) {
     return disk_.ExportTo(folder, error);
@@ -44,6 +45,10 @@ class EurekaMachine {
   // fixed timer instead would catch CP/M mid-update, and a directory entry
   // erased on the way to being rewritten reads as a deleted file.
   bool DiskSettled() const;
+  // True when the host may swap the diskette without tearing anything.  Not
+  // the same question as DiskSettled, which is about there being something to
+  // write back: a clean disk is swappable and never settles.
+  bool DiskSwappable() const;
   void Reset();
 
   // Replaces this machine's whole state with a copy of another's: memory,
@@ -182,6 +187,7 @@ class EurekaMachine {
   void MaybeRunDma1();
 
   void StartFdcCommand(uint8_t command);
+  void ForgetFormattedTrack();
   uint8_t TypeOneStatus() const;
   uint8_t ReadFdcData();
   void WriteFdcData(uint8_t value);

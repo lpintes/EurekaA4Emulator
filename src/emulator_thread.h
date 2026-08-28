@@ -67,6 +67,36 @@ enum : UINT {
   // The sound device would not open.  On this machine that is not a degraded
   // experience, it is no user interface at all, so the window has to say so.
   WM_EMU_NO_AUDIO = WM_APP + 5,
+  // A diskette went in or came out: the title, the menu and About all name it.
+  WM_EMU_DISK_CHANGED = WM_APP + 6,
+};
+
+// How a diskette is named in the window title (short) and in About (long).
+// In one place so that a diskette put in at start-up and one swapped in later
+// cannot end up described two different ways.
+struct DiskLabels {
+  std::wstring name;
+  std::wstring description;
+};
+DiskLabels DescribeDisk(const VirtualDisk& disk);
+
+// The outcome of a swap, picked up by the window when WM_EMU_DISK_CHANGED
+// arrives.  A failed mount leaves the drive empty rather than half-loaded --
+// VirtualDisk::Mount already unwinds itself -- so the labels are always the
+// truth about what is in there now, error or not.
+struct DiskChange {
+  bool ok = true;
+  // Whether there is a diskette in the drive afterwards.  Its own field and
+  // not something read back out of the labels: the labels are user-facing
+  // text, and a swap that decides what it did by comparing them would come
+  // apart the day one of them is reworded.
+  bool present = false;
+  // The host folder behind it, empty for a RAM diskette or an empty drive.
+  // Carried separately from the labels for the same reason as present: the
+  // labels are text for the user, not data to parse back.
+  std::wstring folder;
+  std::wstring error;
+  DiskLabels labels;
 };
 
 class EmulatorThread {
@@ -102,21 +132,36 @@ class EmulatorThread {
   // export taken from another thread mid-update would see a half-written
   // directory.
   void PostExportDisk(std::wstring folder);
+  // Puts a different diskette in, or takes the current one out.  Both wait for
+  // the drive to go quiet before they touch anything -- see the worker.
+  void PostMountDisk(std::wstring folder);
+  void PostEjectDisk();
 
   // Read from the window thread; written by the worker.
   InputMode mode() const { return mode_.load(std::memory_order_relaxed); }
   bool diagnostics() const { return diagnostics_.load(std::memory_order_relaxed); }
   bool running() const { return running_.load(std::memory_order_relaxed); }
+  // True while the diskette lives only in memory and has been written to, so
+  // taking it out would throw the guest's work away with no host folder behind
+  // it.  Read from the window thread before a swap: the machine belongs to the
+  // worker and cannot be asked directly, and this is one bool rather than a
+  // round trip.
+  bool ram_disk_dirty() const {
+    return ramDiskDirty_.load(std::memory_order_relaxed);
+  }
   // Last disk error the worker reported, for the WM_EMU_DISK_ERROR handler.
   std::wstring TakeDiskError();
   // Empty when the last export succeeded, otherwise why it did not.
   std::wstring TakeExportResult(bool& ok);
+  // What the last swap did, for the WM_EMU_DISK_CHANGED handler.
+  DiskChange TakeDiskChange();
 
  private:
   struct Command {
     enum class Type {
       kKey, kReset, kSetMode, kToggleMode, kSetDiagnostics,
-      kDumpDiagnostics, kPowerOff, kFocusLost, kExportDisk, kQuit,
+      kDumpDiagnostics, kPowerOff, kFocusLost, kExportDisk,
+      kMountDisk, kEjectDisk, kQuit,
     } type = Type::kQuit;
     HostKeyEvent key{};
     InputMode mode = InputMode::kPc;
@@ -139,10 +184,12 @@ class EmulatorThread {
   std::wstring diskError_;
   std::wstring exportResult_;
   bool exportOk_ = false;
+  DiskChange diskChange_;
 
   std::atomic<InputMode> mode_{InputMode::kPc};
   std::atomic<bool> diagnostics_{false};
   std::atomic<bool> running_{false};
+  std::atomic<bool> ramDiskDirty_{false};
 };
 
 #endif

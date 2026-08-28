@@ -99,7 +99,23 @@ bool EurekaMachine::LoadRom(const fs::path& path, std::wstring& error) {
 }
 
 bool EurekaMachine::MountDisk(const fs::path& folder, std::wstring& error) {
-  return disk_.Mount(folder, error);
+  if (!disk_.Mount(folder, error)) return false;
+  ForgetFormattedTrack();
+  return true;
+}
+
+void EurekaMachine::EjectDisk() {
+  disk_.Eject();
+  ForgetFormattedTrack();
+}
+
+// The track the format routine last laid down is a property of the medium that
+// was in the drive, so a new one must not inherit it: it makes reads succeed
+// one cylinder past the image (see StartFdcCommand), and on a diskette that
+// never was formatted here that would be a sector conjured out of nothing.
+void EurekaMachine::ForgetFormattedTrack() {
+  fdcFormattedCylinder_ = -1;
+  fdcFormattedSide_ = -1;
 }
 
 bool EurekaMachine::DiskSettled() const {
@@ -108,6 +124,16 @@ bool EurekaMachine::DiskSettled() const {
   // One second of guest time with no write.  CP/M finishes a directory update
   // in far less; a host-visible export in the middle of one would be torn.
   return cycles_ - lastDiskWrite_ >= kCpuHz;
+}
+
+// The host may take the diskette away only between two whole sector
+// transfers, and only once anything the guest wrote has reached the folder.
+// The guest itself needs no warning: EurekaDOS re-logs the drive from the
+// directory checksums on its own (HANDOFF 6.17), which is why there is no
+// "disk changed" line anywhere on this hardware to raise.
+bool EurekaMachine::DiskSwappable() const {
+  if (fdcWriting_) return false;
+  return !disk_.dirty() || DiskSettled();
 }
 
 void EurekaMachine::Reset() {

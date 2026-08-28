@@ -53,16 +53,6 @@ std::vector<fs::path> RomCandidates() {
   return candidates;
 }
 
-// The title carries the diskette's name, not its path: a screen reader reads
-// the whole title on every Alt+Tab and on NVDA+T, and a path spelled out that
-// often is noise.  The full path stays in Pomocník -> O programe.
-std::wstring FolderName(const fs::path& folder) {
-  fs::path leaf = folder.filename();
-  // A trailing separator ("C:\disky\eureka\") leaves filename() empty.
-  if (leaf.empty()) leaf = folder.parent_path().filename();
-  return leaf.empty() ? folder.wstring() : leaf.wstring();
-}
-
 // Start-up failures happen before there is a window to report them in, and
 // this program has no console to fall back on.  A message box is the one
 // surface that always exists, and a screen reader announces it as a dialog and
@@ -262,19 +252,13 @@ int Run() {
     return Fail(error);
   }
 
-  std::wstring diskDescription = L"žiadna, mechanika je prázdna";
-  std::wstring diskName = L"žiadna";
   if (ramDisk) {
     machine->CreateRamDisk();
-    diskDescription = L"prázdna disketa v pamäti";
-    diskName = L"v pamäti";
   } else if (!disk.empty()) {
     if (!machine->MountDisk(disk, error)) {
       CoUninitialize();
       return Fail(error);
     }
-    diskDescription = disk.wstring();
-    diskName = FolderName(disk);
     // Subfolders are left out and nothing is said about it: a CP/M diskette has
     // no directories at all, so this is the rule the disk works by, not an
     // incident to report at every start.  It is in README instead.
@@ -293,8 +277,14 @@ int Run() {
   machine->diagnostics().set_enabled(diagnostics);
   machine->Reset();
 
+  // Described by the same function the worker uses when a diskette is swapped
+  // in later, so the drive cannot be named one way at start-up and another way
+  // afterwards.
+  const DiskLabels labels = DescribeDisk(machine->disk());
+
   EmulatorThread emulator;
-  MainWindow window(emulator, rom.wstring(), diskDescription, diskName);
+  MainWindow window(emulator, settings, rom.wstring(), labels.description,
+                    labels.name, machine->disk().present());
   if (!window.Create()) {
     CoUninitialize();
     return Fail(L"Okno emulátora sa nepodarilo vytvoriť.");
@@ -317,7 +307,12 @@ int Run() {
     MessageBoxW(nullptr, (L"Chyba pri ukladaní disku:\r\n\r\n" + error).c_str(),
                 L"Eureka A4", MB_OK | MB_ICONERROR);
 
-  if (machine && ramDisk && machine->disk().StoredFiles() > 0) {
+  // Asked about what is actually in the drive now, not about how the run
+  // started: a diskette can be swapped mid-run, so --ram-disk no longer means
+  // there is still a RAM diskette here -- and a folder-backed one needs no
+  // offer, it is already on disk.
+  if (machine && machine->disk().media() == VirtualDisk::Media::kRam &&
+      machine->disk().StoredFiles() > 0) {
     const std::size_t stored = machine->disk().StoredFiles();
     const std::wstring question =
         L"Na diskete v pamäti " +

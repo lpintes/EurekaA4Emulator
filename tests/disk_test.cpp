@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -266,6 +267,78 @@ void NameCollision() {
         mounted ? "v adresari " + std::to_string(disk.StoredFiles()) : Narrow(error));
 }
 
+// Changing the diskette while the machine runs.  The guest needs no telling --
+// EurekaDOS re-logs the drive from the directory checksums by itself (HANDOFF
+// 6.17) -- but only because the host really does put a different image under
+// it.  An image merely written over, with the old file still readable in a
+// block the new one does not use, would give the guest a directory that
+// disagrees with its own data.
+void SwapReplacesTheWholeImage() {
+  const fs::path first = MakeFolder("vymena-prva");
+  MakeFile(first / L"PRVA.TXT", 4000, 1);
+  MakeFile(first / L"NAVYSE.TXT", 9000, 2);
+  const fs::path second = MakeFolder("vymena-druha");
+  MakeFile(second / L"DRUHA.TXT", 4000, 3);
+
+  VirtualDisk disk;
+  std::wstring error;
+  Check(disk.Mount(first, error) && disk.StoredFiles() == 2,
+        "prva_disketa_ma_dva_subory", Narrow(error));
+
+  uint8_t before[512]{};
+  Check(disk.ReadPhysicalSector(0, 0, 1, before), "prva_disketa_sa_cita");
+
+  Check(disk.Mount(second, error), "vymena_za_druhu_prejde", Narrow(error));
+  Check(disk.StoredFiles() == 1, "po_vymene_je_v_adresari_len_novy_subor",
+        "v adresari " + std::to_string(disk.StoredFiles()));
+  Check(disk.folder() == fs::weakly_canonical(second),
+        "po_vymene_ukazuje_disk_na_novy_priecinok");
+
+  uint8_t after[512]{};
+  Check(disk.ReadPhysicalSector(0, 0, 1, after), "druha_disketa_sa_cita");
+  // The directory is the first four blocks, so sector 1 holds entries.  Two
+  // different file sets cannot leave it identical.
+  Check(std::memcmp(before, after, sizeof(before)) != 0,
+        "adresar_po_vymene_nie_je_ten_isty");
+
+  // The 9 KiB file from the first diskette occupied blocks the second one
+  // never touches.  If the image were reused rather than rebuilt, its bytes
+  // would still be sitting there for the guest to read back.
+  uint8_t leftovers[512]{};
+  bool anythingLeft = false;
+  for (unsigned sector = 1; sector <= 10 && !anythingLeft; ++sector) {
+    if (!disk.ReadPhysicalSector(1, 1, sector, leftovers)) continue;
+    for (uint8_t byte : leftovers)
+      if (byte != 0xe5 && byte != 0) anythingLeft = true;
+  }
+  Check(!anythingLeft, "po_vymene_nezostali_data_z_prvej_diskety");
+}
+
+void EjectLeavesAnEmptyDrive() {
+  const fs::path folder = MakeFolder("vysunutie");
+  MakeFile(folder / L"NIECO.TXT", 3000, 4);
+  VirtualDisk disk;
+  std::wstring error;
+  Check(disk.Mount(folder, error), "disketa_na_vysunutie_sa_pripoji",
+        Narrow(error));
+
+  disk.Eject();
+  Check(!disk.present(), "po_vysunuti_nie_je_medium");
+  Check(disk.StoredFiles() == 0, "po_vysunuti_je_adresar_prazdny");
+  Check(disk.folder().empty(), "po_vysunuti_nie_je_ziadny_priecinok");
+  uint8_t sector[512]{};
+  // What the firmware sees: no medium means Record Not Found on every read,
+  // which is how it reaches its own "vadny disk" (6.6).
+  Check(!disk.ReadPhysicalSector(0, 0, 1, sector),
+        "z_prazdnej_mechaniky_sa_neda_citat");
+  Check(!disk.WritePhysicalSector(0, 0, 1, sector),
+        "do_prazdnej_mechaniky_sa_neda_pisat");
+
+  // And the drive takes a diskette again afterwards.
+  Check(disk.Mount(folder, error) && disk.StoredFiles() == 1,
+        "po_vysunuti_sa_da_vlozit_znovu", Narrow(error));
+}
+
 void EmptyFolderAndMissingFolder() {
   const fs::path folder = MakeFolder("prazdny");
   VirtualDisk disk;
@@ -298,6 +371,8 @@ int main() {
   FileSpanningTwoExtents();
   EmptyFile();
   NameCollision();
+  SwapReplacesTheWholeImage();
+  EjectLeavesAnEmptyDrive();
   EmptyFolderAndMissingFolder();
 
   fs::remove_all(Root(), ec);

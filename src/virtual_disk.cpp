@@ -120,6 +120,18 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
   return false;
 }
 
+// The image is wiped rather than merely marked absent, so that a diskette put
+// in afterwards cannot show a single byte of the one before it.  present() is
+// what the firmware sees: with no medium the drive reports no INDEX pulse and
+// every Type II command comes back Record Not Found (6.6).
+void VirtualDisk::Eject() {
+  image_.fill(0);
+  imported_.clear();
+  folder_.clear();
+  media_ = Media::kNone;
+  dirty_ = false;
+}
+
 // A scratch diskette that exists only for this session: 0E5h everywhere is
 // exactly what a freshly formatted CP/M disk looks like, so the firmware sees
 // an empty directory without any host folder behind it.

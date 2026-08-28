@@ -24,9 +24,14 @@ IDR_MAIN_MENU MENU
 BEGIN
     POPUP "&Súbor"
     BEGIN
-        MENUITEM "&Uložiť disketu do priečinka…\tF11, Ctrl+U",  ID_FILE_EXPORT
-        MENUITEM SEPARATOR
         MENUITEM "S&končiť\tF11, Ctrl+Q",                       ID_FILE_EXIT
+    END
+    POPUP "&Disketa"
+    BEGIN
+        MENUITEM "&Vložiť z priečinka…\tF11, Ctrl+I",           ID_DISK_INSERT
+        MENUITEM "V&ysunúť disketu",                            ID_DISK_EJECT
+        MENUITEM SEPARATOR
+        MENUITEM "&Uložiť disketu do priečinka…\tF11, Ctrl+U",  ID_FILE_EXPORT
     END
     POPUP "&Stroj"
     BEGIN
@@ -111,6 +116,7 @@ END
 IDR_ACCELERATORS_HOST ACCELERATORS
 BEGIN
     "U",        ID_FILE_EXPORT,      VIRTKEY, CONTROL
+    "I",        ID_DISK_INSERT,      VIRTKEY, CONTROL
     "Q",        ID_FILE_EXIT,        VIRTKEY, CONTROL
     "R",        ID_MACHINE_RESET,    VIRTKEY, CONTROL
     "V",        ID_MACHINE_POWEROFF, VIRTKEY, CONTROL

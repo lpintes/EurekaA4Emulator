@@ -63,7 +63,7 @@ naozaj urobí to, čo `Ctrl+H` na skutočnom stroji. Po `Shift+F11` platia
 rovno, lebo vtedy je klávesnica hosťova aj tak — a ponuka vtedy prefix
 `F11` prestane ukazovať, aby neradila kláves, ktorý v tom stave nerobí nič.
 
-Písmená sú `Ctrl+U Q R V K N D H`. Že je to `Ctrl` a nie `Ctrl+Shift`,
+Písmená sú `Ctrl+U I Q R V K N D H`. Že je to `Ctrl` a nie `Ctrl+Shift`,
 má dôvod: do `Ctrl+Shift` si svoje **globálne** skratky vešajú iné
 programy a globálna skratka vyhrá nad oknom bez ohľadu na `F11`, takže
 by kláves do emulátora vôbec nedošiel a bolo by to ticho.
@@ -137,10 +137,37 @@ Disketa je nepovinná:
   či ich uložiť do priečinka; ak odmietnete alebo výber zrušíte, obsah
   zanikne.
 
+## Výmena diskety za behu
+
+Disketa sa dá vymeniť bez toho, aby ste Eureku ukončili: ponuka
+**Disketa → Vložiť z priečinka…**, alebo `F11`, `Ctrl+I`. Vysunúť sa dá
+tou istou ponukou.
+
+Na skutočnom stroji bola výmena bezstarostná vec a tu je to rovnako:
+EurekaDOS si nový disk prihlási sám, lebo si ku každému záznamu adresára
+drží kontrolný súčet a podľa neho výmenu zbadá. Nemusíte teda nič
+resetovať.
+
+Emulátor pritom stráži dve veci, ktoré vy strážiť nemusíte:
+
+- disketu vymení až medzi dvoma sektormi, nikdy uprostred zápisu,
+- a všetko, čo Eureka na starú disketu zapísala, najprv uloží do jej
+  priečinka.
+
+Vloženie a vysunutie **počuť** — vloženie je dvojica tónov nahor,
+vysunutie jeden nízky. Sú zámerne iné než tie, ktoré ohlasujú prepnutie
+klávesnice. Čo je práve v mechanike, hovorí aj titulok okna, takže sa na
+to dá kedykoľvek spýtať cez `NVDA+T`.
+
+Ak je v mechanike disketa v pamäti, do ktorej sa už zapisovalo, emulátor
+sa pred výmenou spýta, či ju najprv uložiť do priečinka — taká disketa
+totiž nikde inde neexistuje a výmenou by sa stratila.
+
 ## Čo si emulátor pamätá
 
 Zatiaľ jedinú vec: **disketu, ktorú ste mali naposledy**. Vloží sa pri
 ďalšom štarte, takže sa program nepýta na priečinok pri každom spustení.
+Zapíše sa vždy, keď disketu vložíte — pri štarte aj pri výmene za behu.
 Pamätá sa len disketa z priečinka — disketa v pamäti nemá čo obnovovať.
 
 Keď priečinok medzitým zmizne (typicky odpojený USB disk), Eureka
