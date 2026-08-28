@@ -104,11 +104,6 @@ DiskState DescribeDisk(const VirtualDisk& disk);
 // truth about what is in there now, error or not.
 struct DiskChange {
   bool ok = true;
-  // True when a diskette actually went in or came out, false when the same
-  // medium merely changed underfoot -- the guest formatting a blank one is
-  // the case.  The window sounds its tone only for a real swap: a tone for
-  // something the user did not do would say the wrong thing.
-  bool swapped = true;
   std::wstring error;
   // What is in the drive afterwards.  A refused mount leaves it empty --
   // VirtualDisk::Mount unwinds itself -- so this is always the truth about

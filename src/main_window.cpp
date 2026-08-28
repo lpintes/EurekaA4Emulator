@@ -750,10 +750,9 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case WM_EMU_DISK_CHANGED: {
       const DiskChange change = emulator_.TakeDiskChange();
-      // An empty name means the payload has already been consumed by an
-      // earlier message, so there is nothing here to act on.  Belt and braces
-      // against a blanked title, which is what that looked like when it
-      // happened.
+      // An empty name means the payload has already been taken by an earlier
+      // message, so there is nothing here to act on -- and acting on it would
+      // blank the title the earlier one had just set.
       if (change.state.labels.name.empty()) return 0;
       SetDiskState(change.state);
       // The tone says what happened at the moment it happened; the title
@@ -763,10 +762,6 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       if (!change.ok) {
         MessageBoxW(hwnd_, change.error.c_str(), L"Eureka A4",
                     MB_OK | MB_ICONERROR);
-      } else if (!change.swapped) {
-        // The same diskette, in a different state -- the guest formatted it.
-        // The title has been updated above and that is all this needs: a tone
-        // here would announce an act the user did not perform.
       } else if (change.state.present) {
         ToneInserted();
         RememberDisk(change.state.folder);

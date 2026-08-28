@@ -391,16 +391,12 @@ DiskState DescribeDisk(const VirtualDisk& disk) {
       break;
     }
     case VirtualDisk::Media::kRam:
-      // The same marker whether it carries a format or not: a slot makes a
-      // fresh empty diskette, and a usable one is the only kind worth making
-      // from a shortcut.
+      // A diskette in memory is a diskette in memory, formatted or not.
+      // Whether it carries a format is a passing state of the medium, not
+      // what the medium is, and a title that tracked it would be telling the
+      // user about something they are in the middle of changing.
       state.slotValue = kSlotRam;
-      state.labels =
-          disk.has_format()
-              ? DiskLabels{L"v pamäti", L"disketa v pamäti"}
-              : DiskLabels{L"v pamäti, nenaformátovaná",
-                           L"nenaformátovaná disketa v pamäti — "
-                           L"naformátuje ju Shift+F8"};
+      state.labels = {L"v pamäti", L"disketa v pamäti"};
       break;
     default:
       state.labels = {L"žiadna", L"žiadna, mechanika je prázdna"};
@@ -614,9 +610,6 @@ void EmulatorThread::Run() {
   // of a word.
   std::optional<Command> pendingDisk;
   auto pendingSince = Clock::now();
-  // Whether the diskette in the drive carries a format, so that the guest
-  // laying one down can be noticed and put in the title.
-  bool diskHadFormat = machine.disk().has_format();
 
   const auto changeDisk = [&](const Command& command) {
     DiskChange result;
@@ -642,11 +635,6 @@ void EmulatorThread::Run() {
     // Read after the change, so this is what is in the drive now.  A refused
     // mount leaves it empty, which the labels then say.
     result.state = DescribeDisk(machine.disk());
-    // Taken here as well, so the format watch below does not immediately fire
-    // a second notification for the same event.  Two of them in a row is not
-    // merely noise: the window consumes the payload, so the second one
-    // arrives empty and blanks what the first had just set.
-    diskHadFormat = machine.disk().has_format();
     {
       std::lock_guard<std::mutex> lock(errorMutex_);
       diskChange_ = std::move(result);
@@ -844,22 +832,6 @@ void EmulatorThread::Run() {
       running = false;
       if (notify) PostMessageW(notify, WM_EMU_DISK_ERROR, 0, 0);
       break;
-    }
-
-    // The guest formatting a blank diskette changes what the title should
-    // say, and nothing else would notice: the medium did not change, only
-    // what is on it.  Reported the same way a swap is, but marked as not one.
-    const bool formatNow = machine.disk().has_format();
-    if (formatNow != diskHadFormat) {
-      diskHadFormat = formatNow;
-      DiskChange formatted;
-      formatted.swapped = false;
-      formatted.state = DescribeDisk(machine.disk());
-      {
-        std::lock_guard<std::mutex> lock(errorMutex_);
-        diskChange_ = std::move(formatted);
-      }
-      if (notify) PostMessageW(notify, WM_EMU_DISK_CHANGED, 0, 0);
     }
 
     // A parked change goes through as soon as the controller is idle and the

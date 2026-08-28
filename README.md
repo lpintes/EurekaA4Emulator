@@ -202,9 +202,10 @@ stlačíte jednoducho `Y`; s **QWERTY** musíte stlačiť kláves označený
 emulátor posiela stroju polohu klávesu a preklad si robí ROM sama.
 Platí to pre celé písanie, nielen pre túto otázku.
 
-Titulok okna hovorí, čo je v mechanike, aj to, či je disketa
-nenaformátovaná — takže `NVDA+T` odpovie kedykoľvek. Po naformátovaní
-sa titulok sám opraví.
+Titulok okna hovorí, čo je v mechanike, takže `NVDA+T` odpovie
+kedykoľvek. Disketa v pamäti je v ňom vždy „v pamäti" — či je
+naformátovaná, alebo nie, je vec, ktorú práve meníte, nie to, čo tá
+disketa je.
 
 V dialógu sa dá novej diskete rovno priradiť **slot rýchlej voľby**.
 Zoznam pri každom slote ukáže, čo v ňom práve je, a ak doň niečo
