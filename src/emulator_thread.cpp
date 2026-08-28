@@ -109,18 +109,22 @@ uint8_t SpecialKey(const HostKeyEvent& key) {
   return code;
 }
 
+// The space bar in the row 89h bit set.  It is the same key as ALT on this
+// keyboard, and with shift it is Escape (1D52F).
+constexpr uint8_t kSpaceBar = 0x80;
+
 // The row bits run in Perkins key order, left to right, not in dot number
 // order: bit 0 is dot 3 and bit 2 is dot 1.  Under the hands that is exactly
 // the natural layout, F D S going outwards on the left and J K L on the right.
 uint8_t BrailleBit(WORD virtualKey) {
   switch (virtualKey) {
-    case 'F': return 0x04;       // dot 1
-    case 'D': return 0x02;       // dot 2
-    case 'S': return 0x01;       // dot 3
-    case 'J': return 0x08;       // dot 4
-    case 'K': return 0x10;       // dot 5
-    case 'L': return 0x20;       // dot 6
-    case VK_SPACE: return 0x80;  // the space bar, which is also the ALT key
+    case 'F': return 0x04;  // dot 1
+    case 'D': return 0x02;  // dot 2
+    case 'S': return 0x01;  // dot 3
+    case 'J': return 0x08;  // dot 4
+    case 'K': return 0x10;  // dot 5
+    case 'L': return 0x20;  // dot 6
+    case VK_SPACE: return kSpaceBar;
     default: return 0;
   }
 }
@@ -484,6 +488,19 @@ void EmulatorThread::Run() {
       host.held |= dot;
       host.chord |= dot;
       if (shift) host.chordShift = true;
+      return;
+    }
+    // Escape has no key of its own on the twenty-key keyboard: the machine
+    // makes it out of shift and the bare space bar (1D52F), which is why
+    // Shift+Space here already produces it.  The Esc key is the reflex of
+    // every hand that learned on a PC, and there is nothing else it could
+    // mean in this mode, so it presses that chord.  Sent on the press, not on
+    // the release: it is one deliberate act, not a pattern of dots being
+    // collected.  Auto-repeat is dropped because PressBraille holds nothing
+    // down -- thirty taps a second would queue thirty chords the machine then
+    // works through long after the finger came up.
+    if (!ctrl && key.virtualKey == VK_ESCAPE) {
+      if (!key.autoRepeat) machine.PressBraille(kSpaceBar, true);
       return;
     }
     if (const uint8_t arrow = ArrowBit(key.virtualKey)) {

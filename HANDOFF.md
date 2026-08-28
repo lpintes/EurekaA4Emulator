@@ -1258,11 +1258,20 @@ kurzorové a shift na `8Ch`. Nič iné na nej nie je.
 | `F1`–`F10` vrátane Shift | riadok `8Ah`, F9/F10 ako akordy | áno |
 | kurzory vrátane akordov | riadok `8Ch` ako bitová množina | áno |
 | `Home` `End` `PgUp` `PgDn` `Insert` `Delete` | riadok `8Ch` | áno — sú to **kurzorové akordy**, Home je hore plus vľavo |
+| `Esc` | riadky `89h` a `8Ch` naraz — shift plus holý medzerník | áno — takto Escape vyrába aj stroj (1D52F) |
 | písmená, číslice, interpunkcia | vlastná fronta ROM (`C67B`) | **nie** |
 
-Prvé štyri riadky nie sú obchádzka: každý z nich sa premietne na kláves
+Prvých päť riadkov nie je obchádzka: každý z nich sa premietne na kláves
 alebo akord, ktorý stroj naozaj má, a `Home` až `Delete` sú len pohodlný
 názov pre kurzorový akord. Tie zostávajú.
+
+Riadok s `Esc` pribudol 28. 8. 2026 a je to práve to pohodlné meno, nie
+nový kód: `Shift+Medzerník` v tomto režime fungoval vždy, len naň nikto
+nesiahne, keď má ruka pod prstom `Esc`. Posiela sa na **stlačenie**, nie
+na pustenie — nie je to vzorec bodov, ktorý sa zbiera, ale jeden úmyselný
+akt — a opakovanie od Windows sa zahadzuje, lebo `PressBraille` nič
+nedrží dole a tridsať akordov za sekundu by stroj dobiehal dlho po tom,
+čo prst odišiel.
 
 Posledný riadok obchádzka **bola** — presne tá skratka, ktorú táto sekcia
 zrušila. Text sa teda ignoruje: braillovský režim už neprepúšťa písmená.
