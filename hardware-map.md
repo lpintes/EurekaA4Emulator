@@ -600,6 +600,37 @@ je v nej `5Bh`, `5Ch` ani `5Dh`** — klávesy Windows a kláves Aplikácie
 v roku 1992 neexistovali. Kláves Aplikácie je tak jediný kláves
 klávesnice PC, ktorý stroj nepozná vôbec.
 
+### Aj klávesnica PC zastaví reč — ale nemá na to nevinný kláves
+
+Vzorková slučka syntetizátora číta len tri membránové riadky, takže cez
+ňu sa klávesnica PC k `spabrt` nedostane. **Má vlastné miesto**: doručovacia
+rutina klávesu na `1DE47` končí na `1DDC4`–`1DDCA`, kde skopíruje `C621h`
+do `C620h`. Je to tretí, na predošlých dvoch nezávislý zdroj `spabrt`
+(vedľa `0066B` vo vzorkovej slučke a `1D21F` v záchyte membrány).
+
+Odmerané na bežiacej ROM — dĺžka vety „hlavní menu" v krokoch, kláves
+poslaný v jej štvrtine (celá veta je 783 493):
+
+| kláves | trvanie | |
+|---|---|---|
+| šípky vľavo, vpravo, hore | ~196 400 | zastaví |
+| písmeno `a`, medzerník, Escape | ~196 300 | zastaví |
+| shift (`2Ah`) | 783 488 | **nezastaví** |
+| Ctrl (`1Dh`) | 783 488 | **nezastaví** |
+
+Odmeraná je aj cesta: šípka ide `1DDB0` → `1DE47` → `1DDC4` → `1DDC7`,
+písmeno tou istou koncovkou. Shift a Ctrl sa k nej nedostanú vôbec —
+rozcestník na `1DD74`/`1DD79` ich odbočí k obsluhe modifikátorov, tie
+nedoručia žiadny kód, a bez doručeného kódu niet čo prerušiť.
+
+**Z toho plynie rozdiel oproti membráne, ktorý je praktický, nie
+teoretický.** Na braillovskej klávesnici je shift kláves, ktorý reč
+zastaví a nič iné neurobí. Na klávesnici PC taký kláves nie je: zastaví
+každý, ktorý niečo doručí, a práve tie dva, ktoré by boli neškodné, sú
+jediné dva, ktoré nefungujú. Preto sa tam plynulé čítanie prerušuje
+šípkou — je to najmenej rušivý kláves z tých, ktoré to vedia, a
+v textovom procesore navyše nechá kurzor tam, kde sa prestalo čítať.
+
 ## Poznámky pre emulátor
 
 - Všetky tri latche sú v hardvéri len na zápis, ale firmvér ich zrkadlí
