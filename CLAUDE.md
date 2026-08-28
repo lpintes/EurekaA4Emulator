@@ -86,6 +86,16 @@ povie, či prežili. Sám preklad nezlyhá ani keď ich rozsype.
 
 `z80.c` sa prekladá ako C, nie C++; `Makefile` to už rieši.
 
+Preklad je jediná pravda o chybách. Ak ti editor alebo LSP hlási chyby
+v kóde, ktorý `build.bat` preloží bez jediného varovania, pozri sa
+najprv na `.clangd` — clangd do `Makefile` nevidí a bez neho prekladá
+pod C++17, s MSVC hlavičkami z Visual Studia a s `-I`, ktoré si
+vyhodnocuje voči priečinku súboru, nie voči koreňu. Sú to tri nezávislé
+zdroje falošných chýb a `.clangd` rieši všetky tri. Overené na všetkých
+sedemnástich zdrojákoch cez `clangd --check` — nula chýb. Nemaž ho a
+keď siahneš na prepínače v `Makefile`, zosúlaď ho; je to jediné miesto,
+kde sú zdvojené.
+
 Doplnok pre NVDA: `build-addon.bat`. Nie je v `Makefile` a nemá to byť —
 je to zip a jeden preklad `.po` → `.mo` cez `msgfmt` z msys2, teda nič, čo
 by malo závislosti alebo sa dalo zbytočne prekladať znovu. `build-addon.bat

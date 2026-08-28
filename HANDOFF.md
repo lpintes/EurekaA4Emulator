@@ -2390,6 +2390,45 @@ neurobil nič a bez zvuku: tichá porucha vymenená za tichú poruchu.
 Cesta pri ukončení (`main.cpp:302`) podmienku `enabled()` mala už
 predtým, takže obe cesty sú teraz rovnaké.
 
+### 6.21 clangd hlásil chyby v kóde, ktorý sa prekladá čisto
+
+**28. 8. 2026.** LSP hlásil vo `main_window.cpp` a `emulator_thread.cpp`
+neexistujúci `std::filesystem`, `std::clamp`, `wstring_view` a
+`starts_with` — v súboroch, ktoré `build.bat` preloží bez jediného
+varovania. Pri odvodzovaní zo zdrojáka je to nebezpečný šum: chyby, na
+ktoré si zvykneš ignorovať, sú chyby, ktoré prehliadneš.
+
+clangd do `Makefile` nevidí a bez kompilačnej databázy si prepínače
+domyslí. Boli tri nezávislé príčiny, nie jedna, a druhé dve sa ukázali
+až pri overovaní prvej:
+
+1. **Štandard.** Bez `-std=c++20` prekladá pod C++17 — odtiaľ všetky
+   štyri hlásenia.
+2. **Cieľ.** Predvolený cieľ clangd je `x86_64-pc-windows-msvc`, takže
+   bral STL z Visual Studia 2022 a hlavičky z Windows SDK, teda inú
+   knižnicu, než ktorou sa projekt prekladá. Hlavičky pritom nachádzal,
+   len cudzie — preto to vyzeralo, že cieľ netreba riešiť.
+   S `--target=x86_64-w64-windows-gnu` siahne do
+   `C:\msys64\mingw64\include\c++\16.2.0`, presne tam, kam `g++`;
+   sysroot si nájde sám, v konfigurácii nie je žiadna absolútna cesta.
+3. **Cesty k hlavičkám.** clangd relatívne `-I` vyhodnocuje voči
+   priečinku súboru, nie voči koreňu projektu. `-Isrc` teda fungovalo
+   len na `src/*.cpp`, a to náhodou — hlavičky ležia vedľa nich.
+   `src/win/window.cpp` mal 55 chýb a `tests/diag_probe.cpp` 501.
+   Rieši to `-Isrc, -I../src, -I../../src`: pre každý z tých priečinkov
+   platí jedna, neexistujúce clang mlčky preskočí.
+
+Je to `.clangd` v koreni. `compile_commands.json` by bol vernejší, ale
+musel by ho niečo generovať a znovu generovať po každej zmene pravidiel;
+pri rovnakých prepínačoch pre všetky súbory je to réžia bez úžitku.
+`z80.c` má výnimku na `-std=c11`, inak by naň clangd pustil C++20.
+
+Overené `clangd --check` na všetkých sedemnástich zdrojákoch v `src/`,
+`src/win/` a `tests/`: nula chýb. Pozor pri opakovaní merania —
+`--check` počíta do „N errors“ aj neúspešné sondy refaktoringov
+(`tweak: ExtractFunction ==> FAIL`), ktorých bývajú stovky a s kódom
+nesúvisia. Skutočné diagnostiky sú riadky `E[...]` **bez** `tweak:`.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

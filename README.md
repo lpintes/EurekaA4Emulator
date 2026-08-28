@@ -265,6 +265,10 @@ aj cez `Spustit-Eureku.bat`, ktorý si EXE nájde v `bin\`.
 EXE je linkované staticky, takže beží aj mimo msys2 a nepotrebuje
 žiadne mingw DLL.
 
+Súbor `.clangd` v koreni je pre editory a jazykové servery, na preklad
+nemá vplyv. Bez neho hlási clangd chyby v kóde, ktorý sa prekladá čisto,
+lebo do `Makefile` nevidí a domyslí si iný štandard aj iné hlavičky.
+
 Doplnok pre NVDA sa prekladá zvlášť:
 
 ```text

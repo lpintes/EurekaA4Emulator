@@ -1,0 +1,34 @@
+# clangd nevidí do Makefile a bez kompilačnej databázy prekladá s
+# predvolenými prepínačmi.  Dve veci mu treba povedať, inak hlási chyby
+# v kóde, ktorý sa prekladá bez jediného varovania:
+#
+# -std=c++20, lebo inak std::filesystem, std::clamp, wstring_view aj
+# starts_with vyzerajú ako neexistujúce členy.
+#
+# --target, lebo predvolený cieľ clangd na tomto stroji je
+# x86_64-pc-windows-msvc: bral by STL z Visual Studia a hlavičky z
+# Windows SDK, teda inú knižnicu, než ktorou sa projekt prekladá.
+# Cesta sa nehardkóduje -- clang si mingw sysroot nájde sám a siahne
+# do C:\msys64\mingw64\include\c++, presne tam, kam siaha g++.
+#
+# Trikrát -Isrc preto, že clangd bez kompilačnej databázy vyhodnocuje
+# relatívne cesty voči priečinku súboru, nie voči koreňu projektu.  Z
+# src/ platí prvá, z src/win/ tretia, z tests/ druhá; neexistujúce
+# clang mlčky preskočí.  Absolútna cesta by fungovala tiež, ale tento
+# súbor je v repozitári a na inom stroji by bola nesprávna.
+#
+# Prepínače musia zodpovedať tým z Makefile; toto je jediné miesto,
+# kde sú zdvojené.
+CompileFlags:
+  Add: [-std=c++20, --target=x86_64-w64-windows-gnu,
+        -Isrc, -I../src, -I../../src,
+        -DWINVER=0x0A00, -D_WIN32_WINNT=0x0A00]
+
+---
+# z80.c je C, nie C++.  Bez tejto výnimky by naň clangd pustil
+# -std=c++20 a hlásil nezmysly.
+If:
+  PathMatch: .*\.c
+CompileFlags:
+  Add: [-std=c11]
+  Remove: [-std=c\+\+20]
