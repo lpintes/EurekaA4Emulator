@@ -88,7 +88,8 @@ constexpr wchar_t kShortcutHelp[] =
     L"      slote, je napísané priamo v ponuke Disketa; priraďuje sa tam\r\n"
     L"      v položke Spravovať rýchlu voľbu.\r\n"
     L"F11, Ctrl+0 — vysunie disketu, teda nechá mechaniku prázdnu.\r\n"
-    L"F11, Ctrl+U — uloží disketu do priečinka.\r\n"
+    L"F11, Ctrl+U — uloží disketu do priečinka. Priečinok nemusí existovať,\r\n"
+    L"      stačí ho v dialógu pomenovať a vytvorí sa.\r\n"
     L"F11, Ctrl+D — výpis diagnostiky na konzolu.\r\n"
     L"F11, Ctrl+N — nastavenia.\r\n"
     L"F11, Ctrl+H — toto okno.\r\n"
@@ -221,8 +222,14 @@ void MainWindow::RegisterCommands() {
   });
 
   OnCommand(ID_FILE_EXPORT, [this] {
-    const std::wstring folder = win::PickFolder(
-        hwnd_, L"Vyberte priečinok, do ktorého sa disketa uloží");
+    // The name may be one that does not exist yet -- saving a diskette
+    // somewhere new is the normal case, and making the user go and create the
+    // folder first turned one act into two.  VirtualDisk::ExportTo creates it.
+    // The diskette's own name is suggested, because saving it under the name
+    // it already has is what is nearly always meant.
+    const std::wstring folder = win::PickFolderToCreate(
+        hwnd_, L"Kam sa má disketa uložiť",
+        disk_.labels.name.empty() ? L"Disketa" : disk_.labels.name.c_str());
     // Cancelling is an answer, not an error.
     if (!folder.empty()) emulator_.PostExportDisk(folder);
   });

@@ -84,19 +84,15 @@ bool NewDiskDialog::OnCommand(int id, int notification) {
     return true;
   }
   if (id == IDC_NEW_BROWSE) {
-    const Kind kind = SelectedKind();
-    const std::wstring folder = win::PickFolder(
-        hwnd_, kind == Kind::kEmptyFolder
-                   ? L"Vyberte priečinok, v ktorom sa nová disketa vytvorí"
-                   : L"Vyberte priečinok, ktorý bude disketou");
-    if (folder.empty()) return true;
-    // For a new diskette the picker chooses the parent, so a name is
-    // suggested and left editable: the field then holds the exact path that
-    // will be created, and nothing is invented behind the user's back.
-    SetText(IDC_NEW_PATH, kind == Kind::kEmptyFolder
-                              ? folder + L"\\Disketa"
-                              : folder);
-    if (kind == Kind::kEmptyFolder) SetFocus(Item(IDC_NEW_PATH));
+    // A new diskette is named, an existing one is picked.  Two different acts,
+    // so two different pickers: the naming one has an edit field and does not
+    // require the folder to be there yet.
+    const std::wstring folder =
+        SelectedKind() == Kind::kEmptyFolder
+            ? win::PickFolderToCreate(hwnd_, L"Kde sa má nová disketa vytvoriť",
+                                      L"Disketa")
+            : win::PickFolder(hwnd_, L"Vyberte priečinok, ktorý bude disketou");
+    if (!folder.empty()) SetText(IDC_NEW_PATH, folder);
     return true;
   }
   return false;

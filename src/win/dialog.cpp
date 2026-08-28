@@ -91,4 +91,38 @@ std::wstring PickFolder(HWND owner, const wchar_t* title) {
   return result;
 }
 
+std::wstring PickFolderToCreate(HWND owner, const wchar_t* title,
+                                const wchar_t* suggestedName) {
+  IFileSaveDialog* dialog = nullptr;
+  if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr,
+                              CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog))))
+    return {};
+  DWORD options = 0;
+  dialog->GetOptions(&options);
+  // FOS_PATHMUSTEXIST stays on -- the folder this one goes *into* has to be
+  // real -- but FOS_FILEMUSTEXIST is cleared, because what is being named
+  // here is precisely something that does not exist yet.  FOS_NOREADONLYRETURN
+  // rules out the places nothing can be written to before the name is typed
+  // rather than after.
+  dialog->SetOptions((options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM |
+                      FOS_PATHMUSTEXIST | FOS_NOREADONLYRETURN) &
+                     ~static_cast<DWORD>(FOS_FILEMUSTEXIST));
+  dialog->SetTitle(title);
+  if (suggestedName) dialog->SetFileName(suggestedName);
+  std::wstring result;
+  if (SUCCEEDED(dialog->Show(owner))) {
+    IShellItem* item = nullptr;
+    if (SUCCEEDED(dialog->GetResult(&item))) {
+      PWSTR path = nullptr;
+      if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+        result = path;
+        CoTaskMemFree(path);
+      }
+      item->Release();
+    }
+  }
+  dialog->Release();
+  return result;
+}
+
 }  // namespace win

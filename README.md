@@ -170,6 +170,10 @@ Na uloženie sa emulátor spýta **pri ukončení**, čo je posledná chvíľa,
 keď to má zmysel. Uložiť ju môžete aj kedykoľvek predtým cez `F11`,
 `Ctrl+U`.
 
+Pri ukladaní **priečinok nemusí existovať**. Dialóg má pole na názov,
+tak ako pri ukladaní súboru: napíšete meno a priečinok sa vytvorí. Nie
+je teda nutné ho najprv niekde založiť a potom sa poň vracať.
+
 ## Nová disketa
 
 Ponuka **Disketa → Nová disketa…** (`F11`, `Ctrl+M`) vyrobí disketu

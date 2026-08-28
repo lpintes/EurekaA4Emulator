@@ -327,8 +327,10 @@ int Run() {
         L".\r\n\r\nChcete ju uložiť do priečinka?";
     if (MessageBoxW(nullptr, question.c_str(), L"Eureka A4",
                     MB_YESNO | MB_ICONQUESTION) == IDYES) {
-      const std::wstring target = win::PickFolder(
-          nullptr, L"Vyberte priečinok, do ktorého sa disketa uloží");
+      // A name that does not exist yet is the point here: this diskette never
+      // had a folder, so there is nothing to pick.  ExportDisk creates it.
+      const std::wstring target = win::PickFolderToCreate(
+          nullptr, L"Kam sa má disketa uložiť", L"Disketa");
       if (target.empty())
         Warn(L"Ukladanie zrušené, obsah diskety sa stratí.");
       else if (!machine->ExportDisk(target, error))

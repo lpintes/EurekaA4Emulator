@@ -64,6 +64,20 @@ class Dialog {
 // calling thread.
 std::wstring PickFolder(HWND owner, const wchar_t* title);
 
+// The same, but for choosing where something is to be *written*: the folder
+// named need not exist yet, and the caller creates it.  The picker above
+// insists on an existing one, which turns "save this here" into two chores --
+// go and make a folder somewhere else, then come back and pick it.
+//
+// It is a save dialog in folder mode, and that is the one combination the
+// shell offers with a name field in it.  A name field is also the accessible
+// half of this: typing a name is one edit box a screen reader reads out,
+// where "New folder" on a toolbar has to be hunted for.
+//
+// suggestedName pre-fills that field and may be null.
+std::wstring PickFolderToCreate(HWND owner, const wchar_t* title,
+                                const wchar_t* suggestedName);
+
 }  // namespace win
 
 #endif
