@@ -66,17 +66,17 @@ fs::path RoamingFolder() {
 
 }  // namespace
 
-bool SlotIsRam(const std::wstring& slot) { return slot == kSlotRam; }
-
-bool SlotIsUnformattedRam(const std::wstring& slot) {
-  return slot == kSlotUnformattedRam;
+// Every marker, not just this one exactly: an older settings file may hold
+// *pamat-nenaformatovana, which this version no longer makes.  Treating it as
+// the memory slot is right and, more to the point, keeps it from being mounted
+// as a folder called "*pamat-nenaformatovana".
+bool SlotIsRam(const std::wstring& slot) {
+  return !slot.empty() && slot.front() == L'*';
 }
 
 std::wstring SlotDisplayName(const std::wstring& slot) {
   if (slot.empty()) return L"(prázdny)";
   if (SlotIsRam(slot)) return L"nová prázdna v pamäti";
-  if (SlotIsUnformattedRam(slot))
-    return L"nová prázdna v pamäti, nenaformátovaná";
   const fs::path path(slot);
   fs::path leaf = path.filename();
   // A trailing separator ("C:\disky\eureka\") leaves filename() empty.

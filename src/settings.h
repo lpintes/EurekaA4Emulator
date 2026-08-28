@@ -65,21 +65,27 @@ class Settings {
   std::array<std::wstring, kSlots> slots_;
 };
 
-// A slot holds either a host folder or one of these markers.  A Windows path
-// can never begin with '*' -- the shell forbids it in a name -- so the two
-// cannot be mistaken for each other, and the settings file stays readable:
+// A slot holds either a host folder or this marker.  A Windows path can never
+// begin with '*' -- the shell forbids it in a name -- so the two cannot be
+// mistaken for each other, and the settings file stays readable:
 // "slot3=*pamat" says what it does.
 //
-// A marker slot does not restore a diskette, it makes a fresh empty one.  That
-// is the honest thing for a medium that lives only in memory: the one that was
+// The marker does not restore a diskette, it makes a fresh empty one.  That is
+// the honest thing for a medium that lives only in memory: the one that was
 // there is gone when the emulator closes, and pretending otherwise would be a
-// slot that quietly hands back nothing.  The names below say "nová" for that
-// reason.
+// slot that quietly hands back nothing.  Hence "nová" in the name.
+//
+// There is deliberately no marker for an unformatted diskette.  Unformatted is
+// a state that lasts until the first Shift+F8, so a slot promising one would
+// go on saying "nenaformátovaná" about a diskette that has long been
+// formatted -- a label describing something that is no longer true.  That
+// choice belongs in the New diskette dialog, where it is made once.
 inline constexpr wchar_t kSlotRam[] = L"*pamat";
-inline constexpr wchar_t kSlotUnformattedRam[] = L"*pamat-nenaformatovana";
 
+// True for the memory marker.  Anything else beginning with '*' is a marker
+// from a newer version and is treated the same rather than being mounted as a
+// folder, which is what a bare path test would have done with it.
 bool SlotIsRam(const std::wstring& slot);
-bool SlotIsUnformattedRam(const std::wstring& slot);
 
 // What the menu and the dialogs call a slot.  In one place, so a slot cannot
 // read one way in the menu and another way in the dialog that fills it.

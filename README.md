@@ -194,6 +194,14 @@ a potom „disk je už naformátován, přeformátovat, ano nebo ne?" — tú
 druhú otázku dostanete vždy, aj na úplne prázdnej diskete. Odpovedá sa
 klávesom **`y`**, nie `a`: otázka je česká, ale kláves anglický.
 
+**Pozor na to, ktorý kláves `y` naozaj je.** Eureka má vlastnú tabuľku
+klávesnice a tá je **česká QWERTZ**, takže `y` leží na klávese, ktorý má
+americká klávesnica ako `Z` (scancode `2C`). S klávesnicou QWERTZ teda
+stlačíte jednoducho `Y`; s **QWERTY** musíte stlačiť kláves označený
+`Z`. Rozhoduje fyzická klávesnica, nie rozloženie nastavené vo Windows —
+emulátor posiela stroju polohu klávesu a preklad si robí ROM sama.
+Platí to pre celé písanie, nielen pre túto otázku.
+
 Titulok okna hovorí, čo je v mechanike, aj to, či je disketa
 nenaformátovaná — takže `NVDA+T` odpovie kedykoľvek. Po naformátovaní
 sa titulok sám opraví.

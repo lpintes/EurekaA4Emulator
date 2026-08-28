@@ -240,33 +240,26 @@ void MemorySlotsSurviveTheFile() {
   {
     Settings settings(file);
     settings.SetSlot(1, kSlotRam);
-    settings.SetSlot(2, kSlotUnformattedRam);
     settings.SetSlot(3, L"C:\\Diskety\\Príbehy");
-    Check(settings.Save(error), "ulozenie so slotmi v pamati", Narrow(error));
+    Check(settings.Save(error), "ulozenie so slotom v pamati", Narrow(error));
   }
   Settings loaded(file);
   loaded.Load();
-  Check(SlotIsRam(loaded.slot(1)), "slot s naformatovanou v pamati prezije");
-  Check(SlotIsUnformattedRam(loaded.slot(2)),
-        "slot s nenaformatovanou v pamati prezije");
-  Check(!SlotIsRam(loaded.slot(3)) && !SlotIsUnformattedRam(loaded.slot(3)),
-        "cesta sa nepomyli s pamatou");
-  Check(!SlotIsRam(L"") && !SlotIsUnformattedRam(L""),
-        "prazdny slot nie je pamat");
-  // The two markers are different things and must not fold together: one
-  // makes a usable diskette, the other one the machine calls a bad disk.
-  Check(!SlotIsRam(kSlotUnformattedRam) && !SlotIsUnformattedRam(kSlotRam),
-        "markery sa navzajom nezamiennaju");
+  Check(SlotIsRam(loaded.slot(1)), "slot s pamatou prezije");
+  Check(!SlotIsRam(loaded.slot(3)), "cesta sa nepomyli s pamatou");
+  Check(!SlotIsRam(L""), "prazdny slot nie je pamat");
+  // An older file may hold the marker this version no longer writes.  It has
+  // to read as the memory slot and not as a folder called
+  // "*pamat-nenaformatovana", which is what a plain path test would do.
+  Check(SlotIsRam(L"*pamat-nenaformatovana"),
+        "stara znacka z minulej verzie sa berie ako pamat");
 }
 
 void SlotNamesAreReadable() {
   Check(SlotDisplayName(L"") == L"(prázdny)", "prazdny slot sa vola prazdny",
         Narrow(SlotDisplayName(L"")));
   Check(SlotDisplayName(kSlotRam) == L"nová prázdna v pamäti",
-        "naformatovana v pamati ma meno", Narrow(SlotDisplayName(kSlotRam)));
-  Check(SlotDisplayName(kSlotUnformattedRam) ==
-            L"nová prázdna v pamäti, nenaformátovaná",
-        "nenaformatovana v pamati ma meno");
+        "slot v pamati ma meno", Narrow(SlotDisplayName(kSlotRam)));
   // The name is the leaf, not the whole path: it goes in a menu item that a
   // screen reader reads out, where a full path is noise.
   Check(SlotDisplayName(L"C:\\Diskety\\Slovník") == L"Slovník",

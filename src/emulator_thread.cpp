@@ -391,7 +391,10 @@ DiskState DescribeDisk(const VirtualDisk& disk) {
       break;
     }
     case VirtualDisk::Media::kRam:
-      state.slotValue = disk.has_format() ? kSlotRam : kSlotUnformattedRam;
+      // The same marker whether it carries a format or not: a slot makes a
+      // fresh empty diskette, and a usable one is the only kind worth making
+      // from a shortcut.
+      state.slotValue = kSlotRam;
       state.labels =
           disk.has_format()
               ? DiskLabels{L"v pamäti", L"disketa v pamäti"}

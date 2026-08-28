@@ -28,8 +28,7 @@ namespace {
 std::wstring SlotLine(int number, const std::wstring& slot) {
   std::wstring line =
       std::to_wstring(number) + L": " + SlotDisplayName(slot);
-  if (!slot.empty() && !SlotIsRam(slot) && !SlotIsUnformattedRam(slot))
-    line += L" — " + slot;
+  if (!slot.empty() && !SlotIsRam(slot)) line += L" — " + slot;
   return line;
 }
 
@@ -70,6 +69,12 @@ void NewDiskDialog::RefreshEnabled() {
       kind == Kind::kFolder || kind == Kind::kEmptyFolder;
   SetEnabled(IDC_NEW_PATH, needsFolder);
   SetEnabled(IDC_NEW_BROWSE, needsFolder);
+  // An unformatted diskette cannot go in a slot: unformatted lasts until the
+  // first Shift+F8, so the slot would keep offering a state this diskette has
+  // long left behind.  Greying it says that where a screen reader reads it.
+  SetEnabled(IDC_NEW_SLOT, kind != Kind::kUnformattedRam);
+  if (kind == Kind::kUnformattedRam)
+    SendMessageW(Item(IDC_NEW_SLOT), CB_SETCURSEL, 0, 0);
 }
 
 bool NewDiskDialog::OnCommand(int id, int notification) {

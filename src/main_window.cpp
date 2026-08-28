@@ -255,7 +255,9 @@ void MainWindow::RegisterCommands() {
         break;
       case NewDiskDialog::Kind::kUnformattedRam:
         emulator_.PostCreateRamDisk(false);
-        slotValue = kSlotUnformattedRam;
+        // No slot for this one: unformatted lasts until the first Shift+F8,
+        // so a slot would go on offering a state the diskette left behind
+        // long ago.  The dialog greys the picker out to say so.
         break;
       case NewDiskDialog::Kind::kEmptyFolder: {
         // Created here rather than on the worker: making a folder is the
@@ -337,8 +339,8 @@ void MainWindow::InsertSlot(int number) {
   // bring back the one that was there: that medium exists nowhere but in this
   // process, so there is nothing to bring back -- which is why the slot is
   // named "nová prázdna v pamäti" wherever it is shown.
-  if (SlotIsRam(slot) || SlotIsUnformattedRam(slot)) {
-    emulator_.PostCreateRamDisk(SlotIsRam(slot));
+  if (SlotIsRam(slot)) {
+    emulator_.PostCreateRamDisk(true);
     return;
   }
   const std::wstring folder = slot;
