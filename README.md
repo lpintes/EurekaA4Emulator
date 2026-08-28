@@ -10,7 +10,8 @@ ako v Eureke.
 1. Spustite `EurekaA4Emulator.exe`.
 2. Vyberte priečinok, ktorý sa má správať ako 800 KiB disk Eureky. Výber
    sa dá zrušiť — Eureka potom beží bez diskety, tak ako skutočný stroj
-   s prázdnou mechanikou.
+   s prázdnou mechanikou. **Pýta sa len pri prvom spustení:** ďalšie razy
+   sa vloží disketa, ktorú ste mali naposledy.
 3. Počkajte na úvodnú vetu „inicializace eureky“.
 4. Klávesnica Windows teraz ovláda emulovaný počítač.
 
@@ -123,8 +124,9 @@ EurekaA4Emulator.exe --rom A4ROM.DMP --disk D:\MOJ_EUREKA_DISK
 
 Ak sa `--rom` neuvedie, ROM sa hľadá postupne v premennej prostredia
 `A4ROM`, vedľa EXE, o úroveň vyššie a v aktuálnom priečinku. Keď ju
-nenájde, vypíše, kde všade hľadal. Ak sa neuvedie `--disk`, program
-zobrazí systémový výber priečinka.
+nenájde, vypíše, kde všade hľadal. Ak sa neuvedie `--disk`, vloží sa
+disketa z minulého spustenia; systémový výber priečinka sa zobrazí len
+vtedy, keď si emulátor nemá čo pamätať.
 
 Disketa je nepovinná:
 
@@ -134,6 +136,28 @@ Disketa je nepovinná:
   v pamäti. Ak na nej pri ukončení nejaké súbory sú, emulátor sa spýta,
   či ich uložiť do priečinka; ak odmietnete alebo výber zrušíte, obsah
   zanikne.
+
+## Čo si emulátor pamätá
+
+Zatiaľ jedinú vec: **disketu, ktorú ste mali naposledy**. Vloží sa pri
+ďalšom štarte, takže sa program nepýta na priečinok pri každom spustení.
+Pamätá sa len disketa z priečinka — disketa v pamäti nemá čo obnovovať.
+
+Keď priečinok medzitým zmizne (typicky odpojený USB disk), Eureka
+naštartuje s prázdnou mechanikou a spýta sa, či si ho má pamätať aj
+naďalej. Odpoveď **Áno** má zmysel práve pri odpojenom disku; **Nie**
+záznam zabudne.
+
+Nastavenia sú v obyčajnom textovom súbore `nastavenia.txt`, ktorý sa dá
+otvoriť v poznámkovom bloku. Emulátor si ho hľadá na dvoch miestach:
+
+- v priečinku **`config`** vedľa `EurekaA4Emulator.exe`, ak taký priečinok
+  vytvoríte — to je prenosný režim, vhodný na USB kľúč,
+- inak v `%APPDATA%\EurekaA4`.
+
+Priečinok `config` si emulátor nikdy nevytvorí sám; prenosný režim je tak
+vždy vaše rozhodnutie a nezapne sa omylom. Súbor emulátor prepisuje celý,
+takže vlastné poznámky v ňom neprežijú.
 
 ## Spúšťanie súborov
 

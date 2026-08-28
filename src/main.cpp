@@ -26,20 +26,13 @@
 #include "host_console.h"
 #include "machine.h"
 #include "main_window.h"
+#include "settings.h"
 #include "win/dialog.h"
 #include "win/window.h"
 
 namespace fs = std::filesystem;
 
 namespace {
-
-fs::path ExecutableDirectory() {
-  std::wstring buffer(32768, L'\0');
-  const DWORD length = GetModuleFileNameW(nullptr, buffer.data(),
-                                          static_cast<DWORD>(buffer.size()));
-  buffer.resize(length);
-  return fs::path(buffer).parent_path();
-}
 
 // The ROM lives outside the repository, so it is rarely next to the EXE.
 // A4ROM is the variable the project's tools already use.
@@ -98,8 +91,11 @@ void PrintUsage() {
       L"Použitie: EurekaA4Emulator.exe [--rom A4ROM.DMP] [--disk PRIECINOK]\r\n"
       L"                              [--ram-disk] [--no-disk] [--diag]\r\n"
       L"                              [--braille] [--pc]\r\n"
-      L"Ak --disk vynecháte, zobrazí sa výber priečinka; jeho zrušením sa\r\n"
-      L"Eureka spustí bez diskety.\r\n"
+      L"Ak --disk vynecháte, vloží sa disketa z minulého spustenia. Pri\r\n"
+      L"prvom spustení, keď si emulátor nemá čo pamätať, sa zobrazí výber\r\n"
+      L"priečinka; jeho zrušením sa Eureka spustí bez diskety.\r\n"
+      L"Zapamätaná disketa a ďalšie nastavenia sú v priečinku config vedľa\r\n"
+      L"EXE, ak taký priečinok vytvoríte, inak v %APPDATA%\\EurekaA4.\r\n"
       L"--ram-disk dá prázdnu disketu, ktorá žije len v pamäti; pri ukončení\r\n"
       L"sa emulátor spýta, či ju uložiť do priečinka.\r\n"
       L"--no-disk spustí Eureku bez diskety a bez pýtania.\r\n"
@@ -203,9 +199,41 @@ int Run() {
   // The one thing that opens a console without being asked twice: the user
   // asked for diagnostics, so a window to read them in is the point.
   if (diagnostics) host::OpenConsole();
+  Settings settings(Settings::FindFile());
+  settings.Load();
+
+  // Without --disk the emulator puts back the diskette it had last time, so a
+  // normal start asks nothing at all.  The folder picker is left for the first
+  // run, when there is nothing to put back.
+  bool askForFolder = disk.empty() && !ramDisk && !noDisk;
+  if (askForFolder && !settings.last_disk().empty()) {
+    askForFolder = false;
+    const fs::path remembered = settings.last_disk();
+    std::error_code ec;
+    if (fs::is_directory(remembered, ec)) {
+      disk = remembered;
+    } else if (MessageBoxW(
+                   nullptr,
+                   (L"Disketa z minulého spustenia sa nedá nájsť:\r\n\r\n" +
+                    remembered.wstring() +
+                    L"\r\n\r\nEureka sa spustí s prázdnou mechanikou. Má si "
+                    L"emulátor tento priečinok pamätať aj naďalej? Ak je to "
+                    L"odpojený disk, odpovedzte Áno.")
+                       .c_str(),
+                   L"Eureka A4", MB_YESNO | MB_ICONQUESTION) == IDNO) {
+      // Forgetting it silently would throw away a setting the user made;
+      // never forgetting it would mean this same box at every start with the
+      // drive unplugged.  So it is their call, and it is asked once.
+      settings.SetLastDisk(L"");
+      std::wstring saveError;
+      if (!settings.Save(saveError)) Warn(saveError);
+    }
+    // Either way the drive stays empty, which is a state the machine handles
+    // and reports for itself (6.6).
+  }
   // Cancelling the picker is a choice, not an error: a real A4 runs perfectly
   // well with an empty drive and says so when a disk function is asked for.
-  if (disk.empty() && !ramDisk && !noDisk)
+  if (askForFolder)
     disk = win::PickFolder(nullptr,
                            L"Vyberte priečinok, ktorý bude diskom Eureky A4");
 
@@ -250,6 +278,17 @@ int Run() {
     // Subfolders are left out and nothing is said about it: a CP/M diskette has
     // no directories at all, so this is the rule the disk works by, not an
     // incident to report at every start.  It is in README instead.
+
+    // Remembered as the canonical path the mount actually used, not as it was
+    // typed.  Saved here rather than at exit, and reported if it fails: this
+    // is the moment a diskette was chosen, so a setting that did not stick can
+    // still be acted on.  At exit the same box would only be in the way.
+    const std::wstring mounted = machine->disk().folder().wstring();
+    if (settings.last_disk() != mounted) {
+      settings.SetLastDisk(mounted);
+      std::wstring saveError;
+      if (!settings.Save(saveError)) Warn(saveError);
+    }
   }
   machine->diagnostics().set_enabled(diagnostics);
   machine->Reset();

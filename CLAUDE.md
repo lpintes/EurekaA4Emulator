@@ -129,8 +129,8 @@ Pozor na jednu vec v `Makefile`: `make` si shell vyberá podľa PATH — z
 používať `copy`, `if not exist` ani `mkdir -p`. `mkdir build` funguje v
 oboch, kopírovanie `READ.COM` nie, a preto ho robí `run-tests.bat`.
 
-Pozor: `codec_test` a `disk_test` majú obyčajný `main`, takže sa prekladajú
-**bez** `-municode`; s ním linker spadne na chýbajúcom `wWinMain`.
+Pozor: `codec_test`, `disk_test` a `settings_test` majú obyčajný `main`, takže
+sa prekladajú **bez** `-municode`; s ním linker spadne na chýbajúcom `wWinMain`.
 
 `disk_test` beží bez ROM aj bez diskového priečinka — testovacie priečinky si
 generuje v `%TEMP%` a po sebe ich maže. Drží pravidlá kapacity diskety
@@ -138,16 +138,21 @@ generuje v `%TEMP%` a po sebe ich maže. Drží pravidlá kapacity diskety
 nestratí potichu. Skutočný diskový priečinok na to nepoužívaj, mení sa pod
 rukami.
 
+`settings_test` beží tiež bez ROM a v `%TEMP%`. Drží formát súboru
+s nastaveniami a hlavne to, že cesta s diakritikou prežije zápis aj čítanie.
+Overené mutáciou: `CP_UTF8` → `CP_ACP` v `settings.cpp` zhodí tri kontroly.
+Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spúšťa.
+
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých deväť naraz — dva
+`run-tests.bat` zostaví testy a pustí všetkých desať naraz — tri
 samostatné testy a sedem režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `eurekatech\TECHMAN1\READ.COM`, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`.
 
-Výstup drží pohromade `--output-sync=target`; bez neho sa riadky deviatich
+Výstup drží pohromade `--output-sync=target`; bez neho sa riadky desiatich
 procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
 
 **Pasca, do ktorej som už spadol:** režimy sa v `Makefile` generujú ako
@@ -156,7 +161,7 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže sedem režimov zostalo bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť deväť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
+byť desať — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
 
 ## Diagnostická sonda
 

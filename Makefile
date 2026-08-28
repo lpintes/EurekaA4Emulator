@@ -33,7 +33,7 @@ CFLAGS   := -std=c11 -O2 $(WARN) -Isrc
 TESTFLAGS := -std=c++20 -O2 $(WARN) -Isrc
 
 EMU_NAMES  := main machine virtual_disk text_codec audio_player diagnostics \
-              host_console emulator_thread main_window dialogs
+              host_console emulator_thread main_window dialogs settings
 # Nezavisle na emulatore, da sa vziat do ineho projektu tak ako je.
 WIN_NAMES  := window dialog
 EMU_OBJS   := $(addprefix $(BUILD)/,$(addsuffix .o,$(EMU_NAMES))) \
@@ -46,6 +46,7 @@ CORE_OBJS  := $(BUILD)/machine.o $(BUILD)/virtual_disk.o $(BUILD)/diagnostics.o 
 
 EMU        := $(BIN)/EurekaA4Emulator.exe
 TEST_EXES  := $(BIN)/codec_test.exe $(BIN)/disk_test.exe \
+              $(BIN)/settings_test.exe \
               $(BIN)/diag_probe.exe $(BIN)/integration_test.exe
 
 .PHONY: all tests check clean
@@ -95,6 +96,11 @@ $(BIN)/codec_test.exe: $(BUILD)/test_codec_test.o $(BUILD)/text_codec.o | $(BIN)
 $(BIN)/disk_test.exe: $(BUILD)/test_disk_test.o $(BUILD)/virtual_disk.o | $(BIN)
 	$(CXX) $(STATIC) -o $@ $^
 
+# settings.o sa pyta shellu, kde je %APPDATA% (SHGetKnownFolderPath), preto
+# shell32 a ole32 aj tu; FOLDERID_RoamingAppData je GUID z uuid.
+$(BIN)/settings_test.exe: $(BUILD)/test_settings_test.o $(BUILD)/settings.o | $(BIN)
+	$(CXX) $(STATIC) -o $@ $^ -lole32 -lshell32 -luuid
+
 $(BIN)/diag_probe.exe: $(BUILD)/test_diag_probe.o $(CORE_OBJS) | $(BIN)
 	$(CXX) $(STATIC) -municode -o $@ $^
 
@@ -114,7 +120,7 @@ ROM   ?= $(A4ROM)
 DISK  ?= $(BUILD)/testdisk
 
 MODES  := bas com kbd power dc rtc hudba
-CHECKS := check-codec check-disk $(addprefix check-,$(MODES))
+CHECKS := check-codec check-disk check-settings $(addprefix check-,$(MODES))
 
 .PHONY: $(CHECKS)
 
@@ -125,6 +131,9 @@ check-codec: $(BIN)/codec_test.exe
 
 check-disk: $(BIN)/disk_test.exe
 	$(BIN)/disk_test.exe
+
+check-settings: $(BIN)/settings_test.exe
+	$(BIN)/settings_test.exe
 
 # Rezimy integracneho testu sa generuju ako VYSLOVNE pravidla. Vzorove
 # pravidlo `check-%` tu bolo a bola to ticha pasca: make implicitne ani

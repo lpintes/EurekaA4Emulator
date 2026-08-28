@@ -1,0 +1,73 @@
+#ifndef EUREKA_SETTINGS_H
+#define EUREKA_SETTINGS_H
+
+// What the emulator remembers between runs.  Until now it remembered nothing
+// at all, so this is the first state that outlives a session; the reasoning is
+// in HANDOFF 6.22.
+//
+// Three things here are decisions rather than detail:
+//
+// The file goes into a `config` folder beside the EXE when one exists, and
+// into %APPDATA%\EurekaA4 otherwise.  A folder and not a file, because it has
+// to be a deliberate act -- an unpacked archive can leave a stray file behind,
+// and portable mode switching itself on unnoticed is exactly the sort of
+// silent state this project keeps getting caught by.  It is never created
+// here: creating it would turn the choice into an accident.
+//
+// The format is plain key=value, parsed by hand, and deliberately *not* the
+// profile API.  WritePrivateProfileStringW writes ANSI into a file that has no
+// UTF-16 BOM, so the first save of a path with diacritics
+// (C:\Diskety\Príbehy) corrupts it -- and corrupts it silently, which is worse
+// than failing.
+//
+// Nothing here reports anything.  A missing or unreadable file means defaults,
+// because a first run has no file and must not complain about it (6.19); a
+// failed save is returned to the caller, which reports it at the moment of the
+// act that did not stick, never at start-up.
+
+#include <array>
+#include <filesystem>
+#include <string>
+
+class Settings {
+ public:
+  // Numbered 1..kSlots, the way the menu and Ctrl+digit name them.
+  static constexpr int kSlots = 9;
+
+  explicit Settings(std::filesystem::path file) : file_(std::move(file)) {}
+
+  // Where the real settings file lives.  Empty when there is nowhere to put
+  // it, which Save then reports.  Tests hand the constructor their own path
+  // instead of calling this.
+  static std::filesystem::path FindFile();
+
+  // A line that makes no sense is skipped rather than fatal: this file is
+  // meant to be editable by hand, and one bad line must not cost the user
+  // every slot in it.
+  void Load();
+  bool Save(std::wstring& error) const;
+
+  const std::filesystem::path& file() const { return file_; }
+
+  // The diskette to put back in at the next start.  Empty means none.  Only a
+  // folder-backed diskette is remembered: a RAM one has nothing to restore.
+  const std::wstring& last_disk() const { return lastDisk_; }
+  void SetLastDisk(std::wstring path);
+
+  // An out-of-range number reads empty and writes nowhere, so a caller that
+  // miscounts cannot corrupt the file or walk off the array.
+  const std::wstring& slot(int number) const;
+  void SetSlot(int number, std::wstring path);
+
+ private:
+  std::filesystem::path file_;
+  std::wstring lastDisk_;
+  std::array<std::wstring, kSlots> slots_;
+};
+
+// Where the EXE lives.  Here rather than in main.cpp because the ROM search
+// and the settings file ask the same question, and two answers to "where am I"
+// would be one too many.
+std::filesystem::path ExecutableDirectory();
+
+#endif

@@ -5,6 +5,14 @@ the emulator). The executables land in `bin\` next to the emulator.
 
 `codec_test.cpp` verifies Unicode ↔ Kamenicky conversion.
 
+`settings_test.cpp` covers the settings file: where it goes (a `config` folder
+beside the EXE if there is one, `%APPDATA%\EurekaA4` otherwise), and that a
+hand-edited file cannot cost the user the slots in it. The round trip is
+checked with Slovak diacritics rather than ASCII, because ASCII survives every
+encoding this could accidentally use -- the failure being guarded against is
+the quiet one, where a saved path comes back mangled and the slot simply points
+somewhere else. Runs without the ROM, in the system temp folder.
+
 `integration_test.cpp` boots the real ROM and has several modes:
 
 - `com` starts `READ.COM` through Shift+F7 and verifies its prompt;

@@ -2745,9 +2745,10 @@ integration_test ROM DISK_FOLDER rtc   -> PASS (budík sa nastaví a zazvoní)
 integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
 disk_test                              -> PASS (18 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
+settings_test                          -> PASS (27 kontrol, bez ROM)
 ```
 
-Všetkých deväť naraz spustí `run-tests.bat`: paralelne, s jedným súhrnom
+Všetkých desať naraz spustí `run-tests.bat`: paralelne, s jedným súhrnom
 na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
 diskety si pripraví sám, takže ručne netreba nič.
 
