@@ -1770,6 +1770,7 @@ to zásah do modelu stroja**:
 
 Zatiaľ **nespravené a neodskúšané** — cesta na výmenu za behu v kóde
 neexistuje, takže vyššie uvedené je z manuálu a z kódu, nie z merania.
+Ako má tá cesta vyzerať, je v **6.22**.
 
 ### 6.18 GUI — otvorená otázka
 
@@ -1920,10 +1921,11 @@ Otvorené a treba rozhodnúť:
   tenký — drží dva prepínače, ktoré za behu naozaj niečo znamenajú (režim
   klávesnice, diagnostika), a **nič si nepamätá medzi behmi**. Čo ďalšie
   sa stane nastavením a čo má beh prežiť, je tá istá otázka ako uchovanie
-  RAM (6.15), takže sa rozhodne s ňou.
+  RAM (6.15), takže sa rozhodne s ňou. **Kde sa uchovajú, rozhodnuté je**
+  (6.22): priečinok `config` vedľa EXE, inak `%APPDATA%`.
 - **Výmena diskety za behu** (6.17) v ponuke ešte nie je; `Súbor` vie
   zatiaľ len uložiť disketu do priečinka. Cesta na výmenu v kóde stále
-  neexistuje.
+  neexistuje — návrh celej správy diskiet je v **6.22**.
 **Hotové 27. 8. 2026: F11 a Shift+F11.** Majiteľ nápad s akordmi (nižšie)
 odložil v prospech niečoho jednoduchšieho, a je to lepšie riešenie:
 
@@ -2429,6 +2431,223 @@ Overené `clangd --check` na všetkých sedemnástich zdrojákoch v `src/`,
 (`tweak: ExtractFunction ==> FAIL`), ktorých bývajú stovky a s kódom
 nesúvisia. Skutočné diagnostiky sú riadky `E[...]` **bez** `tweak:`.
 
+### 6.22 Správa diskiet — návrh, nespravené
+
+**Rozhodnuté 28. 8. 2026 s majiteľom.** Nič z tejto sekcie nie je
+odmerané ani napísané: je to návrh postavený na tom, čo už doložené je
+(6.6 nepovinná disketa, 6.12 kapacita z DPB, 6.17 výmena za behu).
+Miesta, ktoré merať treba, sú v texte označené.
+
+Zámerom je prestať sa na disketu pozerať ako na jeden priečinok zadaný
+pri štarte. Vzniknú tri veci: rýchla voľba diskety pod `Ctrl+číslo`,
+dialóg na vytvorenie novej diskety a rozdeľovač veľkej kolekcie na
+diskety.
+
+#### Ponuka `Disketa` a rýchla voľba
+
+`Uložiť disketu do priečinka…` sa presunie zo `Súboru` do novej ponuky
+`Disketa`, kde bude aj `Vložiť z priečinka…`, `Nová disketa…`,
+`Vysunúť`, deväť slotov rýchlej voľby, `Spravovať rýchlu voľbu…`
+a `Rozdeliť kolekciu na diskety…`. V `Súbore` zostane `Skončiť`.
+
+`Ctrl+1` až `Ctrl+9` a `Ctrl+0` (vysunúť) patria do
+**`IDR_ACCELERATORS_HOST`**, teda platia až po `F11` alebo `Shift+F11`.
+Reálne stlačenie je „`F11`, `Ctrl+3`" a to nie je ústupok: znamená to, že
+rýchla voľba nestojí hosťa ani jeden kláves. Desať trvalých akcelerátorov
+by bolo desať klávesov odobratých Eureke bez merania, či ich používa.
+Kto by to chcel skrátiť, musí najprv sondou zistiť, čo `Ctrl+číslica`
+na stroji robí — dovtedy je druhá cesta `F12 → D → 3` rovnako dlhá
+a čítačka ju číta.
+
+**Sloty sú explicitné a stabilné.** Zvažované a zamietnuté bolo plniť ich
+automaticky z histórie „naposledy použité": slot, ktorý sa mení pod
+prstom, je horší než žiadny. Keď je `Ctrl+3` dnes slovník, musí byť
+slovník aj o mesiac.
+
+Sloty musia byť v ponuke **vypísané menom**, nielen dostupné pod
+skratkou; prázdny slot je zošedený. Skratka, ktorú nemá kde nájsť, je
+skratka, ktorú nemá.
+
+#### Perzistencia — prvý stav, ktorý prežije beh
+
+Emulátor si dodnes nepamätá medzi behmi nič (viď otvorené v 6.18). Rýchla
+voľba to otvára ako prvá.
+
+- **Ak vedľa EXE existuje priečinok `config`, ide to tam**, inak do
+  `%APPDATA%\EurekaA4\`. Priečinok, nie súbor: je to vedomý úkon, ktorý
+  nevznikne omylom pri rozbalení archívu, a dá prenosný režim na USB
+  zadarmo. Pri vývoji je to `bin\config`, a `bin\` je v `.gitignore`.
+- **`config` sa sám nevytvára.** Automaticky vyrobený by prenosný režim
+  zapol nechtiac a natrvalo.
+- Formát je obyčajný `kľúč=hodnota`, UTF-8, `#` komentár, vlastný parser.
+  **Nie `GetPrivateProfileString`:** `WritePrivateProfileStringW` zapisuje
+  do súboru bez UTF-16 BOM v ANSI, takže cesta s diakritikou
+  (`C:\Diskety\Príbehy`) sa pri prvom uložení poškodí, a **potichu**.
+- Chýbajúci alebo nezrozumiteľný súbor znamená defaulty a **žiadny
+  dialóg** (6.19). Slot, ktorý ukazuje na priečinok, čo zmizol, sa
+  **nemaže**; dialóg príde až pri pokuse ho vložiť.
+- Keď `config` existuje, ale nedá sa doň zapísať (USB v režime len na
+  čítanie), **hlási sa to v okamihu úkonu** — keď používateľ pridá slot
+  a ten sa neuloží — nie pri štarte. Inak by sloty ticho mizli medzi
+  behmi, a hlásenie pri štarte je otravovanie (6.19, 6.20).
+
+**Štart bez `--disk` vloží naposledy použitú disketu**, takže štart je bez
+dialógu. Pamätá sa len priečinková disketa; RAM disketa nemá čo obnoviť.
+Keď priečinok medzitým zmizol, štartuje sa s prázdnou mechanikou a dialóg
+sa spýta, či si ho má emulátor pamätať aj naďalej — zmazať záznam sám by
+bola strata a nezmazať ho nikdy by znamenalo ten istý dialóg pri každom
+štarte.
+
+#### Výmena za behu
+
+Vecná stránka je hotová v 6.17: stroj sa preloguje sám. Ostáva hostiteľ.
+
+Nové príkazy vo fronte (`PostMountDisk`, `PostEjectDisk`) — okno sa stroja
+nedotýka ani tu. Worker točí `Step()`, kým `DiskSettled()` nie je `true`,
+s tvrdým stropom rádovo dvoch miliónov cyklov; keď to nestihne, výmenu
+**odmietne s hláškou** a nevymení nasilu. Potom `FlushDisk()` starého
+obrazu, `Mount()` nového a `WM_EMU_DISK_CHANGED` späť do okna.
+
+Tri veci, ktoré sa pri tom nesmú prehliadnuť:
+
+- **`diskName_` a `diskDescription_` v `MainWindow` sú dnes konštanty
+  z konštruktora.** Musia sa stať meniteľnými, inak titulok po výmene
+  klame — a titulok je to, čo `NVDA+T` prečíta.
+- **Vysunutie RAM diskety so súbormi sa musí spýtať hneď.** Dnes sa pýta
+  `main.cpp` až pri ukončení; s výmenou za behu by sa obsah RAM diskety
+  pri výmene stratil **potichu**.
+- **Výmenu musí byť počuť.** Platí tu pravidlo „režim, ktorý nepočuť, je
+  chyba": `Beep()` hostiteľa, dvojtón nahor = vložená, jeden nízky =
+  vysunutá, odlišné od klávesnicových dvojíc.
+
+#### Dialóg `Nová disketa` a nenaformátované médium
+
+Jeden dialóg zo šablóny, **nie viacstranový sprievodca**: jedna rola,
+jedno poradie Tab, jedno Enter sa čítačke číta lepšie než tri stránky
+`PropertySheet`. Prepínače: z existujúceho priečinka, nový prázdny
+priečinok, prázdna v pamäti naformátovaná, prázdna v pamäti
+nenaformátovaná. Plus voľba „pridať do rýchlej voľby ako slot …".
+
+Nenaformátovaná disketa je lacná, lebo model už vie povedať „tento sektor
+tu nie je" — `StartFdcCommand` vracia `0x10` (Record Not Found):
+
+- `VirtualDisk` dostane bitovú mapu naformátovaných stôp, indexovanú
+  `cylinder * 2 + side`. Priečinok aj naformátovaná RAM ju majú plnú.
+- `ReadPhysicalSector` a `WritePhysicalSector` na nenaformátovanej stope
+  vrátia `false`, z čoho `machine.cpp` už dnes urobí RNF. Eureka ohlási
+  „vadný disk", presne ako skutočný stroj.
+- **Write Track (`F0h`) stopu naformátuje** — nastaví bit a vyplní ju
+  `E5h` — ale **len pre médium v pamäti**. Pri hostiteľskom priečinku
+  zostáva správanie z 6.5: obraz stopy sa zahadzuje, lebo mazať
+  používateľove súbory nie je vec modelu.
+
+Tým `Shift+F8` na RAM diskete konečne niečo naozaj robí a nenaformátovaná
+disketa sa formátovaním stane obyčajnou, takže ju na konci ide uložiť do
+priečinka. Zapadá to bez výnimky.
+
+#### Zámok proti zápisu — voliteľný, neodmeraný
+
+Disketa má byť uzamykateľná: prepínacia položka v ponuke `Disketa` aj
+vlastnosť slotu, default odomknutá. Chráni rozdelenú kolekciu pred
+prepísaním zo stroja.
+
+Model nastaví bit 6 v stave FDC (`TypeOneStatus` ho dnes drží nulový)
+a odmietne Write Sector. **Čo na to povie firmvér, je otázka na sondu,
+nie na úvahu.** Skutočná Eureka mala prelepovaciu dierku, takže ROM to
+takmer isto rieši — ale „takmer isto" je v tomto projekte to slovo, po
+ktorom sa už dvakrát mýlilo (viď úvod kapitoly 6). Odmerať pred písaním.
+
+#### Rozdeľovač kolekcie
+
+Nová vrstva `src/disk_layout.h/.cpp`: vstup je zoznam `{cesta, veľkosť}`,
+výstup **plán** — vektor diskiet s položkami a ich 8.3 menami plus zoznam
+odmietnutých s dôvodom. Žiadny Win32, žiadny `EurekaMachine`, žiadne
+kopírovanie; to sú ďalšie dve vrstvy nad ňou. Testuje sa ako `disk_test`,
+lebo algoritmus berie čísla a súborový systém nepotrebuje.
+
+Kapacitné pravidlá **nesmú byť napísané druhýkrát** — preto vrstva v C++
+vedľa `virtual_disk.cpp`, nie skript v `tools/`. Dve kópie tých istých
+konštánt sú presne ten typ tichej nezhody, na ktorý tento projekt dopláca.
+
+**Obmedzenia sú tri, nie dve** (6.12): 396 blokov po 2 KiB, 256 položiek
+adresára — tisíc malých súborov narazí na toto, nie na kapacitu — a
+**unikátnosť 8.3 mien v rámci diskety**. Súbor nad 792 KiB sa nezmestí
+nikam a skončí v odmietnutých s dôvodom, nikdy sa nestratí ticho.
+
+**Algoritmus nebalí súbory, balí nedeliteľné jednotky.** Majiteľ na to
+upozornil menovite: `TP.COM` bez `TURBO.MSG` je nefunkčný program. Je to
+prvotný pojem algoritmu, nie záplata — dodatočne sa vlepuje ťažko, lebo
+všetky režimy delenia s jednotkami pracujú. Cena jednotky je súčet cien
+jej súborov; v CP/M má každý súbor vlastné bloky aj vlastnú položku
+adresára, takže tu sa nedá nič ušetriť ani prehliadnuť.
+
+Jednotky vznikajú z troch zdrojov, v poradí spoľahlivosti:
+
+1. **`SPOLU.txt` v zdrojovom priečinku** — jedna skupina na riadok, mená
+   oddelené čiarkami. Jediný spoľahlivý zdroj, lebo ostatné dva hádajú,
+   a hlavne: prežije opakované delenie. Kto raz zistí, že `TP.COM` chce
+   `TURBO.MSG`, zapíše to raz.
+2. **Zhoda mena** (default zapnuté): `TURBO.COM` + `TURBO.MSG` +
+   `TURBO.OVR`. Bezpečné a chytí väčšinu skutočných prípadov.
+3. **Sprievodné prípony k jedinému `.COM` v priečinku** — `.OVR`, `.OVL`,
+   `.MSG`, `.HLP`, `.CFG`, `.INS` (default vypnuté). `WS.COM` +
+   `WSMSGS.OVR` + `WSOVLY1.OVR` chytí len toto pravidlo, ale je to
+   hádanie.
+
+**Premenovanie je tichšia polovica toho istého problému.** Rozdelenie na
+dve diskety je vidieť — program sa nespustí a je jasné prečo. Ale keď
+`UniqueCpmName` premenuje `TURBO.MSG` na `TURB~1.MSG` kvôli kolízii,
+program svoj súbor nenájde **ani keď sú obidva na jednej diskete**, a
+zlyhá to nepochopiteľne. Preto: **vnútri jednotky sa nikdy nepremenováva**
+— hroziaca kolízia posiela celú jednotku na inú disketu. Premenovanie je
+posledná záchrana pre osamotené súbory a musí byť v pláne vypísané
+menovite.
+
+Režimy delenia, vždy deterministické:
+
+- **Sekvenčne, abecedne (default).** Súbory v poradí, plniť do plna,
+  nikdy nepreskakovať. Vyzerá to hlúpo a je to najsilnejší režim pre
+  nevidiaceho používateľa: „disketa 3 sú súbory od K po P" je vlastnosť,
+  ktorú si človek zapamätá, a pridanie súboru neprehádže zvyšok.
+- **Podľa priečinkov.** Podpriečinok je skupina, skupiny sa balia cez
+  first-fit-decreasing. Skupina väčšia než disketa sa reže pozdĺž
+  vlastných podpriečinkov, a keď ani to nestačí, po abecede na
+  `HUDBA 1/3`, `2/3`, `3/3`.
+- **Natesno.** FFD po jednotlivých súboroch, najmenej diskiet. Pre
+  archiváciu, nie pre prácu.
+
+**Optimálne balenie sa zámerne nehľadá.** Nie preto, že je NP-ťažké — to
+je ten menší dôvod. Najtesnejšie balenie rozseká priečinky a používateľ
+potom nevie, kde čo je; človek hľadá súbor podľa toho, s čím súvisí, nie
+podľa toho, kde bola v balení diera. Ušetrená disketa nestojí za stratenú
+orientáciu.
+
+Výstup: priečinky `01-HUDBA`, `02-SLOVNIK`, pomenované podľa najväčšej
+skupiny na diskete — meno priečinka nesie titulok okna, takže to má
+priamu hodnotu. K tomu `OBSAH.txt` v koreni cieľa, mimo diskiet, aby
+nežral miesto. Voliteľne aj `OBSAH.TXT` na každej diskete v Eurekinom
+kódovaní cez `text_codec.cpp`, aby si zoznam prečítal sám stroj — stojí
+to jeden blok a jednu položku a **musí sa to započítať do kapacity pred
+delením**, nie po ňom.
+
+**Náhľad plánu pred vykonaním** je druhý krok sprievodcu a musí riziko
+pomenovať, nie len spočítať diskety. Tri zoznamy: priečinky rozdelené
+medzi viac diskiet (v sekvenčnom režime bežné a presne tam to riziko
+žije), zlúčené jednotky aj s pravidlom, ktoré ich zlúčilo, a premenované
+či odmietnuté súbory s dôvodom. To isté patrí do `OBSAH.txt`, aby sa to
+dalo dohľadať o mesiac. Cieľ musí byť prázdny priečinok; nič sa
+neprepisuje a zdroj sa neotvára na zápis vôbec.
+
+#### Poradie prác
+
+1. Perzistencia, výmena za behu, ponuka `Disketa`, sloty.
+2. Dialóg `Nová disketa` a nenaformátované médium.
+3. `disk_layout` a testy, ešte bez GUI.
+4. Sprievodca rozdelenia nad hotovou vrstvou.
+
+Body 1 a 3 sú na sebe nezávislé. Zámok proti zápisu patrí za meranie
+firmvéru, nie pred neho.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -2493,9 +2712,13 @@ Zostáva to odskúšať v skutočnej relácii s NVDA; rozbor je na konci 6.18.
 4. **Zachovanie RAM medzi behmi** (6.15) — rozhodnuté, nespravené.
    Vypnutie je hotové a `C45Ah` už nesie značku, ktorú na to ROM sama
    používa. Oplatí sa rozhodnúť naraz s uchovaním nastavení (6.18).
-5. **Výmena diskety za behu** (6.17) — vecne vyriešené, EurekaDOS sa
-   preloguje sám. Zostáva cesta v kóde a stráženie, aby sa nevymieňalo
-   uprostred zápisu.
+5. **Správa diskiet** (6.22) — návrh je hotový a odsúhlasený, kód nie
+   je žiadny. Prvý kus je perzistencia, výmena za behu a ponuka
+   `Disketa` so slotmi pod `Ctrl+číslo`; vecne je výmena vyriešená
+   (6.17), EurekaDOS sa preloguje sám, takže zostáva cesta v kóde
+   a stráženie, aby sa nevymieňalo uprostred zápisu. Rozdeľovač
+   kolekcie (`disk_layout`) je na tom nezávislý a dá sa písať a testovať
+   bez GUI aj bez ROM.
 6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
 7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
