@@ -835,6 +835,14 @@ veci z toho boli prekvapenie:
 - **Odpovedá sa `y`, nie `a`.** Otázka je česká, kláves anglický;
   v manuáli tomu zodpovedá `GETYN.H`. `a` sa berie ako nie a stroj
   povie „příkaz zrušen“. Zistené meraním, keď test odpovedal po česky.
+- **A pozor, ktorý fyzický kláves to je.** Odmerané výpisom
+  z `QueueText`: `y` je scancode **`2C`**, teda tam, kde má americká
+  klávesnica `Z` — tabuľka klávesnice v ROM je česká QWERTZ. Emulátor
+  posiela polohu klávesu a preklad robí ROM, takže rozloženie nastavené
+  vo Windows do toho nehovorí. Na QWERTY klávesnici sa teda na túto
+  otázku odpovedá klávesom označeným `Z`. Platí to pre celé písanie,
+  nielen pre formátovanie, a je to prvý podozrivý vždy, keď „stroj na
+  napísané písmeno nereaguje“.
 
 **Firmvér médium pri tom vôbec nečíta.** Odmerané inštrumentáciou
 `StartFdcCommand` a BIOS stubu: za celý beh do prvej otázky vydá ROM
@@ -2497,14 +2505,31 @@ o nich platí ako návrh.
 28. 8. 2026). Pôvodne bol slot len cesta k priečinku, takže disketa
 v pamäti sa doň nedala priradiť — ani pri vytvorení, ani neskôr, čo
 znamenalo, že rozmyslieť si to už nešlo. Slot preto nesie buď cestu,
-alebo značku `*pamat`, resp. `*pamat-nenaformatovana`; cesta na Windows
-nikdy nezačína `*`, takže sa to nemá ako pomýliť a súbor zostáva
-čitateľný.
+alebo značku `*pamat`; cesta na Windows nikdy nezačína `*`, takže sa to
+nemá ako pomýliť a súbor zostáva čitateľný. `SlotIsRam` berie ako značku
+**čokoľvek, čo začína hviezdičkou** — nie zo šírky, ale preto, že
+v súbore po staršej verzii môže stáť `*pamat-nenaformatovana` a bez toho
+by sa taká hodnota vzala ako cesta a emulátor by ju skúšal pripojiť.
 
 Podstatné je, čo taký slot **robí**: nevracia tú disketu, lebo tá po
 ukončení emulátora nikde nie je — **vyrobí novú prázdnu**. Preto sa
 všade volá „nová prázdna v pamäti“. Slot, ktorý by sľuboval návrat
 a ticho podal prázdnu disketu, by bol horší než žiadny.
+
+**Značka pre nenaformátovanú disketu bola a je zrušená** (majiteľ,
+28. 8. 2026). Slot menovaný „nenaformátovaná“ by taký zostal aj potom,
+ako ju používateľ naformátuje — popisoval by stav, ktorý trvá po prvé
+`Shift+F8`. V dialógu `Nová disketa` je preto pri tej voľbe výber slotu
+zošedený.
+
+**A rovnaké pravidlo platí pre titulok: disketa v pamäti je disketa
+v pamäti.** Titulok kedysi hovoril „v pamäti, nenaformátovaná“ a vo
+vlákne stálo sledovanie `has_format`, ktoré ten stav strážilo a hlásilo
+oknu. Majiteľ to zamietol a s popisom odišiel celý aparát — sledovanie,
+druhá notifikácia aj príznak `swapped` v `DiskChange`. Či je disketa
+naformátovaná, je vec, ktorú používateľ práve mení, nie to, čo tá
+disketa je. `VirtualDisk::has_format` zostáva v modeli (drží ho režim
+`format`), do rozhrania sa nedostane.
 
 Mená slotov počíta `SlotDisplayName` v `settings.cpp` a robí to na
 jednom mieste zámerne: predtým sa to počítalo zvlášť v ponuke a zvlášť
@@ -2726,6 +2751,29 @@ medzi viac diskiet (v sekvenčnom režime bežné a presne tam to riziko
 dalo dohľadať o mesiac. Cieľ musí byť prázdny priečinok; nič sa
 neprepisuje a zdroj sa neotvára na zápis vôbec.
 
+#### Výber priečinka: vybrať a pomenovať sú dva úkony
+
+**Doplnené 28. 8. 2026 po pripomienke majiteľa.** Uložiť disketu niekam
+nové znamenalo dva kroky — odísť priečinok vytvoriť a vrátiť sa poň.
+`IFileOpenDialog` s `FOS_PICKFOLDERS` totiž existujúci priečinok vyžaduje
+a pole na meno nemá.
+
+Preto sú vo `win/dialog.h` **dva** výbery a rozdiel medzi nimi je vecný:
+
+- `PickFolder` — vybrať existujúci. Vloženie diskety, priradenie slotu,
+  disketa z priečinka.
+- `PickFolderToCreate` — pomenovať nový. Ukladací dialóg v režime
+  `FOS_PICKFOLDERS`, čo je jediná kombinácia, ktorú shell ponúka s poľom
+  na názov. `FOS_PATHMUSTEXIST` zostáva (nadradený priečinok skutočný byť
+  musí), `FOS_FILEMUSTEXIST` sa zhasína. Používa sa všade, kde sa píše:
+  `Ctrl+U`, ponuka pri ukončení, nový prázdny priečinok.
+
+To pole je aj prístupnejšia polovica veci: napísať meno je jeden editačný
+prvok, ktorý čítačka prečíta, kým „Nová zložka“ na paneli nástrojov sa
+musí hľadať. Samotné vytvorenie robí `VirtualDisk::ExportTo`, ktoré
+`create_directories` volalo celý čas — chýbal len dialóg, čo taký názov
+pustí ďalej.
+
 #### Poradie prác
 
 1. ~~Perzistencia, výmena za behu, ponuka `Disketa`, sloty~~ — **hotové
@@ -2735,8 +2783,14 @@ neprepisuje a zdroj sa neotvára na zápis vôbec.
 3. `disk_layout` a testy, ešte bez GUI.
 4. Sprievodca rozdelenia nad hotovou vrstvou.
 
-Body 1 a 3 sú na sebe nezávislé. Zámok proti zápisu patrí za meranie
-firmvéru, nie pred neho.
+Zámok proti zápisu patrí za meranie firmvéru, nie pred neho.
+
+**Kde rozdeľovač nadviaže na hotový kód.** Keď sa priečinok na disketu
+nezmestí, `VirtualDisk::CheckCapacity` už dnes vypíše prebytok v blokoch
+aj v KiB, menuje tri najväčšie súbory a končí vetou „Rozdeľte priečinok na
+viac priečinkov a striedajte ich ako diskety.“ To je presne tá rada, ktorú
+má rozdeľovač nahradiť skutkom — tá hláška je jeho prirodzené miesto
+vstupu a je to aj miesto, kde už kapacitná aritmetika stojí hotová.
 
 ## 7. Nástroje
 
@@ -2836,7 +2890,7 @@ integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
 integration_test ROM DISK_FOLDER format-> PASS (Shift+F8 naformátuje prázdnu)
 disk_test                              -> PASS (55 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
-settings_test                          -> PASS (27 kontrol, bez ROM)
+settings_test                          -> PASS (36 kontrol, bez ROM)
 ```
 
 Všetkých jedenásť naraz spustí `run-tests.bat`: paralelne, s jedným súhrnom

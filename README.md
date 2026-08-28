@@ -212,8 +212,10 @@ naformátovaná, alebo nie, je vec, ktorú práve meníte, nie to, čo tá
 disketa je.
 
 V dialógu sa dá novej diskete rovno priradiť **slot rýchlej voľby**.
-Zoznam pri každom slote ukáže, čo v ňom práve je, a ak doň niečo
-priraďujete cez existujúcu disketu, emulátor sa spýta.
+Zoznam pri každom slote ukáže, čo v ňom práve je, a keď doň priraďujete
+cez niečo, čo tam už bolo, emulátor sa ešte spýta. Pri nenaformátovanej
+diskete je výber slotu neprístupný — nenaformátovaná je stav, ktorý trvá
+po prvé `Shift+F8`, takže pod skratkou by nedával zmysel.
 
 ## Rýchla voľba diskiet
 
@@ -352,9 +354,10 @@ neprepísal obsah pripojeného obrazu.
 - základné stavové registre ASCI a CSI/O potrebné na štart ROM.
 
 Externý modem, telefónna linka a fyzický sériový kábel zatiaľ nemajú most na
-zariadenia Windows; ich vstupy zostávajú v bezpečnom pokojovom stave. Formátovanie prebehne
-a stroj ho ohlási ako dokončené, ale obsah stopy sa zahadzuje: disk je
-hostiteľský priečinok a formát v ňom súbory nemaže. Exotické viacsektorové
+zariadenia Windows; ich vstupy zostávajú v bezpečnom pokojovom stave. Formátovanie
+hostiteľského priečinka prebehne a stroj ho ohlási ako dokončené, ale obsah
+stopy sa zahadzuje: disk je váš priečinok a formát v ňom súbory nemaže. Na
+diskete v pamäti sa formátovanie naopak prejaví celé — viď Nová disketa. Exotické viacsektorové
 príkazy WD1772 sú modelované len v rozsahu, ktorý používa dodaná ROM. Táto verzia preto nie je náhradou meracieho
 emulátora na overovanie presného časovania externých periférií.
 

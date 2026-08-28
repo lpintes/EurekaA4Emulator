@@ -92,7 +92,8 @@ najprv na `.clangd` — clangd do `Makefile` nevidí a bez neho prekladá
 pod C++17, s MSVC hlavičkami z Visual Studia a s `-I`, ktoré si
 vyhodnocuje voči priečinku súboru, nie voči koreňu. Sú to tri nezávislé
 zdroje falošných chýb a `.clangd` rieši všetky tri. Overené na všetkých
-sedemnástich zdrojákoch cez `clangd --check` — nula chýb. Nemaž ho a
+vtedajších sedemnástich zdrojákoch cez `clangd --check` — nula chýb;
+odvtedy pribudli `settings.cpp` a `settings_test.cpp`. Nemaž ho a
 keď siahneš na prepínače v `Makefile`, zosúlaď ho; je to jediné miesto,
 kde sú zdvojené.
 
@@ -203,6 +204,11 @@ lebo NVDA považuje doplnky za odvodené dielo (`nvda-addon/COPYING.txt`).
 
 - `src/win/` je tenká obálka nad Win32 a **o emulátore nevie nič** —
   dá sa vziať do iného projektu tak, ako je. Nech to tak zostane.
+- `src/settings.*` je to, čo emulátor vie medzi behmi: súbor
+  `nastavenia.txt` v priečinku `config` vedľa EXE, ak taký existuje, inak
+  v `%APPDATA%\EurekaA4`. O emulátore nevie nič a nič nehlási — chýbajúci
+  súbor znamená defaulty, zlyhaný zápis vráti dôvod volajúcemu, ktorý ho
+  ohlási v okamihu úkonu. Viď HANDOFF 6.22.
 - `src/emulator_thread.*` vlastní `EurekaMachine` aj `AudioPlayer` a beží
   na vlastnom vlákne. Okno sa stroja **nedotýka**, všetko mu posiela cez
   jednu frontu príkazov — preto tam nie je ani jeden zámok nad strojom.
