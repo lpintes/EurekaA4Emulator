@@ -78,7 +78,7 @@ ním `JR $-2` — firmvér čaká, kým napájanie naozaj zhasne. Cesta k nemu:
   po zapnutí vracal tam, kde ho používateľ nechal — `GLOSSARY.TXT`
   dodáva, že napájanie RAM ani hodín sa nikdy neodpájalo.
 
-**Z externej klávesnice PC sa vypnúť nedalo.** Bajt `8Fh` nie je ani
+**Z externej klávesnice sa vypnúť nedalo.** Bajt `8Fh` nie je ani
 v jednej zo štyroch prekladových tabuliek ROM (1DF05 základná, 1DF5E
 shift, 1DF98 pravý Alt, 1DFD6 rozšírená pre `E0h`) a scancody sa
 prekladajú po jednom, nikdy sa nezlučujú. Chordovať sa dá len na
@@ -575,7 +575,7 @@ Kontrolné body: `[38h]` = `F8h` (ľavý Alt), `[3Bh..44h]` = `C0h..C9h`.
 
 **Mýli sa aj `KB.H` v tom, kde funkčné klávesy končia.** Hlavička má
 `K_F10` ako posledný, ale tabuľka pokračuje: scancode `57h` → **`CAh`**,
-`58h` → **`CBh`**, teda F11 a F12. F11 nie je výsada klávesnice PC —
+`58h` → **`CBh`**, teda F11 a F12. F11 nie je výsada externej klávesnice —
 membrána ho má ako `d-akord` (`CAh` v tabuľke akordov vyššie), takže je to
 ten istý kláves z dvoch strán. F12 akord nemá. Odmerané na bežiacej ROM:
 
@@ -600,10 +600,10 @@ je v nej `5Bh`, `5Ch` ani `5Dh`** — klávesy Windows a kláves Aplikácie
 v roku 1992 neexistovali. Kláves Aplikácie je tak jediný kláves
 klávesnice PC, ktorý stroj nepozná vôbec.
 
-### Aj klávesnica PC zastaví reč — ale nemá na to nevinný kláves
+### Aj externá klávesnica zastaví reč — ale nemá na to nevinný kláves
 
 Vzorková slučka syntetizátora číta len tri membránové riadky, takže cez
-ňu sa klávesnica PC k `spabrt` nedostane. **Má vlastné miesto**: doručovacia
+ňu sa externá klávesnica k `spabrt` nedostane. **Má vlastné miesto**: doručovacia
 rutina klávesu na `1DE47` končí na `1DDC4`–`1DDCA`, kde skopíruje `C621h`
 do `C620h`. Je to tretí, na predošlých dvoch nezávislý zdroj `spabrt`
 (vedľa `0066B` vo vzorkovej slučke a `1D21F` v záchyte membrány).
@@ -625,7 +625,7 @@ nedoručia žiadny kód, a bez doručeného kódu niet čo prerušiť.
 
 **Z toho plynie rozdiel oproti membráne, ktorý je praktický, nie
 teoretický.** Na braillovskej klávesnici je shift kláves, ktorý reč
-zastaví a nič iné neurobí. Na klávesnici PC taký kláves nie je: zastaví
+zastaví a nič iné neurobí. Na externej klávesnici taký kláves nie je: zastaví
 každý, ktorý niečo doručí, a práve tie dva, ktoré by boli neškodné, sú
 jediné dva, ktoré nefungujú. Preto sa tam plynulé čítanie prerušuje
 šípkou — je to najmenej rušivý kláves z tých, ktoré to vedia, a

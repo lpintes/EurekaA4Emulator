@@ -292,7 +292,7 @@ Toľko, koľko mal stroj klávesníc. Prepína sa medzi nimi `F11`, `Ctrl+K`:
 
 | režim | čo je pod rukami |
 |---|---|
-| **externá klávesnica PC** (štartový) | všetko ide scancodmi po sériovom porte, ROM si prekladá sama |
+| **externá klávesnica** (štartový) | všetko ide scancodmi po sériovom porte, ROM si prekladá sama |
 | **braillovská klávesnica** | dvadsať klávesov: body na `F D S J K L`, medzerník, funkčné, kurzory, shift |
 
 **Default zanikol 26. 8. 2026** (6.11). Nebol to režim stroja, bola to
@@ -425,7 +425,7 @@ Napísané „Ahoj Svete", kurzor na konci, a stlačené jedno:
 | šípka hore / dole | `81h` / `82h` | nič, len klik `!%E1` |
 | šípka vľavo / vpravo | `84h` / `88h` | klik; na okraji navyše `!%E7` |
 
-Na klávesnici PC je to **ľavý Alt + šípka hore** a overené je to
+Na externej klávesnici je to **ľavý Alt + šípka hore** a overené je to
 zmeraním, nie odvodením: ROM na `1DD9E` prisadí k šípke bit 5, keď je
 v `C670h` bit 3 (ľavý Alt, `DF05[38h]` = `F8h`), takže z `81h` vznikne
 to isté `A1h`, ktoré robí medzerníkový akord. Odoslané ako `38 E0 48
@@ -578,7 +578,7 @@ skutočne držaný prst sa tak nikdy nestratí, a dve sekundy sú zároveň nad
 najdlhším oneskorením prvého opakovania, aké Windows ponúka — pomaly
 skladaný akord sa teda nerozpadne.
 
-V režime **externej klávesnice PC** sa stroj vypnúť nedá, a je to tak
+V režime **externej klávesnice** sa stroj vypnúť nedá, a je to tak
 správne — skutočná Eureka to tiež nevedela, `8Fh` nie je ani v jednej
 z jej štyroch prekladových tabuliek scancodov.
 
@@ -880,7 +880,7 @@ vnútri znelky, a kláves sa posiela v prvej sekunde:
 | `PressMembraneKey` → riadok `8Ah` | `F4` | 5000 | nie |
 | vlastná fronta ROM (`C67B`) | medzerník v defaulte | 5028 | nie |
 | vlastná fronta ROM (`C67B`) | písmeno v defaulte | 5000 | nie |
-| sériová klávesnica PC (scan `39h`) | medzerník | 5000 | nie |
+| sériová klávesnica (scan `39h`) | medzerník | 5000 | nie |
 
 Prečo to tak je, je v ROM čierne na bielom. Prehrávacia slučka sa raz za
 takt pozrie na klávesnicu takto:
@@ -913,7 +913,7 @@ Dve veci, ktoré z toho merania plynú a nie sú chyba:
   `F1`–`F8` znelku neukončia ani na skutočnom stroji. Tvrdenie manuálu,
   že skladbu ukončí „ľubovoľný kláves", platí pre riadky `89h` a `8Ch`,
   nie pre funkčné.
-- **Externá klávesnica PC znelku tiež nezastaví**, a to je verné.
+- **Externá klávesnica znelku tiež nezastaví**, a to je verné.
   Sériová klávesnica ide cez dekodér ROM do tej istej fronty `C67B`;
   žiadny jej kláves sa na membránových portoch neobjaví. Na skutočnom
   stroji to teda nešlo tiež.
@@ -1344,7 +1344,7 @@ Dve veci, ktoré pri tom nezabudnúť:
 #### Hotové 26. 8. 2026: QueueText píše scancodmi
 
 Prvý krok rozsahu je spravený. `QueueText` už nesype znaky do fronty ROM;
-píše ich na emulovanej klávesnici PC, teda tou istou cestou, ktorou od
+píše ich na emulovanej externej klávesnici, teda tou istou cestou, ktorou od
 zrušenia defaultu chodí všetko ostatné.
 
 Tabuľka sa **nikde nepíše ručne**. `BuildKeyboardLayout` ju pri načítaní
@@ -1976,7 +1976,7 @@ a indexuje sa scancodom (kontrolný bod: `[38h]` = `F8h`, ľavý Alt,
 = **`CBh`**, teda `10 | K_FUNCTION` a `11 | K_FUNCTION`. S bitom Altu
 `20h` je z toho `EAh` a `EBh`, čo presne sedí na to, čo hovorí nápoveda.
 
-**V režime PC by F11 a F12 chodili už dnes.** Emulátor tam neprekladá nič
+**V externom režime by F11 a F12 chodili už dnes.** Emulátor tam neprekladá nič
 — posiela surový scancode a prekladá ROM — takže ich zožiera len
 akcelerátorová tabuľka okna.
 
@@ -1984,7 +1984,7 @@ Riešenie (voľba majiteľa): skratky sa **nepresúvajú**, F11 a F12 zostávaj�
 oknu. Pribudla podponuka `Klávesnica → Poslať Eureke kláves` s položkami
 F11, Alt+F11, F12 a Alt+F12. Nestojí to žiadny kláves, čítačka ponuku
 prečíta a `SyntheticKey` postaví udalosť tak, ako by prišla z Windows —
-scancode si vypýta od `MapVirtualKeyW`, nie z konštanty, lebo v režime PC
+scancode si vypýta od `MapVirtualKeyW`, nie z konštanty, lebo v externom režime
 je scancode celá správa. Alt drží pri stlačení a púšťa pri pustení, takže
 `SyncModifiers` po sebe nenechá visieť `38h`.
 
@@ -2055,7 +2055,7 @@ Ostáva otvorené a **neodložené len preto, že sa naň zabudlo**:
   posledného prsta, bez časovača a bez prahu. Cena je tá, čo platí už dnes:
   holý medzerník sa doručí až pri pustení.
 
-  Návrh: **len v braillovskom režime.** V režime PC sa prsty pri písaní
+  Návrh: **len v braillovskom režime.** V externom režime sa prsty pri písaní
   prekrývajú a medzerník ešte dole pri ďalšom písmene by robil falošné
   akordy; navyše tam Ctrl je. A každý emulátorový akord sa musí ozvať inak
   než Eurekiným hlasom, inak sa „akord nefunguje" nedá odlíšiť od „akord
