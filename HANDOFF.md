@@ -2290,11 +2290,12 @@ Dôsledky, ktoré treba mať povedané:
   Komentár pri tom guarde bol po tejto zmene nepresný (odvolával sa na to,
   že stlačenie zjedla tabuľka) a je prepísaný.
 
-Deväť testov prechádza. **Neodskúšané v ostrej relácii** zostáva samotné
-správanie okna — `main.cpp` ani `main_window.cpp` testy nepokrývajú.
-Odskúšať treba: že `Ctrl+K` bez `F11` klávesnicu neprepne, že `F11`,
-`Ctrl+K` ju prepne, a že po skratke zaznie nižší tón, teda že sa
-jednorazovka minula a nezostala visieť.
+Deväť testov prechádza. Samotné správanie okna testy nepokrývajú —
+`main.cpp` ani `main_window.cpp` — takže na ňom záležalo najviac:
+**majiteľ to 28. 8. 2026 odskúšal ručne a funguje.** Že `Ctrl+K` bez
+`F11` klávesnicu neprepne, že `F11`, `Ctrl+K` ju prepne, a že po skratke
+zaznie nižší tón, teda že sa jednorazovka minula a nezostala visieť —
+to posledné bolo jediné miesto, kde by chyba bola tichá.
 
 **Rozhodnuté: doplnok v repozitári zostáva.** Je pod GPL v2+, kým zvyšok je
 MIT, a to je v poriadku — nie je to zmiešanie licencií v jednom diele, ale
