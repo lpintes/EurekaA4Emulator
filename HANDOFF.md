@@ -1782,10 +1782,17 @@ vysunutie; návrh je v 6.22). Odmerané na nej je toto:
 - Vysunutá mechanika odmieta čítanie aj zápis, čo je vstup do firmvérovej
   cesty „vadný disk“ (6.6).
 
-**Neodmerané zostáva to hlavné:** že sa EurekaDOS po výmene naozaj
-preloguje. To je stále z manuálu, nie z merania — cesta na to teraz
-existuje (vymeniť disketu v GUI a pozrieť sa, či `F8` ukáže nový adresár),
-ale sonda ani test to zatiaľ nerobia.
+**Odmerané 28. 8. 2026 majiteľom na bežiacom emulátore: výmena dvoch
+diskiet za behu prebehla správne.** Tým je doložené aj to hlavné, čo do
+tej chvíle stálo len na manuáli — že sa EurekaDOS preloguje sám a že
+výmena nepotrebuje reset ani žiadny signál od hardvéru. Sekcia už nie je
+odvodenie, je to zistenie.
+
+Ostáva jediná trhlina, a je malá: overené je to **ručne, raz**. Sonda ani
+test to nerobia, takže regresiu na tejto ceste by nič nezachytilo. Ak
+sa niekedy bude siahať na `DiskSwappable`, `Mount` alebo na front
+príkazov, oplatí sa to preskúšať rovnako ručne — alebo to konečne
+zapísať ako režim `integration_test`.
 
 ### 6.18 GUI — otvorená otázka
 
@@ -2454,10 +2461,11 @@ behu). Miesta, ktoré merať treba, sú v texte označené.
 
 **Stav k 28. 8. 2026:** hotový je celý prvý kus poradia prác na konci
 tejto sekcie — perzistencia, výmena za behu, ponuka `Disketa` aj sloty
-rýchlej voľby pod `Ctrl+0` až `Ctrl+9`. Dialóg `Nová disketa`
-s nenaformátovaným médiom, zámok proti zápisu a rozdeľovač kolekcie
-**napísané nie sú**; všetko nižšie o nich platí ako návrh. Čo je z výmeny
-odmerané a čo nie, je na konci 6.17.
+rýchlej voľby pod `Ctrl+0` až `Ctrl+9`. Výmenu dvoch diskiet za behu
+odskúšal majiteľ v ten istý deň a prebehla správne, čím sa doložila aj
+6.17. Dialóg `Nová disketa` s nenaformátovaným médiom, zámok proti zápisu
+a rozdeľovač kolekcie **napísané nie sú**; všetko nižšie o nich platí ako
+návrh.
 
 Jedna vec sa oproti návrhu nižšie zmenila, a zmenila sa správne:
 **prázdny slot nie je zošedený.** Zošediť ho by znamenalo, že `Ctrl+3`
@@ -2745,8 +2753,9 @@ Zostáva to odskúšať v skutočnej relácii s NVDA; rozbor je na konci 6.18.
    s nenaformátovaným médiom (bitová mapa stôp vo `VirtualDisk`, Write
    Track ju zapĺňa len pre médium v pamäti). Rozdeľovač kolekcie
    (`disk_layout`) je na tom všetkom nezávislý a dá sa písať aj testovať
-   bez GUI a bez ROM. Neodmerané zostáva, či sa EurekaDOS po výmene
-   naozaj preloguje — koniec 6.17.
+   bez GUI a bez ROM. Že sa EurekaDOS po výmene preloguje sám, je od
+   28. 8. 2026 **odmerané** (koniec 6.17), zatiaľ ale len ručne — režim
+   `integration_test` na to neexistuje.
 6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
 7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
