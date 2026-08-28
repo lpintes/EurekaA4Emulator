@@ -53,6 +53,17 @@ std::vector<fs::path> RomCandidates() {
   return candidates;
 }
 
+// Slovak counts in three shapes and the verb goes with them: "je 1 súbor",
+// "sú 3 súbory", "je 5 súborov".  This line is read aloud by a screen reader,
+// where a wrong ending is heard and not skimmed past -- the same reason
+// virtual_disk.cpp bends its numbers rather than printing "súbory (3)".
+std::wstring FileCount(std::size_t count) {
+  const std::wstring number = std::to_wstring(count);
+  if (count == 1) return L"je 1 súbor";
+  if (count >= 2 && count <= 4) return L"sú " + number + L" súbory";
+  return L"je " + number + L" súborov";
+}
+
 // Start-up failures happen before there is a window to report them in, and
 // this program has no console to fall back on.  A message box is the one
 // surface that always exists, and a screen reader announces it as a dialog and
@@ -311,12 +322,9 @@ int Run() {
   // offer, it is already on disk.
   if (machine && machine->disk().media() == VirtualDisk::Media::kRam &&
       machine->disk().StoredFiles() > 0) {
-    const std::size_t stored = machine->disk().StoredFiles();
     const std::wstring question =
-        L"Na diskete v pamäti " +
-        (stored == 1 ? std::wstring(L"je 1 súbor")
-                     : L"sú súbory (" + std::to_wstring(stored) + L")") +
-        L".\r\n\r\nChcete ich uložiť do priečinka?";
+        L"Na diskete v pamäti " + FileCount(machine->disk().StoredFiles()) +
+        L".\r\n\r\nChcete ju uložiť do priečinka?";
     if (MessageBoxW(nullptr, question.c_str(), L"Eureka A4",
                     MB_YESNO | MB_ICONQUESTION) == IDYES) {
       const std::wstring target = win::PickFolder(
