@@ -135,6 +135,7 @@ void EurekaMachine::Reset() {
   membraneUntil_ = 0;
   membraneMinUntil_ = 0;
   membraneHeldKey_ = 0;
+  membraneShift_ = false;
   // A hard reset, which is what this is: RAM cleared above, so the firmware
   // finds no power-down marker in C45Ah and initialises from scratch.
   poweredOff_ = false;
@@ -412,7 +413,13 @@ uint8_t EurekaMachine::ReadMembraneKeyboard(uint8_t port) {
   switch (port) {
     case 0x89: return membraneState_.row0;
     case 0x8a: return membraneState_.row1;
-    case 0x8c: return membraneState_.row2;
+    // Shift is ORed in rather than framed: it is held across whatever the
+    // frame queue happens to be playing, exactly as a finger holds it.  A
+    // frame that carries the bit itself -- a capital letter's chord -- still
+    // reads the same, which is why nothing had to change in PressBraille.
+    case 0x8c:
+      return static_cast<uint8_t>(membraneState_.row2 |
+                                  (membraneShift_ ? 0x40 : 0));
     default: return 0;
   }
 }
@@ -1145,6 +1152,7 @@ void EurekaMachine::PowerDown() {
   membraneFrames_.clear();
   membraneState_ = MembraneFrame{};
   membraneHeldKey_ = 0;
+  membraneShift_ = false;
 }
 
 bool EurekaMachine::Step() {

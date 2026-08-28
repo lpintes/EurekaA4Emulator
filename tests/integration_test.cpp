@@ -136,6 +136,57 @@ bool CheckBrailleShiftSpace(EurekaMachine& machine,
   return false;
 }
 
+// Says "where am I" and returns how many steps the utterance lasted, pressing
+// shift after `pressShiftAfter` steps of it if that is not zero.  C621h is FFh
+// only while speech is playing -- armed at 002D5, cleared at 0055E -- so it is
+// both the "is it speaking" flag and the value a new key press copies into
+// spabrt (C620h) to stop it.
+long SpeakUntilDone(EurekaMachine& machine, const EurekaMachine& booted,
+                    long pressShiftAfter) {
+  machine.CopyStateFrom(booted);
+  machine.QueueKey(0xc9);  // F10, "where am I"
+  bool armed = false;
+  for (long step = 0; step < 6'000'000 && !armed; ++step) {
+    machine.Step();
+    armed = machine.debug_peek(0xc621) == 0xff;
+  }
+  if (!armed) {
+    std::cout << "  rec sa vobec nerozbehla\n";
+    return -1;
+  }
+  for (long step = 0; step < 8'000'000; ++step) {
+    machine.Step();
+    if (pressShiftAfter != 0 && step == pressShiftAfter) machine.HoldShift(true);
+    if (machine.debug_peek(0xc621) != 0xff) {
+      machine.HoldShift(false);
+      return step;
+    }
+  }
+  machine.HoldShift(false);
+  std::cout << "  rec neskoncila do 8M krokov\n";
+  return -1;
+}
+
+// Pressing shift on its own stops speech, which is how continuous reading in
+// the word processor has always been paused; SYSJUMPS.11 names that use of
+// spabrt outright.  Nothing here is a translation of ours: the sample loop at
+// 0063D compares the three rows against their shadows on every DAC sample and
+// aborts on any bit the shadow lacks, so this only checks that the host holds
+// shift as a key.  It cannot be faked by a chord -- a chord's shift arrives
+// together with dots the shadow is about to learn anyway.
+bool CheckBrailleShiftStopsSpeech(EurekaMachine& machine,
+                                  const EurekaMachine& booted) {
+  const long full = SpeakUntilDone(machine, booted, 0);
+  if (full <= 0) return false;
+  const long cut = SpeakUntilDone(machine, booted, full / 4);
+  if (cut <= 0) return false;
+  // Generous on purpose: the point is that speech stopped early, not where.
+  if (cut < full / 2) return true;
+  std::cout << "  shift rec nezastavil: cela " << full << " krokov, so shiftom "
+            << cut << "\n";
+  return false;
+}
+
 // Types the same word on the optional IBM PC keyboard.  The emulator sends
 // nothing but XT scan codes down the serial port; the ROM's own tables (DF05
 // and its shifted and AltGr siblings) decide what letters they are, and its
@@ -602,7 +653,8 @@ int wmain(int argc, wchar_t** argv) {
     const auto booted = BootedSnapshot(*machine);
     const bool keys = CheckKeyboard(*machine, *booted);
     const bool braille = CheckBraille(*machine, *booted) &&
-                         CheckBrailleShiftSpace(*machine, *booted);
+                         CheckBrailleShiftSpace(*machine, *booted) &&
+                         CheckBrailleShiftStopsSpeech(*machine, *booted);
     const bool pc = CheckPcKeyboard(*machine);
     const bool altgr = CheckAltGr(*machine, *booted);
     const bool passed = keys && braille && pc && altgr;

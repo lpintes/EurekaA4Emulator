@@ -95,6 +95,16 @@ class EurekaMachine {
   // chord: it capitalises a letter and turns the bare space bar into Escape.
   // The machine turns the pattern into a character itself.
   void PressBraille(uint8_t dots, bool shift = false);
+  // Holds the shift key down, or lets it go.  It is a key of its own and the
+  // machine watches it as one: the speech sample loop at 0063D compares all
+  // three rows against their shadows on every DAC sample and aborts the
+  // utterance the moment a row carries a bit its shadow lacks (spabrt, C620h,
+  // set at 1D21F on the same edge).  SYSJUMPS.11 names that use outright --
+  // the word processor works out from it which word it had reached when
+  // "continuous speak" was stopped.  A shift that only ever rides along inside
+  // a chord never makes that edge, so pausing speech with it needs the key to
+  // be held, not passed as a flag.
+  void HoldShift(bool down) { membraneShift_ = down; }
   // Hands one IBM PC scan code to the optional QWERTY keyboard on the clocked
   // serial port: XT set 1, so a make code is below 80h, a break code is the
   // make code with bit 7 set, and E0h prefixes the grey keys.  The ROM does
@@ -252,6 +262,9 @@ class EurekaMachine {
   uint64_t membraneUntil_ = 0;
   uint64_t membraneMinUntil_ = 0;
   uint8_t membraneHeldKey_ = 0;
+  // Outside the frame queue on purpose: the frames are a sequence the machine
+  // plays out, shift is a key the user is holding across all of them.
+  bool membraneShift_ = false;
   bool poweredOff_ = false;
   std::vector<uint8_t> consoleOutput_;
   std::vector<uint8_t> speechInput_;

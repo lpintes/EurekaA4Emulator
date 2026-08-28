@@ -419,6 +419,11 @@ void EmulatorThread::Run() {
         SendScanCode(machine, key);
         return;
       }
+      // Before the Ctrl guard below, and synced rather than toggled, because a
+      // shift left held down would silently capitalise everything after it:
+      // the accelerator table eats presses but never releases, so the guard
+      // would swallow the one event that lets it go.
+      machine.HoldShift((key.modifiers & SHIFT_PRESSED) != 0);
       // Ctrl is not a key on the braille keyboard, so a release that arrives
       // with it held belongs to a host shortcut whose press the accelerator
       // table ate.  Letting it in would corrupt the chord being built.
@@ -478,6 +483,16 @@ void EmulatorThread::Run() {
       SendScanCode(machine, key);
       return;
     }
+    // Shift is the twentieth key of this keyboard and the machine watches it
+    // as one, so the host holds it rather than only folding it into a chord.
+    // That is what pausing continuous reading in the word processor needs: a
+    // key going down where the shadow has no bit sets spabrt (C620h) and the
+    // speech stops.  Measured -- with shift the utterance ended after 203k
+    // cycles instead of 783k.  Held rather than tapped because that is what
+    // the hardware does; the chord that follows carries the bit as well, so
+    // capitals and Shift+Fn are unaffected, and space-bar chords like
+    // Shift+F9 decode the same with it held (measured too).
+    machine.HoldShift(shift);
     // Auto-repeat resends key-down without a key-up, so a dot already in the
     // chord must not count as a second finger.  Windows says so outright in
     // lParam bit 30, which the console could not report at all; the old code
@@ -571,6 +586,9 @@ void EmulatorThread::Run() {
         host.mode = wanted;
         host.held = host.chord = host.arrows = host.arrowChord = 0;
         host.chordShift = false;
+        // The same rule the other way round: in PC mode nothing ever lifts the
+        // membrane's shift key, so it must not be left down on the way out.
+        machine.HoldShift(false);
         mode_.store(wanted, std::memory_order_relaxed);
         if (notify) PostMessageW(notify, WM_EMU_STATE, 0, 0);
         break;
@@ -602,6 +620,7 @@ void EmulatorThread::Run() {
         if (host.mode == InputMode::kPc) SyncModifiers(machine, host, 0);
         host.held = host.chord = host.arrows = host.arrowChord = 0;
         host.chordShift = false;
+        machine.HoldShift(false);
         break;
       case Command::Type::kExportDisk: {
         // Flushed first, so what lands in the folder is the image the guest

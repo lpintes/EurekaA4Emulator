@@ -436,6 +436,16 @@ Shift leží na riadku `8Ch`, bit 6, a dekodér ho číta na dvoch miestach:
 Hostiteľ, ktorý shift drží len ako príznak a stláča jediný riadok, ho
 nevyrobí — a nevyrobí ani veľké písmeno.
 
+**Shift stlačený sám nedá žiadny kód a napriek tomu niečo robí:
+zastaví reč.** Nie je to výnimka pre shift, platí to pre každý novo
+stlačený kláves (`spabrt`, viď nižšie), ale shift je jediný, ktorý pri
+tom nič nenapíše a nikam nevojde — preto sa ním plynulé čítanie
+pozastavuje. Ide to tadiaľto: záchyt na `1D22A` ukladá do tieňa
+`C62E`–`C630` **surový** bajt portu (`LD (HL),B`), kým maska `0Fh`
+z `1D206` sa týka len kópie pre dekodér na `C631`–`C633`. Shift je teda
+v tieni, hoci v kóde klávesu nie je, a každý, kto porovnáva port
+s tieňom, ho vidí.
+
 ### Kto číta riadky priamo, mimo dekodéra
 
 Dekodér na 1D4F3 nie je jediný odberateľ. Dve slučky, ktoré nesmú
@@ -446,7 +456,13 @@ podstrčený do fronty ROM na `C67B` neprebudí**.
   na 0063D prečíta všetky tri riadky (`89h`, `8Ah`, `8Ch`) a porovná ich
   s tieňom naposledy nasnímaného stavu na `C62E`–`C630`. Čokoľvek navyše
   ukončí dávku a nastaví `C620h` = `FFh`. `SYSRAM.A` ten bajt volá
-  **`spabrt`**, teda *space abort*.
+  **`spabrt`**, teda *space abort*. Nie je to *space* ako medzerník:
+  `SYSJUMPS.11` ho rozpisuje na *SPeech ABoRT* a hovorí, že z neho
+  textový procesor zisťuje, na ktorom slove skončilo **plynulé čítanie**.
+  Ozbrojený je len počas reči — `C621h` je `FFh` od spustenia dávky
+  (`002D5`) po jej koniec (`0055E`) a nový kláves ho iba skopíruje do
+  `C620h`. Rovnako to robí aj zachytávacia rutina heartbeatu na `1D216`
+  (`CPL` / `AND B`), takže reč zastaví kláves aj mimo vzorkovej slučky.
 - **Prehrávač melódií**, slučka 10EFF–10F6B. Raz za takt skladby prečíta
   `8Ch` (10F13, proti vlastnému tieňu na `B0F5h`) a `89h` (10F1C, kde
   stačí čokoľvek nenulové). **Riadok `8Ah` nečíta**, takže funkčné

@@ -344,6 +344,56 @@ Hostiteľská strana shift zbiera po celý akord, na stlačeniach aj
 pusteniach: kto pustí shift skôr než posledný bod, ten posledný záznam
 už `SHIFT_PRESSED` nenesie.
 
+**A patrí aj vedľa akordu — ako držaný kláves** (doplnené 28. 8. 2026,
+nahlásené používateľom). Predošlý odsek je pravdivý a bol neúplný: shift
+zbieraný do akordu stačí na všetko, čo akord vyrába, ale **samotný shift
+sa do stroja nedostal vôbec**, a to je tretia vec, ktorú tento kláves na
+Eureke robí — **zastaví reč**. V braillovskom režime to bol bežný spôsob,
+ako sa pozastavilo plynulé čítanie v textovom procesore.
+
+Cesta je celá mimo dekodéra klávesnice:
+
+- `C621h` je `FFh` **len počas reči** — nastaví sa na `002D5` pri spustení
+  dávky a vynuluje na `0055E`, keď dohovorí.
+- Nový stlačený kláves ho skopíruje do `spabrt` (`C620h`). Robia to dve
+  miesta nezávisle: vzorkovacia slučka syntetizátora na `0063D` (`OR (HL)`
+  / `CP (HL)` proti tieňom `C62E`–`C630`, teda „má port bit, ktorý tieň
+  nemá?") a zachytávacia rutina heartbeatu na `1D216` (`CPL` / `AND B`).
+- `SYSJUMPS.11` to pomenúva priamo: `.sprem` vracia, koľko znakov sa
+  nestihlo povedať, „**used by Word Processor to calculate what word was
+  being spoken when 'continuous speak' mode is aborted**".
+
+Dôležité pri tom je, že tieň `C62E`–`C630` sa plní **surovým** bajtom
+(`LD (HL),B` na `1D22A`), zatiaľ čo maska `0Fh` sa týka len záchytu pre
+dekodér. Preto shift v tieni je, hoci v kóde klávesu nie je — a preto
+stlačenie shiftu je pre vzorkovaciu slučku viditeľná zmena.
+
+Odmerané na bežiacej ROM: bez shiftu trvá veta „hlavní menu" **783 493**
+krokov; so shiftom stlačeným na kroku 200 000 padne `spabrt` po 2 390
+krokoch (asi 0,4 ms, lebo slučka beží rýchlosťou DAC) a veta končí na
+**202 880**. Je z toho test `CheckBrailleShiftStopsSpeech` v režime `kbd`;
+overené aj to, že po odpojení shiftu na porte zvoní.
+
+Riešenie na strane emulátora je `HoldShift(bool)`: bit `40h` sa **prilepí
+k riadku `8Ch` pri čítaní portu**, mimo frontu rámcov. Fronta je
+postupnosť, ktorú stroj prehráva, kým shift je kláves, ktorý používateľ
+drží cez celú tú postupnosť — sú to dve rôzne veci a nepatria do jednej
+štruktúry. Rámec, ktorý si bit nesie sám (akord veľkého písmena), sa tým
+nemení, takže `PressBraille` zostal ako bol.
+
+Overené aj to, čo sa dalo pokaziť: `Shift+F9` a `Shift+F10` sú akordy
+medzerníka, ktoré shift bit zámerne nenesú, a s držaným shiftom
+dekódujú **rovnako** („nabitá", „sebekontrola"). Naopak `F1` sa
+s držaným shiftom stane `Shift+F1` („textový procesor" namiesto
+„záznamník") — to nie je chyba, to robí aj skutočný stroj.
+
+Hostiteľ shift **synchronizuje, neprepína**: pri každej klávesovej
+udalosti nastaví `HoldShift` podľa živého `SHIFT_PRESSED`, a to **pred**
+strážou na Ctrl. Akcelerátorová tabuľka zje stlačenie, nikdy nie
+pustenie, takže prepínanie by shift raz nechalo dole navždy a odvtedy by
+sa potichu písali samé veľké písmená. Nuluje sa aj pri prepnutí režimu
+a strate fokusu.
+
 Emulátor **neprekladá nič**. Pošle šesť bitov na riadok `89h`, shift na
 `8Ch` a znak si nájde ROM sama (`1D79C`), takže fungujú všetky tri
 tabuľky vrátane číselného režimu aj akordy s medzerníkom, o ktorých
