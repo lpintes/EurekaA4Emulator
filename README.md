@@ -240,7 +240,9 @@ Prepínač `--diag` zapne záznam hardvérových prístupov, ktoré model neobsl
 
 Výpis: `F11`, `Ctrl+D` počas behu, a tiež pri ukončení. Zapnúť sa dá aj
 za behu v Nastaveniach (`F11`, `Ctrl+N`); vtedy sa otvorí okno konzoly, do
-ktorého sa dá čítať. Bez `--diag` nemá záznam žiadnu réžiu.
+ktorého sa dá čítať. Bez `--diag` nemá záznam žiadnu réžiu. Keď je
+diagnostika vypnutá, `Ctrl+D` to povie dialógom — konzola vtedy ešte
+neexistuje, takže hlásenie do nej by zmizlo a skratka by vyzerala pokazene.
 
 Obe otázky, kvôli ktorým vznikol, sú medzitým zodpovedané: zapisovateľná
 RAM začína na `0x70000` a na sériovom porte Z180 visí klávesnica IBM PC.

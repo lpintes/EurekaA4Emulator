@@ -339,6 +339,14 @@ by potichu. Patrí to do `MessageBox` — ten existuje vždy a čítačka ho
 ohlási ako dialóg a prečíta. Takto sú riešené chyby pri štarte, zlyhanie
 zvuku a hlásenia pri ukladaní diskety.
 
+Toto pravidlo si už raz vybralo daň: `Ctrl+D` pri vypnutej diagnostike
+posielal vetu „zapnite ju v Nastaveniach“ cez `host::Print`, teda do
+konzoly, ktorá v tej chvíli ešte neexistuje — skratka vyzerala pokazene
+namiesto vypnutej (HANDOFF 6.20). Rozhoduje o tom teraz okno, nie vlákno
+stroja, a to z dvoch dôvodov: vlákno stroja nesmie otvárať okná a
+`MessageBox` si spustí vlastnú správovú slučku, takže by na ten čas
+zastavil emuláciu aj zvuk.
+
 Druhá polovica toho pravidla: **dialóg je na to, čo sa pokazilo alebo si
 žiada rozhodnutie, nie na pravidlá, ktorými disk beží.** Podpriečinky sa
 ignorujú a nehlási sa to nijako — hlásili sa a používateľ to zamietol ako

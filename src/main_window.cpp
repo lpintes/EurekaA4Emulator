@@ -164,7 +164,32 @@ void MainWindow::RegisterCommands() {
   OnCommand(ID_KEYBOARD_SEND_AF11, [this] { SendGuestKey(VK_F11, true); });
   OnCommand(ID_KEYBOARD_SEND_F12, [this] { SendGuestKey(VK_F12, false); });
   OnCommand(ID_KEYBOARD_SEND_AF12, [this] { SendGuestKey(VK_F12, true); });
-  OnCommand(ID_TOOLS_DIAGDUMP, [this] { emulator_.PostDumpDiagnostics(); });
+  OnCommand(ID_TOOLS_DIAGDUMP, [this] {
+    // Decided here rather than on the worker for the same reason the settings
+    // dialog opens the console here: the worker must not open windows, and a
+    // MessageBox on that thread runs its own message loop -- the machine, and
+    // with it the sound that is this program's whole interface, would stand
+    // still for as long as the box was up.
+    //
+    // Off is not an error, but it is the answer to a request the user made by
+    // name, so it has to be somewhere they will find it.  It used to go to
+    // host::Print and therefore into a console that does not exist yet, which
+    // made Ctrl+D look broken instead of switched off.
+    if (!emulator_.diagnostics()) {
+      MessageBoxW(hwnd_,
+                  L"Diagnostika je vypnutá, takže nie je čo vypísať.\r\n"
+                  L"\r\n"
+                  L"Zapnete ju v Nastaveniach (F11, Ctrl+N) alebo tým, že "
+                  L"emulátor spustíte s prepínačom --diag. Výpis potom ide "
+                  L"na konzolu.",
+                  L"Výpis diagnostiky", MB_OK | MB_ICONINFORMATION);
+      return;
+    }
+    // Belt and braces: turning diagnostics on opens the console, so there
+    // normally is one by now.  Costs nothing if there is.
+    if (!host::HasConsole()) host::OpenConsole();
+    emulator_.PostDumpDiagnostics();
+  });
 
   OnCommand(ID_ACTIVATE_MENU, [this] {
     // What Alt and F10 would do, on a key the guest has no use for.  Posted

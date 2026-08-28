@@ -606,11 +606,10 @@ void EmulatorThread::Run() {
       case Command::Type::kDumpDiagnostics:
         host::Print(std::wstring(L"\r\n[Režim písania: ") +
                     ModeName(host.mode) + L"]\r\n");
-        host::Print(diagnostics_.load(std::memory_order_relaxed)
-                        ? machine.diagnostics().Report()
-                        : std::wstring(L"\r\nDiagnostika je vypnutá; zapnite "
-                                       L"ju v Nastaveniach alebo cez "
-                                       L"--diag.\r\n"));
+        // Unconditional: the window checks whether diagnostics are on before
+        // it posts this, because saying "they are off" is a message for the
+        // user and would be lost in a console nobody has opened.
+        host::Print(machine.diagnostics().Report());
         break;
       case Command::Type::kPowerOff:
         // Sent as a key rather than faked, so the firmware does its own

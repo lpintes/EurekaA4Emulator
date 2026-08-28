@@ -609,6 +609,9 @@ latchov po bitoch, kruhový záznam 512 udalostí. Výpis `F11`, `Ctrl+D`
 alebo pri ukončení. Voliteľné trasovanie konkrétnych portov aj vtedy, keď
 ich model implementuje (`Diagnostics::set_trace`).
 
+Pri **vypnutej** diagnostike `Ctrl+D` nič nevypisuje a povie to dialógom;
+prečo práve dialógom a prečo z vlákna okna, je v 6.20.
+
 Aktuálny stav: **žiadne externé porty bez modelu** naprieč všetkými
 aplikáciami. Zahodené zápisy sú jediné tri, na `1C1FA`–`1C1FC` z adresára
 disku (viď 6.2); `kRamBase = 0x70000` teda drží.
@@ -2343,6 +2346,49 @@ zapísať. Nie je to tiché — `std::ofstream` nad adresárom sa neotvorí
 vráti pomenovanú chybu „Nemožno zapísať súbor …“ a vlákno ju pošle oknu
 cez `WM_EMU_DISK_ERROR`. Prepísať cudzí adresár by bolo horšie než
 zastaviť sa.
+
+### 6.20 Ctrl+D vyzeral pokazene, keď bol len vypnutý — opravené
+
+**Nahlásené a opravené 28. 8. 2026.** `Ctrl+D` (a tá istá položka
+Nástroje → Výpis diagnostiky) navonok nerobil nič. Nebola to chyba
+skratky — brány boli tri a všetky tri boli ticho:
+
+1. `Ctrl+D` je v `IDR_ACCELERATORS_HOST`, takže bez `F11` alebo
+   `Shift+F11` ide Eureke a okno ho nikdy neuvidí. To je zámer a ponuka
+   to aj hovorí („F11, Ctrl+D“).
+2. Diagnostika je predvolene vypnutá.
+3. `host::Print` sa pri chýbajúcom `STD_OUTPUT_HANDLE` mlčky vráti
+   (`host_console.cpp:74`), a emulátor spustený z ikony konzolu nemá —
+   vyrába ju len `--diag`, `--help` a zapnutie diagnostiky v
+   Nastaveniach.
+
+Zlá časť bola tretia v kombinácii s druhou: vetva `kDumpDiagnostics`
+posielala pri vypnutej diagnostike vetu „Diagnostika je vypnutá; zapnite
+ju v Nastaveniach alebo cez --diag“ cez `host::Print`. Text pre
+používateľa do neexistujúcej konzoly, teda presne to, čo `CLAUDE.md`
+zakazuje. Používateľ nemal ako zistiť, že systém urobil všetko správne.
+
+Ako je to teraz: rozhoduje `MainWindow` v obsluhe `ID_TOOLS_DIAGDUMP`.
+Pri vypnutej diagnostike ukáže `MessageBox` s návodom a príkaz vôbec
+nepošle; pri zapnutej pre istotu doplní konzolu (`HasConsole` →
+`OpenConsole`) a pošle. Vetva vo vlákne volá `Report()` bezpodmienečne.
+
+Prečo na vlákne okna a nie tam, kde to bolo:
+
+- Vlákno stroja nesmie otvárať okná — ten istý dôvod, pre ktorý konzolu
+  otvára dialóg Nastavení, nie `kSetDiagnostics`.
+- `MessageBox` si spustí vlastnú správovú slučku. Na vlákne stroja by
+  zastavil emuláciu **aj zvuk** na celý čas, čo je dialóg otvorený. Je to
+  ten istý dôvod, pre ktorý je synchrónny `Beep()` únosný len vďaka tomu,
+  že stroj má vlastné vlákno.
+
+**Zošedenie položky sa zvažovalo a zamietlo.** Zošedená položka čítačke
+povie „nedostupné“ a nepovie prečo — používateľ zostane presne tam, kde
+bol. Navyše by na nej prestal fungovať akcelerátor, takže `Ctrl+D` by
+neurobil nič a bez zvuku: tichá porucha vymenená za tichú poruchu.
+
+Cesta pri ukončení (`main.cpp:302`) podmienku `enabled()` mala už
+predtým, takže obe cesty sú teraz rovnaké.
 
 ## 7. Nástroje
 
