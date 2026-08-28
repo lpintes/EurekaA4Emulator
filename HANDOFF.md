@@ -1453,12 +1453,13 @@ Chyby boli inde — v tichých stratách okolo tej kontroly:
    zachytávalo len chybu konštruktora iterátora, ktorá sa nikdy
    nevyhodnotila, a chyba pri posune iterátora v range-for by vyhodila
    nezachytenú výnimku.
-4. **Podpriečinky mizli bez slova.** CP/M ich nepozná, ale používateľ to
-   musí počuť.
+4. **Podpriečinky mizli bez slova.** CP/M ich nepozná; vtedy sme to
+   považovali za tichú stratu a začali ich hlásiť. **Neplatí od
+   28. 8. 2026** — je to zámerné ignorovanie a hlási sa v dokumentácii,
+   nie dialógom, viď 6.19.
 
-Opravené: prehľadávanie je `ScanFolder` s `increment(ec)`, každé
-zlyhanie je pomenovaná chyba, podpriečinky zbiera
-`VirtualDisk::skipped_entries()` a `main.cpp` ich vypíše. Hlásenie
+Opravené: prehľadávanie je `ScanFolder` s `increment(ec)` a každé
+zlyhanie je pomenovaná chyba. Hlásenie
 o kapacite hovorí prebytok v blokoch aj v KiB a menuje tri najväčšie
 súbory; číslovky sa ohýbajú (1 blok, 2 bloky, 5 blokov), lebo to znie
 čítač obrazovky.
@@ -1872,8 +1873,8 @@ a používateľ musel okno emulátora hľadať Alt+Tabom.
 
 **Dôsledok, ktorý sa dá ľahko prehliadnuť:** čokoľvek pre používateľa
 poslané cez `host::Print` odteraz padne do konzoly, ktorú nikto neotvoril,
-a **zmizne potichu**. Preto sú v `MessageBox` chyby pri štarte, preskočené
-podpriečinky, zlyhanie zvuku (to hlási vlákno oknu cez `WM_EMU_NO_AUDIO`,
+a **zmizne potichu**. Preto sú v `MessageBox` chyby pri štarte,
+zlyhanie zvuku (to hlási vlákno oknu cez `WM_EMU_NO_AUDIO`,
 lebo modálne okno z pracovného vlákna by ho zablokovalo) a hlásenia pri
 ukladaní diskety. `HoldConsole` prestalo byť potrebné na chyby — dialóg sa
 nezavrie sám.
@@ -2303,6 +2304,45 @@ dva vedľa seba: `nvda-addon/` je samostatný plugin do cudzieho programu,
 ktorý si GPL vynucuje na svojich doplnkoch, a nič z emulátora ho nepoužíva
 ani ho nepotrebuje. Hranica je priečinok a je napísaná na troch miestach:
 `LICENSE.txt` (rozsah MIT), `nvda-addon/COPYING.txt` a README oboch strán.
+
+### 6.19 Podpriečinky sa ignorujú — rozhodnuté
+
+**Rozhodnuté 28. 8. 2026: podpriečinky prevádzaného priečinka sa
+ignorujú a nie je to chyba.** CP/M nemá adresáre (`FILE-FMT.D`: položka
+adresára je meno 8.3, číslo používateľa a extenty — nič, kam by sa dal
+zavesiť strom), takže disketa nemá kam ich dať. Otázka „ako ich
+podporiť“ je tým uzavretá; sploštiť strom do jednej roviny by menilo
+mená a strácalo kolízie a to je horšie než ich nechať tak.
+
+Čo z toho platí:
+
+- Prevádza sa **len horná úroveň** vybraného priečinka. Robí to
+  `VirtualDisk::ScanFolder`: berie, čo je `is_regular_file`, ostatné
+  preskočí. Chyba pri **pohľade** na položku (`status`, `file_size`)
+  zostáva pomenovanou chybou — to je iná vec než podpriečinok.
+- Podpriečinok zostáva na disku hosťa **nedotknutý**. Zápis späť sa
+  týka len súborov, ktoré emulátor sám naimportoval, a mazanie presúva
+  do `.eureka-trash` tiež len tie; adresára sa ani jedna cesta nedotkne.
+  Drží to `disk_test`, kontrola `podpriecinok_zostane_nedotknuty`:
+  po `Flush` musí podpriečinok aj súbor v ňom stále existovať.
+- **Nič sa nehlási.** Pôvodne `main.cpp` vypisoval mená preskočených
+  položiek v `MessageBox` a `VirtualDisk` ich preto zbieral do
+  `skipped_entries_`. Používateľ to 28. 8. 2026 zamietol: dialóg pri
+  každom štarte otravuje a nehovorí nič, čo by sa dalo urobiť. Zbieranie
+  aj hlásenie sú **zmazané** — `skipped_entries_`, `skipped_entries()`
+  aj pomocná `CountItems` v `main.cpp`. Tichým zlyhaním to nie je, lebo
+  to nie je zlyhanie; kde súbor je, hovorí README.
+- Naše vlastné veci (`.eureka-trash` a čokoľvek s prefixom `.eureka-`)
+  sa preskakujú z tej istej vetvy a tiež bez hlásenia — patria hosťovi,
+  nie diskete.
+
+Jediná známa zrážka: keby Eureka vytvorila súbor s menom, ktoré sa po
+prevode na 8.3 zhoduje s menom podpriečinka, zápis späť doň nemôže
+zapísať. Nie je to tiché — `std::ofstream` nad adresárom sa neotvorí
+(odskúšané zvlášť malým programom, `mingw64`, návrat `false`), `Flush`
+vráti pomenovanú chybu „Nemožno zapísať súbor …“ a vlákno ju pošle oknu
+cez `WM_EMU_DISK_ERROR`. Prepísať cudzí adresár by bolo horšie než
+zastaviť sa.
 
 ## 7. Nástroje
 

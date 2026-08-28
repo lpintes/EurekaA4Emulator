@@ -336,8 +336,14 @@ musí hľadať Alt+Tabom — to je šum, nie informácia. `host_console.cpp`:
 **Z toho plynie pravidlo: čo je pre používateľa, nesmie ísť cez
 `host::Print`.** Padlo by to do konzoly, ktorú nikto neotvoril, a zmizlo
 by potichu. Patrí to do `MessageBox` — ten existuje vždy a čítačka ho
-ohlási ako dialóg a prečíta. Takto sú riešené chyby pri štarte, preskočené
-podpriečinky, zlyhanie zvuku a hlásenia pri ukladaní diskety.
+ohlási ako dialóg a prečíta. Takto sú riešené chyby pri štarte, zlyhanie
+zvuku a hlásenia pri ukladaní diskety.
+
+Druhá polovica toho pravidla: **dialóg je na to, čo sa pokazilo alebo si
+žiada rozhodnutie, nie na pravidlá, ktorými disk beží.** Podpriečinky sa
+ignorujú a nehlási sa to nijako — hlásili sa a používateľ to zamietol ako
+otravovanie pri každom štarte (HANDOFF 6.19). Miesto pre takú vec je
+README, nie `MessageBox`.
 
 Na konzolu patrí len: `--diag`, výpis diagnostiky, záznam klávesov,
 konzolové zariadenie hosťa (a to sa vypisuje **iba** so zapnutou

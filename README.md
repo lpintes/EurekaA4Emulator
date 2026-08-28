@@ -192,7 +192,11 @@ doplnku; tu je prioritou verná činnosť ROM.
   bol roztrhnutý a súbor práve prepisovaný by vyzeral ako zmazaný.
 - Súbor zmazaný v Eureke sa kvôli obnove presunie do `.eureka-trash`, nemaže
   sa nevratne.
-- Podpriečinky sa do jednej diskety nezahŕňajú.
+- **Podpriečinky sa ignorujú, a to bez hlásenia.** Je to zámer, nie chýbajúca
+  funkcia: CP/M žiadne adresáre nepozná, takže do diskety niet kam ich dať.
+  Prevedie sa len horná úroveň; podpriečinok aj s obsahom zostáva
+  v hostiteľskom priečinku nedotknutý a Eureka o ňom nevie. Ak teda niektorý
+  súbor na diskete chýba, pozrite sa, či nie je v podpriečinku.
 - Nezmestí sa toľko, koľko by veľkosť priečinka naznačovala: CP/M prideľuje
   miesto po blokoch 2 KiB, takže aj 300-bajtový súbor zaberie celý blok.
   Na disk sa vojde 396 blokov a 256 položiek adresára. Keď sa priečinok

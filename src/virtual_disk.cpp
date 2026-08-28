@@ -117,7 +117,6 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
   media_ = Media::kNone;
   folder_.clear();
   imported_.clear();
-  skipped_entries_.clear();
   return false;
 }
 
@@ -127,7 +126,6 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
 void VirtualDisk::CreateRamDisk() {
   image_.fill(0xe5);
   imported_.clear();
-  skipped_entries_.clear();
   folder_.clear();
   media_ = Media::kRam;
   dirty_ = false;
@@ -197,24 +195,20 @@ bool VirtualDisk::ScanFolder(std::vector<SourceFile>& files, std::wstring& error
               L"preskúmať, preto som disketu nezostavil.";
       return false;
     }
-    // Our own bookkeeping (.eureka-trash and friends) belongs to the host, not
-    // to the diskette, and is not worth reporting as skipped.
-    if (!leaf.starts_with(L".eureka-")) {
-      if (fs::is_regular_file(status)) {
-        SourceFile file;
-        file.path = path;
-        file.size = entry->file_size(ec);
-        if (ec) {
-          error = L"Veľkosť súboru " + leaf + L" sa nedá zistiť, preto neviem "
-                  L"povedať, či sa priečinok na disketu zmestí.";
-          return false;
-        }
-        files.push_back(std::move(file));
-      } else {
-        // CP/M has no directories, so a subfolder cannot go on the diskette at
-        // all.  Recorded so that main() can say so out loud.
-        skipped_entries_.push_back(leaf);
+    // Only files, and only the top level.  A CP/M directory entry is a name,
+    // a user number and extents -- there is nowhere to hang a tree -- so a
+    // subfolder is skipped and stays untouched in the host folder.  Our own
+    // bookkeeping (.eureka-trash and friends) belongs to the host too.
+    if (!leaf.starts_with(L".eureka-") && fs::is_regular_file(status)) {
+      SourceFile file;
+      file.path = path;
+      file.size = entry->file_size(ec);
+      if (ec) {
+        error = L"Veľkosť súboru " + leaf + L" sa nedá zistiť, preto neviem "
+                L"povedať, či sa priečinok na disketu zmestí.";
+        return false;
       }
+      files.push_back(std::move(file));
     }
     entry.increment(ec);
     if (ec) {
@@ -292,7 +286,6 @@ bool VirtualDisk::CheckCapacity(const std::vector<SourceFile>& files,
 bool VirtualDisk::BuildImage(std::wstring& error) {
   image_.fill(0xe5);
   imported_.clear();
-  skipped_entries_.clear();
 
   std::vector<SourceFile> files;
   if (!ScanFolder(files, error)) return false;

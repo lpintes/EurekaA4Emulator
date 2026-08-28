@@ -60,14 +60,6 @@ std::vector<fs::path> RomCandidates() {
   return candidates;
 }
 
-// Slovak counts in three shapes -- 1 položku, 2 položky, 5 položiek -- and a
-// screen reader speaks the ending rather than letting the eye skip it.
-std::wstring CountItems(std::size_t number) {
-  const wchar_t* word = number == 1 ? L"položku"
-                        : (number >= 2 && number <= 4 ? L"položky" : L"položiek");
-  return std::to_wstring(number) + L" " + word;
-}
-
 // The title carries the diskette's name, not its path: a screen reader reads
 // the whole title on every Alt+Tab and on NVDA+T, and a path spelled out that
 // often is noise.  The full path stays in Pomocník -> O programe.
@@ -255,22 +247,9 @@ int Run() {
     }
     diskDescription = disk.wstring();
     diskName = FolderName(disk);
-    // A subfolder cannot go on a CP/M diskette.  Said out loud, because from
-    // inside the machine an absent file looks exactly like a lost one.
-    const std::vector<std::wstring>& skipped = machine->disk().skipped_entries();
-    if (!skipped.empty()) {
-      std::wstring list;
-      for (const std::wstring& leaf : skipped) {
-        if (!list.empty()) list += L", ";
-        list += leaf;
-      }
-      // A message box, not a console line: from inside the machine an absent
-      // file looks exactly like a lost one, so this must not be able to fall
-      // into a console nobody opened.
-      Warn(CountItems(skipped.size()) +
-           L" som na disketu nedal, Eureka nepozná podpriečinky:\r\n\r\n" +
-           list);
-    }
+    // Subfolders are left out and nothing is said about it: a CP/M diskette has
+    // no directories at all, so this is the rule the disk works by, not an
+    // incident to report at every start.  It is in README instead.
   }
   machine->diagnostics().set_enabled(diagnostics);
   machine->Reset();

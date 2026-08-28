@@ -181,9 +181,10 @@ void TinyFilesEatWholeBlocks() {
         mounted ? "priecinok sa pripojil" : Narrow(error));
 }
 
-// CP/M has no directories, so a subfolder cannot go on the diskette -- but it
-// must not disappear without a word either.
-void SubfolderIsReported() {
+// CP/M has no directories, so a subfolder is skipped on purpose.  The other
+// half of that decision is that it must survive untouched on the host side:
+// ignoring a folder and quietly damaging it are not the same thing.
+void SubfolderIsIgnored() {
   const fs::path folder = MakeFolder("s-podpriecinkom");
   MakeFile(folder / "HRA.BAS", 500, 1);
   fs::create_directory(folder / "vnutri");
@@ -194,9 +195,10 @@ void SubfolderIsReported() {
   Check(mounted && disk.imported_files() == 1, "podpriecinok_sa_neimportuje",
         mounted ? "naimportovanych " + std::to_string(disk.imported_files())
                 : Narrow(error));
-  Check(disk.skipped_entries().size() == 1 &&
-            disk.skipped_entries().front() == L"vnutri",
-        "podpriecinok_sa_ohlasi");
+  const bool flushed = disk.Flush(error);
+  Check(flushed && fs::is_directory(folder / "vnutri") &&
+            fs::is_regular_file(folder / "vnutri" / "SKRYTA.BAS"),
+        "podpriecinok_zostane_nedotknuty", flushed ? "" : Narrow(error));
 }
 
 // A file the host will not open used to be skipped in silence, which on the
@@ -291,7 +293,7 @@ int main() {
   FullDirectory();
   OneEntryTooMany();
   TinyFilesEatWholeBlocks();
-  SubfolderIsReported();
+  SubfolderIsIgnored();
   UnreadableFileIsAnError();
   FileSpanningTwoExtents();
   EmptyFile();

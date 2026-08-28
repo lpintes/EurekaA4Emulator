@@ -38,10 +38,6 @@ class VirtualDisk {
   Media media() const { return media_; }
   std::size_t imported_files() const { return imported_.size(); }
   std::size_t StoredFiles() const;
-  // Names of entries in the mounted folder that never reached the diskette --
-  // subfolders above all, which CP/M has no concept of.  Reported rather than
-  // dropped in silence: a missing file looks exactly like a lost file.
-  const std::vector<std::wstring>& skipped_entries() const { return skipped_entries_; }
 
  private:
   struct SourceFile {
@@ -86,7 +82,6 @@ class VirtualDisk {
   std::filesystem::path folder_;
   std::array<uint8_t, kSize> image_{};
   std::unordered_map<std::string, ImportedFile> imported_;
-  std::vector<std::wstring> skipped_entries_;
   Media media_ = Media::kNone;
   bool dirty_ = false;
 };
