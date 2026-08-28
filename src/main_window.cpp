@@ -260,6 +260,42 @@ void MainWindow::RefreshMenu() const {
                   ID_KEYBOARD_SEND_AF12})
     EnableMenuItem(menu, id, pcOnly);
   EnableMenuItem(menu, ID_KEYBOARD_SEND_F11, MF_BYCOMMAND | MF_ENABLED);
+  RefreshShortcutText(menu);
+}
+
+// The Ctrl shortcuts need F11 in front of them only while Eureka has the
+// keyboard.  Once it is released they stand on their own, and a menu still
+// saying "F11, Ctrl+R" would be telling the user to press a key that does
+// nothing at all in that state -- not even a beep, because SetPassOnce
+// declines while released_ and the item for it is greyed out just above.
+//
+// The letters are read back out of the menu rather than repeated here, so the
+// .rc stays the only place that names them.  All this does is put the prefix
+// on and take it off again.
+void MainWindow::RefreshShortcutText(HMENU menu) const {
+  static constexpr wchar_t kPrefix[] = L"F11, ";
+  for (UINT id : {ID_FILE_EXPORT, ID_FILE_EXIT, ID_MACHINE_RESET,
+                  ID_MACHINE_POWEROFF, ID_KEYBOARD_TOGGLE, ID_TOOLS_SETTINGS,
+                  ID_TOOLS_DIAGDUMP, ID_HELP_KEYS}) {
+    wchar_t text[128];
+    // MF_BYCOMMAND searches the submenus too, so the ids are enough.
+    if (!GetMenuStringW(menu, id, text, ARRAYSIZE(text), MF_BYCOMMAND)) continue;
+    std::wstring item(text);
+    const size_t tab = item.find(L'\t');
+    if (tab == std::wstring::npos) continue;
+    std::wstring keys = item.substr(tab + 1);
+    if (keys.starts_with(kPrefix)) keys.erase(0, ARRAYSIZE(kPrefix) - 1);
+    if (!released_) keys.insert(0, kPrefix);
+    std::wstring wanted = item.substr(0, tab) + L'\t' + keys;
+    if (wanted == item) continue;
+    // MIIM_STRING alone: ModifyMenu would take the item's other attributes
+    // with it, and the checks and greying above are set by then.
+    MENUITEMINFOW info{};
+    info.cbSize = sizeof(info);
+    info.fMask = MIIM_STRING;
+    info.dwTypeData = wanted.data();
+    SetMenuItemInfoW(menu, id, FALSE, &info);
+  }
 }
 
 void MainWindow::SetReleased(bool released) {

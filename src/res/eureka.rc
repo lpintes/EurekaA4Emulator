@@ -142,7 +142,7 @@ BEGIN
                     16, 38, 200, 12
 
     GROUPBOX        "Diagnostika", IDC_STATIC, 7, 65, 218, 40
-    CONTROL         "&Zapnutá — záznam ide na konzolu, výpis F11, Ctrl+D",
+    CONTROL         "&Zapnutá — záznam na konzolu, výpis v ponuke Nástroje",
                     IDC_DIAGNOSTICS, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
                     16, 79, 200, 12
 

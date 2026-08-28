@@ -34,6 +34,9 @@ class MainWindow : public win::Window {
   // add-on is the only reader; see kKeyboardReleasedProp.
   void PublishKeyboardState() const;
   void RefreshMenu() const;
+  // Puts the "F11, " prefix on the Ctrl shortcuts, or takes it off once the
+  // keyboard is released and they no longer need it.
+  void RefreshShortcutText(HMENU menu) const;
   void ForwardKey(bool down, WPARAM wParam, LPARAM lParam) const;
   void SendGuestKey(WORD virtualKey, bool alt) const;
   std::wstring AboutText() const;

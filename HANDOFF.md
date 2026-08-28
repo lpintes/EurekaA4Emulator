@@ -2270,6 +2270,21 @@ Dôsledky, ktoré treba mať povedané:
 - **Položka ponuky sa volá „Jeden kláves do Windows alebo skratka“**, aby
   bolo z čoho zistiť, že `F11` je prefix. Ponuka ukazuje skratky ako
   `F11, Ctrl+R`, čítačka to prečíta.
+- **Po `Shift+F11` ponuka prefix zahodí** a píše len `Ctrl+R`. Nie je to
+  kozmetika: po uvoľnení klávesnice `F11` nerobí **nič** — `SetPassOnce`
+  ho v tom stave odmieta a položka preň je zošedená — takže kto by ho podľa
+  ponuky stlačil, nedočkal by sa ani pípnutia. Robí to
+  `MainWindow::RefreshShortcutText` z `RefreshMenu`, teda pri
+  `WM_INITMENUPOPUP`. Písmená si číta späť z ponuky a len nasadzuje
+  a sníma prefix, aby ich `.rc` menoval ako jediný.
+  **Odmerané na bežiacom procese** (`GetSubMenu` + `GetMenuStringW` po
+  pozíciách, `WM_COMMAND` s `ID_KEYBOARD_RELEASE` z druhého procesu):
+  na začiatku `F11, Ctrl+U/Q/R/K/H`, po uvoľnení `Ctrl+U/Q/R/K/H`, po
+  vrátení zase s prefixom a bez zdvojenia. Pozor, cez hranicu procesov
+  sa ponuka **nedá** čítať `MF_BYCOMMAND` (vráti −1), lebo podponuky
+  patria cudziemu procesu; po pozíciách áno.
+- Text v Nastaveniach mal ten istý problém a je preto bez skratky:
+  „výpis v ponuke Nástroje“.
 - **V braillovskom režime sa nemení nič**: Ctrl na tej klávesnici nie je
   kláves a `emulator_thread` ho tam zahadzuje na stlačení aj na pustení.
   Komentár pri tom guarde bol po tejto zmene nepresný (odvolával sa na to,

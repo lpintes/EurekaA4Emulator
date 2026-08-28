@@ -250,6 +250,13 @@ v konflikte s hosťom. Platí:
   tie klávesy Eureke, takže `Ctrl+H` na exterke naozaj urobí to, čo robí
   na stroji. Bránu vyhodnocuje `MainWindow::HostShortcutsActive()` a pýta
   sa na ňu `win::RunMessageLoop` pri **každej správe**, nie raz na štarte.
+- **Text skratky v ponuke sa mení so stavom.** Po `Shift+F11` `F11` nerobí
+  nič — `SetPassOnce` ho odmieta a jeho položka je zošedená — takže ponuka,
+  ktorá by v tom stave stále písala `F11, Ctrl+R`, radí kláves, po ktorom
+  ani nepípne. Prefix nasadzuje a sníma `RefreshShortcutText`
+  z `RefreshMenu`. Písmená si číta späť z ponuky, takže ich `.rc` menuje ako
+  jediný; keď na to siahneš, zachovaj to. Overiť sa to dá zvonka, ale len
+  **po pozíciách** — `MF_BYCOMMAND` cez hranicu procesov vráti −1.
 - **Kto pridá položku do tej druhej tabuľky, musí vedieť o jednorazovke.**
   Okno stlačenie nevidí (zje ho `TranslateAccelerator`), takže ho
   `HostKeepsKey` nemá na čom minúť a `F11` by zostalo nachystané navždy —

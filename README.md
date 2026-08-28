@@ -59,7 +59,8 @@ Ukončenie a bezpečné uloženie disku: `F11`, `Ctrl+Q`. Reset: `F11`,
 a `Shift+F11`. Ostatné skratky sú dvojhmatové — najprv `F11`, potom
 `Ctrl` s písmenom. Bez `F11` idú tie klávesy Eureke, takže `Ctrl+H`
 naozaj urobí to, čo `Ctrl+H` na skutočnom stroji. Po `Shift+F11` platia
-rovno, lebo vtedy je klávesnica hosťova aj tak.
+rovno, lebo vtedy je klávesnica hosťova aj tak — a ponuka vtedy prefix
+`F11` prestane ukazovať, aby neradila kláves, ktorý v tom stave nerobí nič.
 
 Písmená sú `Ctrl+U Q R V K N D H`. Že je to `Ctrl` a nie `Ctrl+Shift`,
 má dôvod: do `Ctrl+Shift` si svoje **globálne** skratky vešajú iné
