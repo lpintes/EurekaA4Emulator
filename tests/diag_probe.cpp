@@ -11,21 +11,26 @@
 //   diag_probe ROM DISK_FOLDER seq [budget] TOKEN...
 //
 // A sequence TOKEN is either "kXX" (one key code in hex, e.g. kD7 for
-// Shift+F8) or a literal string typed on the emulated PC keyboard.  Between
+// Shift+F8), "+wp"/"-wp" to set or clear the diskette's write protect notch,
+// or a literal string typed on the emulated PC keyboard.  Between
 // tokens the machine is run until it has been quiet for half a second, which
 // is what "ready for the next key" looks like now that the CPU is never parked
 // at console input, so the sequence follows the ROM's own pacing instead of a
 // guessed instruction count.  A long silent job -- a disk format -- outlasts
 // that, so seq stops before one finishes; see tests/README.md.
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "disk_stash.h"
 #include "machine.h"
+#include "virtual_disk.h"
 
 namespace {
 
@@ -119,8 +124,182 @@ int wmain(int argc, wchar_t** argv) {
       return 1;
     }
     std::printf("start: %s\n", Readable(machine->TakeSpeechInput()).c_str());
+    // The probe keeps diskettes the way the emulator does, so a sequence can
+    // put the same one back in rather than a fresh copy of it -- which is the
+    // difference the bulk copy turns on.
+    DiskStash probeStash;
+    int currentSlot = 0;
     for (int index = 5; index < argc; ++index) {
       const std::wstring token = argv[index];
+      if (token == L".") {
+        // Wait without pressing anything: some answers arrive long after the
+        // machine has gone quiet, and a key sent to fill the gap would be an
+        // answer to a question that has not been asked yet.
+        const bool waited = RunUntilPrompt(*machine, budget);
+        std::printf("%-10ls -> %s%s\n", token.c_str(),
+                    Readable(machine->TakeSpeechInput()).c_str(),
+                    waited ? "" : "  [nezastavil sa na vstupe]");
+        continue;
+      }
+      if (token.size() > 1 && token[0] == L'?') {
+        // Wait until the machine says a particular thing, then carry on.  A
+        // fixed wait is not good enough for a job the machine drives: the
+        // speech arrives well after the work, so a diskette swapped on a
+        // timer lands in the middle of a step rather than at the prompt that
+        // asked for it.
+        std::string wanted;
+        for (wchar_t ch : token.substr(1))
+          wanted.push_back(static_cast<char>(ch));
+        std::string heard;
+        const uint64_t deadline = machine->instructions() + budget;
+        bool found = false;
+        while (machine->instructions() < deadline && !found) {
+          heard += Readable(machine->TakeSpeechInput());
+          found = heard.find(wanted) != std::string::npos;
+          if (!found && !machine->Step() && machine->powered_off()) break;
+        }
+        heard += Readable(machine->TakeSpeechInput());
+        std::printf("%-10ls -> %s%s\n", token.c_str(), heard.c_str(),
+                    found ? "" : "  [NEDOCKAL SA]");
+        continue;
+      }
+      if (token.starts_with(L"spin:")) {
+        // Where the machine is spending its time.  A histogram of the physical
+        // PC is how a hang gets a location instead of a guess: the top few
+        // addresses are the loop, and the ROM listing says what it is waiting
+        // for.
+        const uint64_t steps = _wcstoui64(token.substr(5).c_str(), nullptr, 10);
+        std::vector<std::pair<uint32_t, uint64_t>> seen;
+        const uint64_t before = machine->debug_bios_reads();
+        for (uint64_t step = 0; step < steps; ++step) {
+          const uint32_t at = machine->physical_pc();
+          bool found = false;
+          for (auto& entry : seen)
+            if (entry.first == at) { ++entry.second; found = true; break; }
+          if (!found && seen.size() < 4096) seen.push_back({at, 1});
+          machine->TakeConsoleOutput();
+          machine->TakeAudio();
+          if (!machine->Step() && machine->powered_off()) break;
+        }
+        std::sort(seen.begin(), seen.end(),
+                  [](const auto& a, const auto& b) { return a.second > b.second; });
+        std::printf("%-10ls -> [citani BIOSu +%llu, najcastejsie PC:",
+                    token.c_str(),
+                    static_cast<unsigned long long>(machine->debug_bios_reads() - before));
+        for (std::size_t i = 0; i < seen.size() && i < 6; ++i)
+          std::printf(" %05X(%llu)", seen[i].first,
+                      static_cast<unsigned long long>(seen[i].second));
+        std::printf("]\n");
+        continue;
+      }
+      if (token == L"trace") {
+        // The controller and the latches from here on.  The ring buffer keeps
+        // the last of them, so switching it on mid-sequence is what makes the
+        // report end on the step being investigated rather than on the boot.
+        // Only the controller: the status port at A8h is polled by the
+        // idle loop and would flood the ring buffer with the machine doing
+        // nothing.
+        for (uint8_t port : {0x98, 0x99, 0x9a, 0x9b})
+          machine->diagnostics().set_trace(port, true);
+        std::printf("%-10ls -> [zapnute sledovanie diskovych portov]\n",
+                    token.c_str());
+        continue;
+      }
+      if (token == L"stav") {
+        // What is actually on the diskette in the drive.  The speech says what
+        // the machine believes; this says what reached the medium, which is
+        // the difference the owner's bulk-copy report turns on.
+        const VirtualDisk& disk = machine->disk();
+        std::printf("%-10ls -> [%s, suborov=%u, %s]\n", token.c_str(),
+                    disk.media() == VirtualDisk::Media::kFolder ? "priecinok"
+                    : disk.media() == VirtualDisk::Media::kRam  ? "v pamati"
+                                                                : "prazdna mechanika",
+                    static_cast<unsigned>(disk.StoredFiles()),
+                    disk.write_protected() ? "zamknuta" : "odomknuta");
+        continue;
+      }
+      // Waits for the drive the way the emulator's worker does before it
+      // swaps: mid-sector is the one moment a swap tears the image, and a
+      // probe that ignored that would be measuring a machine the user can
+      // never produce.
+      const auto settleForSwap = [&machine, budget] {
+        const uint64_t deadline = machine->instructions() + budget;
+        while (machine->instructions() < deadline) {
+          if (machine->DiskSwappable()) return true;
+          if (!machine->Step() && machine->powered_off()) return false;
+        }
+        return false;
+      };
+      if (token.starts_with(L"mount:")) {
+        // Any folder, not just the one the run started with: the bulk copy
+        // needs a target as well as a source.
+        std::wstring swapError;
+        const bool ok = machine->MountDisk(token.substr(6), swapError);
+        std::printf("%-10ls -> [vymena diskety: %s]\n", token.c_str(),
+                    ok ? "priecinok" : "ZLYHALA");
+        continue;
+      }
+      if (token == L"slot1" || token == L"slot2") {
+        // The quick choice, stash and all -- the emulator's own path, not a
+        // shortcut through it.  Slot 1 is the folder this run started with,
+        // locked as the owner's scenario has it; slot 2 is a diskette living
+        // in memory, and putting it back has to hand back the same one.
+        const int slot = token == L"slot1" ? 1 : 2;
+        std::wstring swapError;
+        const bool settled = settleForSwap();
+        machine->FlushDisk(swapError);
+        probeStash.Put(currentSlot, machine->disk());
+        bool ok = true;
+        if (auto kept = probeStash.Take(slot)) {
+          machine->InsertDisk(*kept);
+        } else if (slot == 2) {
+          machine->CreateRamDisk(true);
+        } else {
+          ok = machine->MountDisk(argv[2], swapError);
+          if (ok) machine->SetDiskWriteProtected(true);
+        }
+        currentSlot = slot;
+        std::printf("%-10ls -> [vlozeny slot %d: %s%s]\n", token.c_str(), slot,
+                    ok ? (machine->disk().media() == VirtualDisk::Media::kRam
+                              ? "v pamati"
+                              : "priecinok")
+                       : "ZLYHALO",
+                    settled ? "" : ", DISK SA NEUSTALIL");
+        continue;
+      }
+      if (token == L"ram" || token == L"folder") {
+        // Swapping the diskette the way the window does, so a sequence can
+        // follow the machine through a job that asks for it -- the ROM's bulk
+        // copy sends the user back and forth between source and target.
+        // "ram" is the quick-choice memory slot: a fresh empty diskette.
+        std::wstring swapError;
+        bool ok = true;
+        const bool settled = settleForSwap();
+        machine->FlushDisk(swapError);
+        if (token == L"ram") {
+          machine->CreateRamDisk(true);
+        } else {
+          ok = machine->MountDisk(argv[2], swapError);
+          // The source diskette in the owner's scenario is locked, and the
+          // ROM's bulk copy insists on that -- Mount clears the notch, so it
+          // goes back on here.
+          if (ok) machine->SetDiskWriteProtected(true);
+        }
+        std::printf("%-10ls -> [vymena diskety: %s%s]\n", token.c_str(),
+                    ok ? (token == L"ram" ? "prazdna v pamati"
+                                          : "priecinok, zamknuty")
+                       : "ZLYHALA",
+                    settled ? "" : ", DISK SA NEUSTALIL");
+        continue;
+      }
+      if (token == L"+wp" || token == L"-wp") {
+        // Flipping the notch mid-sequence lets one run ask the firmware the
+        // same question protected and unprotected, from the same state.
+        machine->SetDiskWriteProtected(token[0] == L'+');
+        std::printf("%-10ls -> [zamok proti zapisu %s]\n", token.c_str(),
+                    token[0] == L'+' ? "zapnuty" : "vypnuty");
+        continue;
+      }
       if (token.size() == 3 && (token[0] == L'k' || token[0] == L'K')) {
         machine->QueueKey(static_cast<uint8_t>(HexValue(token[1]) * 16 +
                                                HexValue(token[2])));
