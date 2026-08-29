@@ -32,8 +32,9 @@ CFLAGS   := -std=c11 -O2 $(WARN) -Isrc
 # Necham to tak, aby sa spolu s prechodom na make nemenilo aj chovanie.
 TESTFLAGS := -std=c++20 -O2 $(WARN) -Isrc
 
-EMU_NAMES  := main machine virtual_disk text_codec audio_player diagnostics \
-              host_console emulator_thread main_window dialogs settings
+EMU_NAMES  := main machine virtual_disk disk_stash text_codec audio_player \
+              diagnostics host_console emulator_thread main_window dialogs \
+              settings
 # Nezavisle na emulatore, da sa vziat do ineho projektu tak ako je.
 WIN_NAMES  := window dialog
 EMU_OBJS   := $(addprefix $(BUILD)/,$(addsuffix .o,$(EMU_NAMES))) \
@@ -41,8 +42,8 @@ EMU_OBJS   := $(addprefix $(BUILD)/,$(addsuffix .o,$(EMU_NAMES))) \
               $(BUILD)/z80.o $(BUILD)/eureka_res.o
 # Objekty, proti ktorym sa linkuju sonda a integracny test. Bez main.o
 # (ma vlastny wmain) a bez audio_player.o (testy nehraju).
-CORE_OBJS  := $(BUILD)/machine.o $(BUILD)/virtual_disk.o $(BUILD)/diagnostics.o \
-              $(BUILD)/text_codec.o $(BUILD)/z80.o
+CORE_OBJS  := $(BUILD)/machine.o $(BUILD)/virtual_disk.o $(BUILD)/disk_stash.o \
+              $(BUILD)/diagnostics.o $(BUILD)/text_codec.o $(BUILD)/z80.o
 
 EMU        := $(BIN)/EurekaA4Emulator.exe
 TEST_EXES  := $(BIN)/codec_test.exe $(BIN)/disk_test.exe \
@@ -93,7 +94,8 @@ $(EMU): $(EMU_OBJS) | $(BIN)
 $(BIN)/codec_test.exe: $(BUILD)/test_codec_test.o $(BUILD)/text_codec.o | $(BIN)
 	$(CXX) $(STATIC) -o $@ $^
 
-$(BIN)/disk_test.exe: $(BUILD)/test_disk_test.o $(BUILD)/virtual_disk.o | $(BIN)
+$(BIN)/disk_test.exe: $(BUILD)/test_disk_test.o $(BUILD)/virtual_disk.o \
+                     $(BUILD)/disk_stash.o | $(BIN)
 	$(CXX) $(STATIC) -o $@ $^
 
 # settings.o sa pyta shellu, kde je %APPDATA% (SHGetKnownFolderPath), preto
@@ -119,7 +121,7 @@ A4ROM ?= C:/b/a4rom.dmp
 ROM   ?= $(A4ROM)
 DISK  ?= $(BUILD)/testdisk
 
-MODES  := bas com kbd power dc rtc hudba format
+MODES  := bas com kbd power dc rtc hudba format wp
 CHECKS := check-codec check-disk check-settings $(addprefix check-,$(MODES))
 
 .PHONY: $(CHECKS)

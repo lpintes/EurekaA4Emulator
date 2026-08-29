@@ -5,6 +5,7 @@
 #include <optional>
 
 #include "audio_player.h"
+#include "disk_stash.h"
 #include "host_console.h"
 #include "text_codec.h"
 
@@ -383,6 +384,9 @@ void EmulatorThread::PostExportDisk(std::wstring folder) {
 DiskState DescribeDisk(const VirtualDisk& disk) {
   DiskState state;
   state.present = disk.present();
+  state.writeProtected = disk.write_protected();
+  state.inMemory = disk.media() == VirtualDisk::Media::kRam;
+  state.files = disk.StoredFiles();
   switch (disk.media()) {
     case VirtualDisk::Media::kFolder: {
       state.folder = disk.folder().wstring();
@@ -405,19 +409,45 @@ DiskState DescribeDisk(const VirtualDisk& disk) {
   return state;
 }
 
-void EmulatorThread::PostMountDisk(std::wstring folder) {
+void EmulatorThread::PostMountDisk(std::wstring folder, bool writeProtected) {
   Command command;
   command.type = Command::Type::kMountDisk;
   command.path = std::move(folder);
+  command.flag = writeProtected;
+  Post(std::move(command));
+}
+
+void EmulatorThread::PostSetWriteProtect(bool writeProtected) {
+  Command command;
+  command.type = Command::Type::kSetWriteProtect;
+  command.flag = writeProtected;
+  Post(std::move(command));
+}
+
+void EmulatorThread::PostInsertSlot(int slot, std::wstring value,
+                                    bool writeProtected) {
+  Command command;
+  command.type = Command::Type::kInsertSlot;
+  command.slot = slot;
+  command.path = std::move(value);
+  command.flag = writeProtected;
+  Post(std::move(command));
+}
+
+void EmulatorThread::PostAssignSlot(int slot) {
+  Command command;
+  command.type = Command::Type::kAssignSlot;
+  command.slot = slot;
   Post(std::move(command));
 }
 
 void EmulatorThread::PostEjectDisk() { PostType(Command::Type::kEjectDisk); }
 
-void EmulatorThread::PostCreateRamDisk(bool formatted) {
+void EmulatorThread::PostCreateRamDisk(bool formatted, int slot) {
   Command command;
   command.type = Command::Type::kCreateRamDisk;
   command.flag = formatted;
+  command.slot = slot;
   Post(std::move(command));
 }
 
@@ -611,6 +641,16 @@ void EmulatorThread::Run() {
   std::optional<Command> pendingDisk;
   auto pendingSince = Clock::now();
 
+  // The diskettes that are not in the drive, and which slot the one in the
+  // drive belongs to.  A diskette living in memory exists nowhere but here,
+  // so taking it out has to put it somewhere -- see disk_stash.h for what
+  // the machine's own bulk copy does to a target that comes back blank.
+  DiskStash& stash = stash_;
+  // Zero: the diskette the emulator started with came from the command line or
+  // from "posledna-disketa", neither of which is a slot.  It gets a slot only
+  // when the user puts one in from the quick choice.
+  int currentSlot = 0;
+
   const auto changeDisk = [&](const Command& command) {
     DiskChange result;
     // What the old diskette still owes its folder goes back first: after this
@@ -619,22 +659,52 @@ void EmulatorThread::Run() {
     std::wstring changeError;
     result.ok = machine.FlushDisk(changeError);
     if (result.ok) {
+      // Out of the drive and onto the shelf, before anything replaces it.
+      // Declined for a folder-backed diskette, which needs no copy.
+      stash.Put(currentSlot, machine.disk());
       switch (command.type) {
         case Command::Type::kEjectDisk:
           machine.EjectDisk();
+          currentSlot = 0;
           break;
         case Command::Type::kCreateRamDisk:
           machine.CreateRamDisk(command.flag);
+          currentSlot = command.slot;
           break;
+        case Command::Type::kInsertSlot: {
+          // The slot's own diskette first, if it has one: that is the whole
+          // point of a slot being a place rather than a recipe.
+          if (auto disk = stash.Take(command.slot)) {
+            machine.InsertDisk(*disk);
+          } else if (SlotIsRam(command.path)) {
+            machine.CreateRamDisk(true);
+          } else {
+            result.ok = machine.MountDisk(command.path, changeError);
+            if (result.ok) machine.SetDiskWriteProtected(command.flag);
+          }
+          currentSlot = command.slot;
+          break;
+        }
         default:
           result.ok = machine.MountDisk(command.path, changeError);
+          // Set after the mount, which clears it: the notch belongs to the
+          // medium, so Mount hands back an unprotected one and the slot's
+          // wish is applied to the diskette that is now in.
+          if (result.ok) machine.SetDiskWriteProtected(command.flag);
+          currentSlot = 0;
           break;
       }
     }
+    stashHasFiles_.store(stash.HoldsAnythingWritten(),
+                         std::memory_order_relaxed);
     if (!result.ok) result.error = changeError;
     // Read after the change, so this is what is in the drive now.  A refused
     // mount leaves it empty, which the labels then say.
     result.state = DescribeDisk(machine.disk());
+    // Which slot the diskette now in the drive belongs to.  The window needs
+    // it to know whether anything else points at a diskette in memory: one
+    // with no slot has only this drive holding it.
+    result.state.slot = currentSlot;
     {
       std::lock_guard<std::mutex> lock(errorMutex_);
       diskChange_ = std::move(result);
@@ -731,9 +801,46 @@ void EmulatorThread::Run() {
         if (notify) PostMessageW(notify, WM_EMU_EXPORT_DONE, 0, 0);
         break;
       }
+      case Command::Type::kAssignSlot: {
+        // No swap and no waiting: only the bookkeeping changes.  Reported the
+        // same way a lock is, so the window learns the diskette now has a
+        // slot and stops warning about losing it.
+        currentSlot = command.slot;
+        DiskChange result;
+        result.swapped = false;
+        result.state = DescribeDisk(machine.disk());
+        result.state.slot = currentSlot;
+        {
+          std::lock_guard<std::mutex> lock(errorMutex_);
+          diskChange_ = std::move(result);
+        }
+        if (notify) PostMessageW(notify, WM_EMU_DISK_CHANGED, 0, 0);
+        break;
+      }
+      case Command::Type::kSetWriteProtect: {
+        // No flush and no waiting for the drive: nothing about the image
+        // changes, only whether the controller will take a write.  Reported
+        // through the same message as a swap so the title and the menu have
+        // one road in, with swapped false to keep the tones apart.
+        machine.SetDiskWriteProtected(command.flag);
+        DiskChange result;
+        result.swapped = false;
+        result.state = DescribeDisk(machine.disk());
+    // Which slot the diskette now in the drive belongs to.  The window needs
+    // it to know whether anything else points at a diskette in memory: one
+    // with no slot has only this drive holding it.
+    result.state.slot = currentSlot;
+        {
+          std::lock_guard<std::mutex> lock(errorMutex_);
+          diskChange_ = std::move(result);
+        }
+        if (notify) PostMessageW(notify, WM_EMU_DISK_CHANGED, 0, 0);
+        break;
+      }
       case Command::Type::kMountDisk:
       case Command::Type::kEjectDisk:
       case Command::Type::kCreateRamDisk:
+      case Command::Type::kInsertSlot:
         // Done straight away when the drive is already quiet, which it nearly
         // always is; otherwise it waits in the main loop below.  A second
         // request replaces the first: the user changed their mind, and doing

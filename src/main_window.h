@@ -62,6 +62,11 @@ class MainWindow : public win::Window {
   void RememberDisk(const std::wstring& folder);
   // The nine slots as the dialogs want them.
   SlotList CurrentSlots() const;
+  SlotsDialog::Locks CurrentLocks() const;
+  void RememberLock(const DiskState& disk);
+  // False when the user backed out of losing a diskette that lives only in
+  // memory; the caller then does nothing.  See the definition.
+  bool ConfirmLosingDiskette();
   void SaveSettings();
   void SaveSlot(int number, std::wstring value);
   // Puts the diskette from one of the nine slots in.  Numbered 1..9 the way

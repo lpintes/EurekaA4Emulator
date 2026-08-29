@@ -28,6 +28,7 @@
 #include <array>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 class Settings {
  public:
@@ -59,10 +60,35 @@ class Settings {
   const std::wstring& slot(int number) const;
   void SetSlot(int number, std::wstring path);
 
+  // Which diskettes are locked against writing.  Kept by folder and not by
+  // slot, because the lock belongs to the diskette: the ROM's own bulk copy
+  // insists the source be protected and then has the user swap source and
+  // target back and forth, so a lock that ended when the diskette came out
+  // would be gone the first time it went back in -- and the machine would
+  // stop with "zdrojový disk není chráněn proti zápisu".  It ends only when
+  // the user ends it.
+  //
+  // Paths are compared case-insensitively with separators and any trailing
+  // slash folded away, so the same folder typed two ways is one diskette.  A
+  // diskette in memory is never in here: it exists only for this run.
+  bool disk_locked(const std::wstring& folder) const;
+  void SetDiskLocked(const std::wstring& folder, bool locked);
+
+  // Whether two paths name the same diskette, by the rule above.  Public
+  // because the slots dialog asks the same question -- two slots pointing at
+  // one folder are one diskette with one lock, and a second copy of this rule
+  // would be the sort of quiet disagreement this project keeps paying for.
+  static bool SameDisk(const std::wstring& left, const std::wstring& right);
+
  private:
+  static std::wstring NormalizePath(const std::wstring& folder);
+
   std::filesystem::path file_;
   std::wstring lastDisk_;
   std::array<std::wstring, kSlots> slots_;
+  // In the order they were locked, so the file stays diffable and a lock the
+  // user set is not silently reordered under them.
+  std::vector<std::wstring> lockedDisks_;
 };
 
 // A slot holds either a host folder or this marker.  A Windows path can never

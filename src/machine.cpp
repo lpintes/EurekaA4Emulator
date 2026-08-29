@@ -813,14 +813,19 @@ uint8_t EurekaMachine::TypeOneStatus() const {
   // After a Type I command the firmware waits for the index pulse to decide
   // whether a disk is actually in the drive: 19828 issues a seek, then polls
   // 98h with TST 02h and reports "neni disk" if it never arrives (19848).
-  // A mounted disk is always present, spinning and unprotected here, so the
-  // pulse is held asserted rather than timed to a 200ms revolution -- the
-  // firmware only ever asks whether it appears, never how often.  With no
-  // disk it never appears, which is how the machine says "neni disk".
+  // A mounted disk is always present and spinning here, so the pulse is held
+  // asserted rather than timed to a 200ms revolution -- the firmware only ever
+  // asks whether it appears, never how often.  With no disk it never appears,
+  // which is how the machine says "neni disk".
   uint8_t status = 0;
   if (disk_.present()) status |= 0x02;  // INDEX comes from the hole in the medium
   if (fdcTrack_ == 0) status |= 0x04;   // TRACK 00 is a sensor on the mechanism
-  return status;                        // bit 6 (write protect) stays clear
+  // Bit 6 is the WPRT input of the 1770, driven by the notch in the medium.
+  // The firmware reads it here: DEVICES.10 reports it as bit 6 of both
+  // fdc_ctl_chkdsk and fdc_ctl_diskin, and SYSEQU.LIB has it in
+  // write_error_mask but not in read_error_mask, so it stops writes only.
+  if (disk_.write_protected()) status |= 0x40;
+  return status;
 }
 
 void EurekaMachine::StartFdcCommand(uint8_t command) {
@@ -878,6 +883,13 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     if (!disk_.present()) {
       fdcStatus_ = 0x10;
       fdcIntrq_ = true;
+    } else if (disk_.write_protected()) {
+      // A 1770 refuses a write on a protected medium before it touches the
+      // surface: it raises bit 6 and drops BUSY at once, with no data request
+      // at all.  Leaving fdcWriting_ false is the point -- the guest's DMA
+      // then finds nothing to feed and the image is never opened for writing.
+      fdcStatus_ = 0x40;
+      fdcIntrq_ = true;
     } else {
       fdcBuffer_.assign(512, 0);
       fdcWriting_ = true;
@@ -919,6 +931,14 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   } else if (type == 0xf0) {
     if (!disk_.present()) {
       fdcStatus_ = 0x10;
+      fdcIntrq_ = true;
+      return;
+    }
+    if (disk_.write_protected()) {
+      // Write Track is a write like any other, and DEVICES.10 says so from
+      // the other end: fdc_ctl_write_track returns status 2, "Disk Write
+      // Protected".  So a protected diskette cannot be formatted either.
+      fdcStatus_ = 0x40;
       fdcIntrq_ = true;
       return;
     }

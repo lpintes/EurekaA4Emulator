@@ -73,14 +73,28 @@ class NewDiskDialog : public win::Dialog {
 class SlotsDialog : public win::Dialog {
  public:
   using Slots = SlotList;
+  using Locks = std::array<bool, Settings::kSlots>;
 
   // currentDisk is what a slot would have to hold to bring back the diskette
   // in the drive right now -- a folder, or a marker for one in memory.  Empty
   // when the drive is empty; that is what "Sem vloženú disketu" assigns.
-  SlotsDialog(Slots slots, std::wstring currentDisk)
-      : slots_(std::move(slots)), currentDisk_(std::move(currentDisk)) {}
+  // settings is read, never written: the dialog works on a copy and hands it
+  // back only on OK.  It is here because the lock belongs to the folder, so
+  // pointing a slot at a folder that is already locked has to arrive ticked
+  // -- otherwise OK would quietly take that lock off.
+  SlotsDialog(Slots slots, Locks locks, std::wstring currentDisk,
+              const Settings& settings)
+      : slots_(std::move(slots)),
+        locks_(locks),
+        currentDisk_(std::move(currentDisk)),
+        settings_(&settings) {}
 
   const Slots& slots() const { return slots_; }
+  const Locks& locks() const { return locks_; }
+  // Which slot the diskette now in the drive was put into, 0 for none.  For a
+  // diskette living in memory that is not bookkeeping: it is the difference
+  // between the slot holding it and the slot making a new empty one.
+  int assigned_current() const { return assignedCurrent_; }
 
  protected:
   bool OnInit() override;
@@ -93,9 +107,16 @@ class SlotsDialog : public win::Dialog {
   void FillList(int select);
   int Selected() const;
   void SetSlotAndRefresh(int index, std::wstring path);
+  // The lock belongs to the selected slot, so the box has to follow the
+  // selection.  A box that stayed where it was would be reporting one slot's
+  // state while the list names another.
+  void RefreshLock(int index);
 
   Slots slots_;
+  Locks locks_{};
+  int assignedCurrent_ = 0;
   std::wstring currentDisk_;
+  const Settings* settings_ = nullptr;
 };
 
 class AboutDialog : public win::Dialog {

@@ -1500,7 +1500,7 @@ o kapacite hovorí prebytok v blokoch aj v KiB a menuje tri najväčšie
 súbory; číslovky sa ohýbajú (1 blok, 2 bloky, 5 blokov), lebo to znie
 čítač obrazovky.
 
-Regresiu drží `tests/disk_test.cpp` (18 kontrol). Testovacie priečinky
+Regresiu drží `tests/disk_test.cpp` (vtedy 18 kontrol; dnes ich je viac). Testovacie priečinky
 si generuje sám v `%TEMP%` — skutočný diskový priečinok je pohyblivý
 cieľ a test, ktorý ho číta, meria to, čo tam práve niekto nechal.
 Overené mutáciami: kontrola o dva bloky štedrejšia aj návrat tichého
@@ -1810,7 +1810,7 @@ vysunutie; návrh je v 6.22). Odmerané na nej je toto:
   sa zmenil z „disketa: testdisk“ na „disketa: žiadna“.
 - `Mount` obraz naozaj **prestavia**, nie prekryje: po výmene nezostal ani
   bajt z predošlej diskety v blokoch, ktoré nová nepoužíva
-  (`tests/disk_test.cpp`, 33 kontrol). Overené mutáciou — bez
+  (`tests/disk_test.cpp`, vtedy 33 kontrol). Overené mutáciou — bez
   `image_.fill(0xe5)` v `BuildImage` padne desať kontrol.
 - Vysunutá mechanika odmieta čítanie aj zápis, čo je vstup do firmvérovej
   cesty „vadný disk“ (6.6).
@@ -2658,17 +2658,97 @@ Tým `Shift+F8` na RAM diskete konečne niečo naozaj robí a nenaformátovaná
 disketa sa formátovaním stane obyčajnou, takže ju na konci ide uložiť do
 priečinka. Zapadá to bez výnimky.
 
-#### Zámok proti zápisu — voliteľný, neodmeraný
+#### Zámok proti zápisu — model hotový 29. 8. 2026, hostiteľská strana nie
 
 Disketa má byť uzamykateľná: prepínacia položka v ponuke `Disketa` aj
 vlastnosť slotu, default odomknutá. Chráni rozdelenú kolekciu pred
 prepísaním zo stroja.
 
-Model nastaví bit 6 v stave FDC (`TypeOneStatus` ho dnes drží nulový)
-a odmietne Write Sector. **Čo na to povie firmvér, je otázka na sondu,
-nie na úvahu.** Skutočná Eureka mala prelepovaciu dierku, takže ROM to
-takmer isto rieši — ale „takmer isto" je v tomto projekte to slovo, po
-ktorom sa už dvakrát mýlilo (viď úvod kapitoly 6). Odmerať pred písaním.
+**Model je hotový a firmvér ho prijal.** Bola to jedna z tých vecí, kde sa
+odvodenie neoplatilo — manuál to má napísané a rozhodol to za pár minút:
+
+- `DEVICES.10` má bit 6 ako „Write protected" v odpovedi
+  `fdc_ctl_chkdsk` aj `fdc_ctl_diskin`, a pre `fdc_ctl_write_track` uvádza
+  návratový stav 2, „Disk Write Protected".
+- `SYSEQU.LIB` má `write_protect_mask = 01000000b` a — čo je dôležitejšie —
+  `write_error_mask = 11011110b` s bitom 6, kým `read_error_mask =
+  10011110b` bez neho. **Ochrana teda zastavuje zápis a čítanie nechá
+  bežať; nie je to dohad, je to maska.**
+- `ERRNO.LIB` má `EDISKWP = 28`, „Disk write protected", a v ROM sú hlášky
+  na to naviazané: `13D5E` „disk je chráněn proti zápisu" pri formátovaní,
+  `14212` a `14269` pri hromadnom kopírovaní a rovnaká veta v tabuľke chýb
+  BDOS na `1BEF8`.
+
+V modeli je to `VirtualDisk::set_write_protected`, ktoré `TypeOneStatus`
+premieta do bitu 6 a ktoré odmieta Write Sector aj Write Track statusom
+`40h` — pred zápisom, ako to robí 1770. `WritePhysicalSector` a
+`WriteRecord` ho odmietajú ešte raz, lebo BIOS stub ide do obrazu mimo
+radiča.
+
+Zámok patrí médiu, nie mechanike: `Mount`, `Eject` aj `CreateRamDisk` ho
+nulujú. Zámok, ktorý prežije disketu, pre ktorú bol nastavený, by
+**potichu** chránil tú nasledujúcu.
+
+Odmerané na bežiacej ROM (`integration_test ROM DISK wp`): chránená
+disketa sa **číta normálne** — `READ.COM` sa z nej spustí a BIOS z nej
+prečíta plných 196 záznamov — a formátovanie odmietne slovami „disk je
+chráněn proti zápisu"; po zrušení zámku tie isté klávesy prejdú. Poistka
+overená mutáciou: keď `TypeOneStatus` bit 6 nedá, stroj ponúkne
+preformátovanie a režim `wp` spadne.
+
+**Kedy presne v dialógu tá hláška padne, test zámerne nepribíja.** ROM sa
+najprv pýta „mám formátovat disk" a na diskete s formátom aj „disk je už
+naformátován, přeformátovat"; odmietnutie príde na konci tej rady, po
+oboch potvrdeniach. Meranie, ktoré tvrdilo inak, bolo meranie sondy, nie
+stroja: dve „y" poslané tesne za sebou zahryznú druhú otázku skôr, než ju
+stroj vysloví, a `k00` poslané ako výplň čakania je odpoveď na otázku,
+ktorá ešte nezaznela. Sonda má na čakanie token `.`.
+
+**Hostiteľská strana je hotová v ten istý deň.** Prepínacia položka
+`Disketa → Zamknúť proti zápisu`, `F11`, `Ctrl+Z` v tabuľke
+`IDR_ACCELERATORS_HOST`, stav v titulku („disketa: testdisk, zamknutá“)
+a vlastný tón — nízke dlhé pípnutie zamkne, vysoké odomkne. Tretí tvar
+zámerne: dvojica tónov už znamená klávesnicu a dvojica krátkych disketu,
+takže zámok nesmie znieť ako ani jedno z nich.
+
+Vo `VirtualDisk` sa zámok pri vložení nuluje, takže hostiteľ ho podáva
+**spolu s pripojením** (`PostMountDisk(folder, protect)`), nie zvlášť po
+ňom — inak by disketa bola na okamih zapisovateľná presne v tom okne,
+ktoré má zámok chrániť.
+
+**Zámok je trvalý a patrí diskete, nie relácii.** Prvá verzia ho viazala
+na slot rýchlej voľby a rušila pri každom vložení; nahlásil to majiteľ
+29. 8. 2026 na skutočnom postupe, ktorý to zabije: **hromadné kopírovanie
+v diskových funkciách žiada chránený zdroj** („zdrojový disk není chráněn
+proti zápisu“, `14269`) a potom strieda zdroj s cieľom — nakopíruje, koľko
+sa zmestí, vypýta si cieľovú disketu, potom zase zdrojovú. Zámok, ktorý
+zmizne pri výmene, tú prácu zastaví na druhom kroku.
+
+Preto je zámok v nastaveniach zoznam **ciest** (`zamok1=`, `zamok2=`…),
+nie vlastnosť slotu, a platí pre disketu bez ohľadu na to, ktorou cestou
+príde: ponuka, slot, `--disk`, obnovená posledná disketa. Cesty sa
+porovnávajú cez `Settings::SameDisk` — bez ohľadu na veľkosť písmen, tvar
+lomky a koncovú lomku — lebo výber priečinka, ručne napísaný slot a
+kanonická cesta z `VirtualDisk` sa líšia presne v týchto veciach a surové
+porovnanie by zámok stratilo **potichu**. To isté pravidlo používa aj
+dialóg slotov, aby dva sloty s jedným priečinkom nemohli byť zaškrtnuté
+rôzne. Disketa v pamäti sa nezapisuje: neexistuje mimo behu, takže jej
+zámok trvá presne tak dlho ako ona. Drží to `settings_test`.
+
+Overené zvonka na bežiacom procese: `WM_COMMAND` s `ID_DISK_PROTECT`
+prepne titulok na „…, zamknutá" a späť, položka ponuky je po zamknutí
+`MF_CHECKED` (stav `0x8`) a po vysunutí diskety `MF_GRAYED` (`0x1`).
+Pripomínam, že cez hranicu procesov sa ponuka číta **po pozíciách** —
+`MF_BYCOMMAND` vráti −1.
+
+Trvalosť odmeraná na tom istom procese, presne v poradí hromadného
+kopírovania: zamknúť `testdisk`, vložiť disketu v pamäti, vrátiť
+`testdisk` — titulok povie „zamknutá“ znovu; po reštarte emulátora tiež.
+Skúšané v prenosnom režime (`config` vedľa EXE), aby to nesiahlo na
+nastavenia majiteľa.
+
+Otvorené zostáva len to, čo bolo dôvodom celej veci: rozdeľovač kolekcie,
+ktorý má zamknuté sloty používať.
 
 #### Rozdeľovač kolekcie
 
@@ -2783,7 +2863,7 @@ pustí ďalej.
 3. `disk_layout` a testy, ešte bez GUI.
 4. Sprievodca rozdelenia nad hotovou vrstvou.
 
-Zámok proti zápisu patrí za meranie firmvéru, nie pred neho.
+Zámok proti zápisu je hotový celý, model aj hostiteľská strana.
 
 **Kde rozdeľovač nadviaže na hotový kód.** Keď sa priečinok na disketu
 nezmestí, `VirtualDisk::CheckCapacity` už dnes vypíše prebytok v blokoch
@@ -2937,6 +3017,64 @@ tokeny sú bajty nad `80h` a tá oblasť sa musí povoliť kvôli diakritike.
 Diera je viditeľná a neškodná; problém je, že heuristika s takou dierou
 zlyháva rovnako ticho ako chyba vyššie, a zisk je najviac 127 bajtov.
 
+### 6.24 Disketa je objekt, nie recept — hromadné kopírovanie to odhalilo
+
+Nahlásené majiteľom 29. 8. 2026 hneď po zámku proti zápisu, a je to
+druhýkrát v ten deň **tichá strata dát**.
+
+**Scenár.** Diskové funkcie (`Shift+F6`), označiť dva súbory (`F3`),
+hromadné kopírovanie (`Shift+F4`). ROM žiada, aby bola **zdrojová disketa
+chránená proti zápisu** — inak povie „zdrojový disk není chráněn proti
+zápisu“ (`14269`) — potom nakopíruje do pamäte, koľko sa zmestí, a vypýta
+si cieľovú disketu. Ďalej strieda: cieľ, zdroj, cieľ. Majiteľ dostal
+„soubor nelze najít“ a „hromadné kopírování zrušeno“ a cieľová disketa
+zostala **prázdna**, hoci prvý súbor sa zmestil celý.
+
+**Príčina.** Slot rýchlej voľby s `*pamat` vyrobil pri **každom** vložení
+novú prázdnu disketu. Prvá výmena na cieľ teda zapísala, druhá dostala
+čistú disketu, ROM na nej nenašla súbor, ktorý sama založila, a prácu
+zrušila. Reprodukované sondou krok za krokom, so stavom média čítaným
+priamo z modelu: po prvej výmene `suborov=2`, po druhej `suborov=0`.
+
+**Model, ktorý to rieši** (majiteľov, a je správny): disketa je objekt.
+Sloty 1 až 9 sú miesta, kde diskety sú, kým nie sú v mechanike; mechanika
+je desiate miesto. Vloženie je presun, pri ktorom sa nič nestráca. Z toho
+vypadli tri veci:
+
+- **Priečinková disketa sa neodkladá.** Jej obsah žije v priečinku: pri
+  vytiahnutí sa doň zapíše, pri vrátení sa z neho načíta. Držať jej obraz
+  by znamenalo, že zmena zvonka sa neprejaví — a to by tá istá disketa
+  neurobila.
+- **Polička na disketu bez slotu je pasca.** Skúsil som ju a je to tá istá
+  chyba v menšom: drží jednu disketu, takže druhá odložená prvú ticho
+  prepíše. Zrušená.
+- **Disketa v pamäti bez slotu je rozhodnutie používateľa.**
+  `MainWindow::ConfirmLosingDiskette` sa pýta pred **každou** cestou, ktorá
+  by ju z mechaniky vytlačila — vloženie z priečinka, nová disketa, slot aj
+  vysunutie. Voľby: uložiť do priečinka, zahodiť, nechať v mechanike.
+  Slot jej dá dialóg rýchlej voľby tlačidlom „Sem vloženú disketu“, ktoré
+  odteraz naozaj pridá druhú referenciu (`PostAssignSlot`), nie iba značku
+  do nastavení. Pri ukončení sa emulátor pýta aj na diskety čakajúce
+  v slotoch.
+
+`DiskStash` drží diskety **na halde** a `Take` vracia ukazovateľ. Deväť
+`VirtualDisk`ov po 800 KiB v poli je sedem megabajtov a tento objekt žije
+na zásobníku vlákna: prvá verzia spadla na pretečení zásobníka skôr, než
+stihla vypísať riadok (`0xC00000FD`).
+
+**Odmerané sondou** na majiteľovom postupe: striedanie zdroj → cieľ →
+zdroj → cieľ prejde, „soubor nelze najít“ nepríde a stroj povie „počet
+okopírovaných souborů 2“.
+
+**Čo zostalo nedokončené:** režim `kopia` v `integration_test`, ktorý mal
+ten scenár prehrať sám. Zápasil som so synchronizáciou reči — hlášky
+chodia oneskorene, kláves reč preruší a „ano“ + „kopíruji“ dá reťazec,
+v ktorom sa dá nájsť „okop“ — a nedotiahol som ho, tak som ho zahodil,
+aby v sade nezostal zlyhávajúci test. Zásobník drží `disk_test`, ale
+**celá cesta cez ROM zatiaľ testom krytá nie je**; kto sa k tomu vráti,
+pozor na tie tri pasce a na `diag_probe`, ktorý na to má tokeny (`?text`,
+`slot1`/`slot2`, `stav`, `spin:`).
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -3003,11 +3141,13 @@ Zostáva to odskúšať v skutočnej relácii s NVDA; rozbor je na konci 6.18.
    používa. Oplatí sa rozhodnúť naraz s uchovaním nastavení (6.18).
 5. **Správa diskiet** (6.22) — perzistencia, výmena za behu, rýchla
    voľba aj dialóg `Nová disketa` s nenaformátovaným médiom **hotové**
-   28. 8. 2026. Ostáva **rozdeľovač kolekcie** (`disk_layout`), ktorý je
-   na zvyšku nezávislý a dá sa písať aj testovať bez GUI a bez ROM, a
-   **zámok proti zápisu**, ktorý patrí až za meranie firmvéru. Že sa
-   EurekaDOS po výmene preloguje sám, je odmerané (koniec 6.17), zatiaľ
-   ale len ručne — režim `integration_test` na to neexistuje.
+   28. 8. 2026; **zámok proti zápisu** a **disketa ako objekt** (zásobník
+   slotov, 6.24) **hotové** 29. 8. 2026. Ostáva **rozdeľovač kolekcie**
+   (`disk_layout`), ktorý je na zvyšku nezávislý a dá sa písať aj testovať
+   bez GUI a bez ROM. Že sa EurekaDOS po výmene preloguje sám, je odmerané
+   (koniec 6.17), zatiaľ ale len ručne — a rovnako chýba test cez ROM na
+   hromadné kopírovanie, ktoré je najtvrdšia skúška celej správy diskiet
+   (6.24).
 6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
    hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
 7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,

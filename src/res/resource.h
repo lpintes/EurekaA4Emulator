@@ -18,6 +18,7 @@
 #define ID_DISK_INSERT       40003
 #define ID_DISK_EJECT        40004
 #define ID_DISK_NEW          40005
+#define ID_DISK_PROTECT      40006
 #define ID_MACHINE_RESET     40010
 #define ID_MACHINE_POWEROFF  40011
 #define ID_KEYBOARD_BRAILLE  40020
@@ -80,6 +81,7 @@
 #define IDC_SLOT_ASSIGN      1021
 #define IDC_SLOT_CURRENT     1022
 #define IDC_SLOT_CLEAR       1023
+#define IDC_SLOT_LOCK        1024
 
 // Labels and group boxes need no id of their own.
 #ifndef IDC_STATIC

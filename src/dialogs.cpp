@@ -25,11 +25,23 @@ namespace {
 // because it is the shortcut: a screen reader reading the line has already
 // said which key puts that diskette in.  The path is appended only when there
 // is one -- a slot holding a diskette in memory has no path to show.
-std::wstring SlotLine(int number, const std::wstring& slot) {
+std::wstring SlotLine(int number, const std::wstring& slot, bool locked) {
   std::wstring line =
       std::to_wstring(number) + L": " + SlotDisplayName(slot);
+  // Said in the line itself and not only in the check box below it: the list
+  // is what a screen reader reads when arrowing through the slots, and a lock
+  // that showed up only after moving the focus elsewhere would be a property
+  // of the slot that cannot be found by reading it.
+  if (locked) line += L" — zamknutá";
   if (!slot.empty() && !SlotIsRam(slot)) line += L" — " + slot;
   return line;
+}
+
+// Only a folder slot can be locked.  The memory marker makes a fresh empty
+// diskette, and one that arrives locked is a diskette nothing can ever be put
+// on -- a slot whose whole purpose is to be written to.
+bool SlotCanLock(const std::wstring& slot) {
+  return !slot.empty() && !SlotIsRam(slot);
 }
 
 }  // namespace
@@ -172,15 +184,25 @@ bool SlotsDialog::OnInit() {
 void SlotsDialog::FillList(int select) {
   const HWND list = Item(IDC_SLOT_LIST);
   SendMessageW(list, LB_RESETCONTENT, 0, 0);
-  for (int index = 0; index < Settings::kSlots; ++index)
-    SendMessageW(list, LB_ADDSTRING, 0,
-                 reinterpret_cast<LPARAM>(
-                     SlotLine(index + 1, slots_[static_cast<std::size_t>(index)])
-                         .c_str()));
+  for (int index = 0; index < Settings::kSlots; ++index) {
+    const auto slot = static_cast<std::size_t>(index);
+    SendMessageW(
+        list, LB_ADDSTRING, 0,
+        reinterpret_cast<LPARAM>(
+            SlotLine(index + 1, slots_[slot], locks_[slot]).c_str()));
+  }
   SendMessageW(list, LB_SETCURSEL, static_cast<WPARAM>(select), 0);
   // Nothing to put in a slot when no folder-backed diskette is in the drive,
   // and a button that answers with silence is worse than one that is greyed.
   SetEnabled(IDC_SLOT_CURRENT, !currentDisk_.empty());
+  RefreshLock(select);
+}
+
+void SlotsDialog::RefreshLock(int index) {
+  if (index < 0 || index >= Settings::kSlots) return;
+  const auto slot = static_cast<std::size_t>(index);
+  SetChecked(IDC_SLOT_LOCK, locks_[slot]);
+  SetEnabled(IDC_SLOT_LOCK, SlotCanLock(slots_[slot]));
 }
 
 int SlotsDialog::Selected() const {
@@ -190,7 +212,14 @@ int SlotsDialog::Selected() const {
 }
 
 void SlotsDialog::SetSlotAndRefresh(int index, std::wstring path) {
-  slots_[static_cast<std::size_t>(index)] = std::move(path);
+  const auto slot = static_cast<std::size_t>(index);
+  slots_[slot] = std::move(path);
+  // Pointed somewhere else, the box has to follow the new folder rather than
+  // stay ticked from the old one -- otherwise OK would lock a diskette nobody
+  // asked about.  The lock itself lives in the settings, by folder, so a
+  // folder that is already locked arrives ticked.
+  locks_[slot] = SlotCanLock(slots_[slot]) &&
+                 settings_->disk_locked(slots_[slot]);
   FillList(index);
   SetFocus(Item(IDC_SLOT_LIST));
 }
@@ -206,11 +235,37 @@ bool SlotsDialog::OnCommand(int id, int notification) {
       return true;
     }
     case IDC_SLOT_CURRENT:
-      if (!currentDisk_.empty()) SetSlotAndRefresh(index, currentDisk_);
+      if (!currentDisk_.empty()) {
+        SetSlotAndRefresh(index, currentDisk_);
+        assignedCurrent_ = index + 1;
+      }
       return true;
     case IDC_SLOT_CLEAR:
+      // Emptying the slot the current diskette was just put into takes that
+      // promise back; leaving it set would send the diskette to a slot the
+      // user has since cleared.
+      if (assignedCurrent_ == index + 1) assignedCurrent_ = 0;
       SetSlotAndRefresh(index, L"");
       return true;
+    case IDC_SLOT_LOCK: {
+      const bool locked = IsChecked(IDC_SLOT_LOCK);
+      // Every slot holding this same folder, not just the selected one: the
+      // lock belongs to the diskette, so two slots pointing at it are one
+      // diskette with one lock.  Ticking one and leaving the other unticked
+      // would be a dialog disagreeing with itself, and the settings would
+      // then take whichever slot happened to be written last.
+      for (std::size_t other = 0; other < locks_.size(); ++other)
+        if (Settings::SameDisk(slots_[other],
+                               slots_[static_cast<std::size_t>(index)]))
+          locks_[other] = locked;
+      // The list line carries the lock too, so it has to be rebuilt -- but the
+      // focus stays on the box the user has just ticked.
+      FillList(index);
+      return true;
+    }
+    case IDC_SLOT_LIST:
+      if (notification == LBN_SELCHANGE) RefreshLock(index);
+      return false;
     default:
       return false;
   }

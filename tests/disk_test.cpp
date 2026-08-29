@@ -17,11 +17,13 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include <windows.h>
 
+#include "disk_stash.h"
 #include "virtual_disk.h"
 
 namespace fs = std::filesystem;
@@ -423,6 +425,150 @@ void FormattingAFolderDiskChangesNothing() {
   Check(disk.StoredFiles() == 1, "subor_v_priecinku_formatovanie_prezil");
 }
 
+// The write protect notch, as far as the medium is concerned.  The controller
+// refuses a protected write before it ever gets here (machine.cpp raises bit 6
+// instead of running the command), so what this pins down is the second lock:
+// nothing reaches the image by any other road either, the BIOS shortcut
+// included.  Reading is untouched -- SYSEQU.LIB has bit 6 in write_error_mask
+// and not in read_error_mask.
+void WriteProtectStopsWritesAndNothingElse() {
+  VirtualDisk disk;
+  disk.CreateRamDisk();
+  Check(!disk.write_protected(), "nova_disketa_nie_je_chranena");
+
+  uint8_t sector[512];
+  std::fill_n(sector, sizeof(sector), 0x5a);
+  Check(disk.WritePhysicalSector(2, 0, 3, sector), "nechranena_disketa_prijme_zapis");
+
+  disk.set_write_protected(true);
+  uint8_t other[512];
+  std::fill_n(other, sizeof(other), 0x77);
+  Check(!disk.WritePhysicalSector(2, 0, 3, other),
+        "chranena_disketa_odmietne_zapis_cez_radic");
+  uint8_t record[128];
+  std::fill_n(record, sizeof(record), 0x77);
+  Check(!disk.WriteRecord(0, 0, record), "chranena_disketa_odmietne_zapis_cez_bios");
+
+  uint8_t back[512]{};
+  Check(disk.ReadPhysicalSector(2, 0, 3, back), "chranena_disketa_sa_stale_cita");
+  Check(back[0] == 0x5a, "odmietnuty_zapis_data_nezmenil");
+
+  // The notch is a property of the diskette, so it cannot outlive the one it
+  // was set for: a protected diskette taken out and a fresh one put in would
+  // otherwise be protected too, and silently.
+  const fs::path folder = MakeFolder("ochrana-priecinok");
+  MakeFile(folder / L"SUBOR.TXT", 1000, 3);
+  std::wstring error;
+  Check(disk.Mount(folder, error), "priecinkova_disketa_sa_pripoji_po_chranenej",
+        Narrow(error));
+  Check(!disk.write_protected(), "vlozena_disketa_ochranu_nezdedi");
+
+  disk.set_write_protected(true);
+  disk.Eject();
+  Check(!disk.write_protected(), "po_vysunuti_ochrana_nezostane");
+  disk.CreateRamDisk();
+  Check(!disk.write_protected(), "nova_ram_disketa_ochranu_nezdedi");
+}
+
+// The stash: where a diskette is while it is not in the drive.
+//
+// This is the layer the owner's bulk-copy report turned on (29. 8. 2026).  The
+// ROM fills the target, sends the user back for the source, then asks for the
+// target again to finish the file it began -- and a slot that made a fresh
+// empty diskette each time meant the target came back blank, the ROM said
+// "soubor nelze najít" and cancelled the job having written nothing.  A slot
+// is a place, not a recipe.
+void StashKeepsDiskettesInMemory() {
+  DiskStash stash;
+  Check(stash.empty(), "novy zasobnik je prazdny");
+
+  // On the heap here too: 800 KiB is more than a thread stack has to spare,
+  // and this test used to crash before it printed a line.
+  auto target = std::make_unique<VirtualDisk>();
+  target->CreateRamDisk();
+  uint8_t sector[512];
+  std::fill_n(sector, sizeof(sector), 0x42);
+  Check(target->WritePhysicalSector(1, 0, 1, sector), "na cielovu sa da pisat");
+
+  Check(stash.Put(2, *target), "disketa v pamati sa odlozi");
+  Check(stash.holds(2), "slot 2 ju drzi");
+  Check(!stash.empty(), "zasobnik uz nie je prazdny");
+
+  // The same diskette back, with what was written on it -- the whole point.
+  auto back = stash.Take(2);
+  Check(back != nullptr, "disketa sa vrati");
+  uint8_t read[512]{};
+  Check(back && back->ReadPhysicalSector(1, 0, 1, read) && read[0] == 0x42,
+        "vratena disketa ma svoj obsah");
+  Check(!stash.holds(2), "po vybrati je slot prazdny");
+  Check(stash.empty(), "zasobnik je zase prazdny");
+  Check(stash.Take(2) == nullptr, "prazdny slot nevrati nic");
+}
+
+// A folder-backed diskette is declined on purpose: the folder is the diskette.
+// Keeping a copy would be both wasteful and wrong -- a folder the user changed
+// meanwhile has to come back changed, which is what the same diskette would do.
+void StashDeclinesFolderDiskettes() {
+  const fs::path folder = MakeFolder("zasobnik-priecinok");
+  MakeFile(folder / L"SUBOR.TXT", 1000, 3);
+  auto disk = std::make_unique<VirtualDisk>();
+  std::wstring error;
+  Check(disk->Mount(folder, error), "priecinkova_disketa_sa_pripoji_do_zasobnika",
+        Narrow(error));
+
+  DiskStash stash;
+  Check(!stash.Put(1, *disk), "priecinkova disketa sa neodklada");
+  Check(stash.empty(), "zasobnik po nej zostal prazdny");
+
+  // Nor is an empty drive a diskette.
+  auto nothing = std::make_unique<VirtualDisk>();
+  Check(!stash.Put(1, *nothing), "prazdna mechanika sa neodklada");
+}
+
+// Every slot keeps its own diskette, and one slot's does not disturb another's.
+// Nine places, not one shelf: a shelf would mean the second diskette put away
+// destroyed the first, which is the same silent loss in a smaller box.
+void StashKeepsEverySlotApart() {
+  DiskStash stash;
+  auto first = std::make_unique<VirtualDisk>();
+  first->CreateRamDisk();
+  auto second = std::make_unique<VirtualDisk>();
+  second->CreateRamDisk();
+  uint8_t sector[512];
+  std::fill_n(sector, sizeof(sector), 0x11);
+  first->WritePhysicalSector(0, 0, 1, sector);
+  std::fill_n(sector, sizeof(sector), 0x22);
+  second->WritePhysicalSector(0, 0, 1, sector);
+
+  Check(stash.Put(1, *first), "prva disketa ide do slotu 1");
+  Check(stash.Put(5, *second), "druha ide do slotu 5");
+  Check(stash.holds(1) && stash.holds(5), "oba sloty drzia svoju disketu");
+
+  auto back1 = stash.Take(1);
+  auto back5 = stash.Take(5);
+  uint8_t read[512]{};
+  Check(back1 && back1->ReadPhysicalSector(0, 0, 1, read) && read[0] == 0x11,
+        "slot 1 vratil svoju disketu");
+  Check(back5 && back5->ReadPhysicalSector(0, 0, 1, read) && read[0] == 0x22,
+        "slot 5 vratil svoju disketu");
+  Check(stash.empty(), "po vybrati je zasobnik prazdny");
+
+  // Slot 0 is not a place: a diskette with no slot has only the drive holding
+  // it, and what happens to it is the user's decision, not this class's.
+  Check(!stash.Put(0, *back1), "slot nula neexistuje");
+  Check(stash.Take(0) == nullptr, "zo slotu nula sa nic nevrati");
+
+  // What the emulator asks when it is closing: those diskettes are about to
+  // stop existing, and one with files on it is worth a question.
+  Check(!stash.HoldsAnythingWritten(), "prazdny zasobnik nema co stratit");
+  auto empty = std::make_unique<VirtualDisk>();
+  empty->CreateRamDisk();
+  stash.Put(3, *empty);
+  Check(!stash.HoldsAnythingWritten(), "prazdna disketa nie je co stratit");
+  stash.Put(4, *back1);
+  Check(stash.HoldsAnythingWritten(), "disketa so suborom uz je");
+}
+
 // Lays bytes into the image the only way a guest can: through the controller.
 // offset and the data length have to be whole 512 byte sectors.
 bool PutImageBytes(VirtualDisk& disk, std::size_t offset,
@@ -671,6 +817,10 @@ int main() {
   UnformattedDisketteAnswersNothing();
   FormattedRamDiskAndReformatting();
   FormattingAFolderDiskChangesNothing();
+  WriteProtectStopsWritesAndNothingElse();
+  StashKeepsDiskettesInMemory();
+  StashDeclinesFolderDiskettes();
+  StashKeepsEverySlotApart();
   RamDisketteKeepsBinaryFilesWhole();
   FileTypeClassificationIsPinned();
   EmptyFolderAndMissingFolder();

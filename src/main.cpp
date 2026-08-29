@@ -279,6 +279,9 @@ int Run() {
     // is the moment a diskette was chosen, so a setting that did not stick can
     // still be acted on.  At exit the same box would only be in the way.
     const std::wstring mounted = machine->disk().folder().wstring();
+    // The notch this diskette was left with.  Set before the window exists,
+    // so a locked diskette is never writable even for the length of a boot.
+    machine->SetDiskWriteProtected(settings.disk_locked(mounted));
     if (settings.last_disk() != mounted) {
       settings.SetLastDisk(mounted);
       std::wstring saveError;
@@ -341,6 +344,33 @@ int Run() {
                     L"Eureka A4", MB_OK | MB_ICONINFORMATION);
     }
   }
+  // The same offer for the diskettes waiting in the quick-choice slots.  They
+  // live in memory and nowhere else, so the process ending is the moment they
+  // stop existing -- exactly the silent loss the drive's own diskette is
+  // already protected from.
+  for (int slot = 1; slot <= DiskStash::kSlots; ++slot) {
+    auto kept = emulator.stash().Take(slot);
+    if (!kept || kept->StoredFiles() == 0) continue;
+    const std::wstring question =
+        L"V slote " + std::to_wstring(slot) + L" je disketa v pamäti, na "
+        L"ktorej " + FileCount(kept->StoredFiles()) +
+        L".\r\n\r\nChcete ju uložiť do priečinka?";
+    if (MessageBoxW(nullptr, question.c_str(), L"Eureka A4",
+                    MB_YESNO | MB_ICONQUESTION) != IDYES)
+      continue;
+    const std::wstring target = win::PickFolderToCreate(
+        nullptr, L"Kam sa má disketa uložiť",
+        (L"Disketa " + std::to_wstring(slot)).c_str());
+    if (target.empty())
+      Warn(L"Ukladanie zrušené, obsah diskety sa stratí.");
+    else if (!kept->ExportTo(target, error))
+      MessageBoxW(nullptr, (L"Chyba pri ukladaní:\r\n\r\n" + error).c_str(),
+                  L"Eureka A4", MB_OK | MB_ICONERROR);
+    else
+      MessageBoxW(nullptr, (L"Disketa bola uložená do:\r\n\r\n" + target).c_str(),
+                  L"Eureka A4", MB_OK | MB_ICONINFORMATION);
+  }
+
   if (machine && machine->diagnostics().enabled()) {
     host::Print(machine->diagnostics().Report());
     host::HoldConsole();

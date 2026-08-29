@@ -23,6 +23,7 @@
 #include <string>
 #include <thread>
 
+#include "disk_stash.h"
 #include "machine.h"
 #include "settings.h"
 
@@ -93,6 +94,22 @@ struct DiskState {
   // the folder, or one of the markers for a diskette in memory.  Empty for an
   // empty drive, which is nothing to remember.
   std::wstring slotValue;
+  // The write protect notch.  Part of the state and not a separate flag on the
+  // window, because it belongs to the medium the machine has right now:
+  // another diskette comes in with its own answer, and a window keeping its
+  // own copy would go on saying "locked" about a diskette that is not.  What
+  // makes the lock outlast a swap is the settings file, not this.
+  bool writeProtected = false;
+  // True for a diskette living in memory, with how many files are on it.  The
+  // window needs both to know whether taking it out would destroy anything: a
+  // diskette in memory exists nowhere else, and one with nothing on it is
+  // nothing to lose.
+  bool inMemory = false;
+  std::size_t files = 0;
+  // Which quick-choice slot it belongs to, 0 for none.  A diskette in memory
+  // with no slot has only one reference -- the drive -- so whatever pushes it
+  // out has to ask the user first.
+  int slot = 0;
   DiskLabels labels;
 };
 
@@ -104,6 +121,10 @@ DiskState DescribeDisk(const VirtualDisk& disk);
 // truth about what is in there now, error or not.
 struct DiskChange {
   bool ok = true;
+  // False when only the notch moved.  The window sounds a swap and a lock
+  // differently, and a lock that announced itself as a diskette going in
+  // would be telling the user something that did not happen.
+  bool swapped = true;
   std::wstring error;
   // What is in the drive afterwards.  A refused mount leaves it empty --
   // VirtualDisk::Mount unwinds itself -- so this is always the truth about
@@ -126,6 +147,13 @@ class EmulatorThread {
   // caller can flush the disk and read the diagnostics.  Safe to call twice.
   std::unique_ptr<EurekaMachine> Stop();
 
+  // The diskettes that are not in the drive.  Only safe once Stop() has
+  // joined the worker -- until then it is the worker's alone.  The caller
+  // needs it at exit: a diskette in memory sitting in a slot stops existing
+  // with the process, so it has to be offered for saving like the one in the
+  // drive.
+  DiskStash& stash() { return stash_; }
+
   void PostKey(const HostKeyEvent& event);
   void PostReset();
   void PostSetMode(InputMode mode);
@@ -146,11 +174,38 @@ class EmulatorThread {
   void PostExportDisk(std::wstring folder);
   // Puts a different diskette in, or takes the current one out.  Both wait for
   // the drive to go quiet before they touch anything -- see the worker.
-  void PostMountDisk(std::wstring folder);
+  // writeProtected travels with the mount rather than following it, so a
+  // diskette from a locked slot is never writable for the moment in between.
+  void PostMountDisk(std::wstring folder, bool writeProtected = false);
+  // Puts in the diskette belonging to a quick-choice slot.  Not the same as
+  // mounting its folder: a slot holding a diskette that lives in memory hands
+  // back *that* diskette, with whatever the guest has written on it, because
+  // the slot is where it was while it was out of the drive.  `value` is what
+  // the settings hold for the slot -- a folder or the memory marker -- and is
+  // used only when the slot has no diskette put away yet.
+  void PostInsertSlot(int slot, std::wstring value, bool writeProtected);
+  // Says that the diskette now in the drive belongs to this slot from now on.
+  // Nothing is swapped: it gives a diskette in memory a second reference, so
+  // that taking it out puts it away instead of destroying it.
+  void PostAssignSlot(int slot);
   void PostEjectDisk();
+  // Moves the notch on the diskette that is already in.  Not a swap: nothing
+  // is flushed and nothing waits for the drive to go quiet, because no image
+  // changes hands -- and a lock the user has just asked for should not sit in
+  // a queue behind a running write.
+  void PostSetWriteProtect(bool writeProtected);
   // A blank diskette that lives only in memory.  Unformatted, no track
   // answers until the guest's own format routine has been over it.
-  void PostCreateRamDisk(bool formatted);
+  // slot is where the new diskette belongs (0 for none), so that taking it
+  // out later puts it back where the user expects to find it.
+  void PostCreateRamDisk(bool formatted, int slot = 0);
+
+  // Whether any slot holds a diskette in memory that has files on it.  Asked
+  // when the emulator is closing, because those diskettes stop existing with
+  // it.  Read from the window thread; written by the worker.
+  bool stash_has_files() const {
+    return stashHasFiles_.load(std::memory_order_relaxed);
+  }
 
   // Read from the window thread; written by the worker.
   InputMode mode() const { return mode_.load(std::memory_order_relaxed); }
@@ -168,11 +223,16 @@ class EmulatorThread {
     enum class Type {
       kKey, kReset, kSetMode, kToggleMode, kSetDiagnostics,
       kDumpDiagnostics, kPowerOff, kFocusLost, kExportDisk,
-      kMountDisk, kEjectDisk, kCreateRamDisk, kQuit,
+      kMountDisk, kEjectDisk, kCreateRamDisk, kInsertSlot, kAssignSlot,
+      kSetWriteProtect, kQuit,
     } type = Type::kQuit;
     HostKeyEvent key{};
     InputMode mode = InputMode::kPc;
     bool flag = false;
+    // Which quick-choice slot the diskette belongs to, 0 for none.  It rides
+    // with the command because the worker owns the stash, and a diskette has
+    // to go back to the slot it came from when the next one takes its place.
+    int slot = 0;
     std::wstring path;
   };
 
@@ -193,9 +253,13 @@ class EmulatorThread {
   bool exportOk_ = false;
   DiskChange diskChange_;
 
+  // Written by the worker, read by the owner after Stop().
+  DiskStash stash_;
+
   std::atomic<InputMode> mode_{InputMode::kPc};
   std::atomic<bool> diagnostics_{false};
   std::atomic<bool> running_{false};
+  std::atomic<bool> stashHasFiles_{false};
 };
 
 #endif

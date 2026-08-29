@@ -39,10 +39,23 @@ class EurekaMachine {
     ForgetFormattedTrack();
   }
   void EjectDisk();
+  // Puts a whole diskette in, image and all.  This is how one comes back out
+  // of the stash: a diskette that lives in memory exists nowhere else, so
+  // taking it out of the drive has to mean putting it somewhere, not
+  // destroying it.  Everything a mount resets is reset here too.
+  void InsertDisk(const VirtualDisk& disk) {
+    disk_ = disk;
+    ForgetFormattedTrack();
+  }
   bool FlushDisk(std::wstring& error) { return disk_.Flush(error); }
   bool ExportDisk(const std::filesystem::path& folder, std::wstring& error) {
     return disk_.ExportTo(folder, error);
   }
+  // The write protect notch.  Reaching the guest through the controller's
+  // status bit 6, so the firmware finds out the way it does on the hardware
+  // and says "disk je chraneno proti zapisu" itself (the string is at 13D5E).
+  void SetDiskWriteProtected(bool protect) { disk_.set_write_protected(protect); }
+  bool DiskWriteProtected() const { return disk_.write_protected(); }
   // True once the guest has written and then left the disk alone long enough
   // that the image is a consistent filesystem again.  Writing it back on a
   // fixed timer instead would catch CP/M mid-update, and a directory entry

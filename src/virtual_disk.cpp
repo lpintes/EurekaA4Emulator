@@ -111,6 +111,9 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
   }
   folder_ = absolute;
   media_ = Media::kFolder;
+  // The notch rides with the diskette, so a newly mounted one is unprotected
+  // until the host says otherwise.
+  write_protected_ = false;
   // A host folder is a filesystem: it is formatted by definition, and there
   // is no state in which some of its tracks are missing.
   formatted_.set();
@@ -135,6 +138,7 @@ void VirtualDisk::Eject() {
   folder_.clear();
   media_ = Media::kNone;
   dirty_ = false;
+  write_protected_ = false;
 }
 
 // A scratch diskette that exists only for this session: 0E5h everywhere is
@@ -151,6 +155,7 @@ void VirtualDisk::CreateRamDisk(bool formatted) {
   folder_.clear();
   media_ = Media::kRam;
   dirty_ = false;
+  write_protected_ = false;
 }
 
 bool VirtualDisk::ValidTrack(unsigned cylinder, unsigned side) {
@@ -570,6 +575,10 @@ bool VirtualDisk::ReadRecord(unsigned track, unsigned record, uint8_t* destinati
 bool VirtualDisk::WriteRecord(unsigned track, unsigned record, const uint8_t* source) {
   if (!present() || track >= kTracks || record >= kRecordsPerTrack) return false;
   if (!formatted_.test(track)) return false;
+  // The BIOS stub bypasses the controller, so the notch has to be honoured
+  // here as well; otherwise a protected diskette would refuse the FDC and
+  // accept the shortcut, which is no machine that ever existed.
+  if (write_protected_) return false;
   const std::size_t offset = (track * kRecordsPerTrack + record) * kRecordSize;
   std::copy_n(source, kRecordSize, image_.data() + offset);
   dirty_ = true;
@@ -593,6 +602,9 @@ bool VirtualDisk::WritePhysicalSector(unsigned cylinder, unsigned side, unsigned
                                       const uint8_t* source) {
   if (!present() || cylinder >= 80 || side > 1 || sector == 0 || sector > 10)
     return false;
+  // machine.cpp refuses the command outright with the Write Protect bit, so
+  // this is the belt to that braces: nothing reaches the image behind it.
+  if (write_protected_) return false;
   // An unformatted track has no sector headers on it, so the controller finds
   // nothing to match: Record Not Found, which is what machine.cpp turns a
   // false return into.

@@ -51,6 +51,13 @@ void ToneDisarmed() { Tone(600, 50); }
 void ToneInserted() { Tone(660, 45); Tone(990, 45); }
 void ToneEjected() { Tone(330, 90); }
 
+// The write protect notch.  A third shape again: one long note, low for
+// locked and high for unlocked, so it is neither the keyboard's pair nor the
+// diskette's.  The state also stands in the title, which answers at any time;
+// the tone answers at the moment it changed.
+void ToneLocked() { Tone(400, 140); }
+void ToneUnlocked() { Tone(1000, 140); }
+
 
 // Kept in one place so the menu, the help text and this list cannot drift
 // apart.  A shortcut a screen reader never reads is a shortcut nobody has.
@@ -88,6 +95,15 @@ constexpr wchar_t kShortcutHelp[] =
     L"      slote, je napísané priamo v ponuke Disketa; priraďuje sa tam\r\n"
     L"      v položke Spravovať rýchlu voľbu.\r\n"
     L"F11, Ctrl+0 — vysunie disketu, teda nechá mechaniku prázdnu.\r\n"
+    L"F11, Ctrl+Z — zamkne disketu proti zápisu, alebo zámok zruší. Je to\r\n"
+    L"      prelepená dierka na diskete: Eureka z nej číta a spúšťa programy\r\n"
+    L"      ako inokedy, ale zápis aj formátovanie odmietne slovami „disk je\r\n"
+    L"      chráněn proti zápisu“. Nízky tón znamená zamknuté, vysoký\r\n"
+    L"      odomknuté, a kým zámok platí, stojí v titulku okna.\r\n"
+    L"      Zámok drží tá disketa, nie mechanika: vydrží vysunutie, výmenu\r\n"
+    L"      aj ukončenie emulátora a zruší ho až toto isté Ctrl+Z. Preto\r\n"
+    L"      funguje hromadné kopírovanie, pri ktorom Eureka žiada chránený\r\n"
+    L"      zdroj a strieda zdrojovú disketu s cieľovou.\r\n"
     L"F11, Ctrl+U — uloží disketu do priečinka. Priečinok nemusí existovať,\r\n"
     L"      stačí ho v dialógu pomenovať a vytvorí sa.\r\n"
     L"F11, Ctrl+D — výpis diagnostiky na konzolu.\r\n"
@@ -235,18 +251,43 @@ void MainWindow::RegisterCommands() {
   });
 
   OnCommand(ID_DISK_INSERT, [this] {
+    // Asked before the picker, not after: choosing a folder and only then
+    // being told the swap cannot happen wastes the choice.
+    if (!ConfirmLosingDiskette()) return;
     const std::wstring folder = win::PickFolder(
         hwnd_, L"Vyberte priečinok s disketou, ktorá sa má vložiť");
     if (folder.empty()) return;
     // The worker does the swap, and only between two sector transfers: the
     // machine is its own and a diskette pulled mid-write would tear the image
     // (6.17).  The tone and the title wait for it to report back.
-    emulator_.PostMountDisk(folder);
+    //
+    // A diskette that was locked when it last came out goes back in locked,
+    // whichever road it takes -- this one, a slot, or the command line.
+    emulator_.PostMountDisk(folder, settings_.disk_locked(folder));
   });
 
-  OnCommand(ID_DISK_EJECT, [this] { emulator_.PostEjectDisk(); });
+  OnCommand(ID_DISK_EJECT, [this] {
+    if (!ConfirmLosingDiskette()) return;
+    emulator_.PostEjectDisk();
+  });
+
+  OnCommand(ID_DISK_PROTECT, [this] {
+    // An empty drive has no notch to move, and the menu item is greyed to say
+    // so -- but Ctrl+Z fires from the accelerator table whatever the menu
+    // says, so it has to answer here rather than go nowhere in silence.
+    if (!disk_.present) {
+      MessageBoxW(hwnd_,
+                  L"V mechanike nie je disketa, takže nie je čo zamknúť.",
+                  L"Eureka A4", MB_OK | MB_ICONINFORMATION);
+      return;
+    }
+    // The worker owns the machine; the tone and the title wait for it to
+    // report back through WM_EMU_DISK_CHANGED, the same road a swap takes.
+    emulator_.PostSetWriteProtect(!disk_.writeProtected);
+  });
 
   OnCommand(ID_DISK_NEW, [this] {
+    if (!ConfirmLosingDiskette()) return;
     NewDiskDialog dialog(CurrentSlots());
     if (dialog.ShowModal(hwnd_, IDD_NEWDISK) != IDOK) return;
 
@@ -257,11 +298,13 @@ void MainWindow::RegisterCommands() {
     std::wstring slotValue;
     switch (dialog.kind()) {
       case NewDiskDialog::Kind::kRam:
-        emulator_.PostCreateRamDisk(true);
+        // The slot goes with it, so that taking this diskette out later puts
+        // it back where the user will look for it rather than destroying it.
+        emulator_.PostCreateRamDisk(true, dialog.slot());
         slotValue = kSlotRam;
         break;
       case NewDiskDialog::Kind::kUnformattedRam:
-        emulator_.PostCreateRamDisk(false);
+        emulator_.PostCreateRamDisk(false, dialog.slot());
         // No slot for this one: unformatted lasts until the first Shift+F8,
         // so a slot would go on offering a state the diskette left behind
         // long ago.  The dialog greys the picker out to say so.
@@ -280,12 +323,16 @@ void MainWindow::RegisterCommands() {
                       L"Nová disketa", MB_OK | MB_ICONERROR);
           return;
         }
+        // A folder just created cannot have a lock on it, so this one asks
+        // nothing; the other kind can, because it may be a diskette the user
+        // locked long ago and is now putting back in.
         emulator_.PostMountDisk(dialog.folder());
         slotValue = dialog.folder();
         break;
       }
       case NewDiskDialog::Kind::kFolder:
-        emulator_.PostMountDisk(dialog.folder());
+        emulator_.PostMountDisk(dialog.folder(),
+                                settings_.disk_locked(dialog.folder()));
         slotValue = dialog.folder();
         break;
     }
@@ -299,11 +346,26 @@ void MainWindow::RegisterCommands() {
   OnCommand(ID_DISK_SLOTS, [this] {
     // The slot value and not the folder: a diskette in memory has no folder
     // but can still be put in a slot, which then makes a fresh empty one.
-    SlotsDialog dialog(CurrentSlots(), disk_.slotValue);
+    SlotsDialog dialog(CurrentSlots(), CurrentLocks(), disk_.slotValue,
+                       settings_);
     if (dialog.ShowModal(hwnd_, IDD_SLOTS) != IDOK) return;
-    for (int number = 1; number <= Settings::kSlots; ++number)
-      settings_.SetSlot(number, dialog.slots()[static_cast<std::size_t>(number - 1)]);
+    for (int number = 1; number <= Settings::kSlots; ++number) {
+      const auto index = static_cast<std::size_t>(number - 1);
+      settings_.SetSlot(number, dialog.slots()[index]);
+      // The lock belongs to the folder, not to the slot, so this is the same
+      // list the menu's own Ctrl+Z writes to.  Two slots pointing at one
+      // folder are therefore one diskette with one lock, which is what they
+      // are on the shelf as well.
+      settings_.SetDiskLocked(dialog.slots()[index], dialog.locks()[index]);
+    }
     SaveSettings();
+
+    // "Sem vloženú disketu" on a diskette living in memory does more than
+    // write a marker into the settings: it gives that diskette a second
+    // reference, so taking it out puts it in that slot instead of destroying
+    // it.  Without this the dialog would promise a home it does not provide.
+    if (disk_.inMemory && dialog.assigned_current() > 0)
+      emulator_.PostAssignSlot(dialog.assigned_current());
   });
 
   OnCommand(ID_TOOLS_SETTINGS, [this] {
@@ -341,13 +403,16 @@ void MainWindow::RegisterCommands() {
 // before anybody reaches for Ctrl+I.
 
 void MainWindow::InsertSlot(int number) {
+  // The diskette already in the drive may be the only copy of itself.
+  if (!ConfirmLosingDiskette()) return;
   const std::wstring slot = settings_.slot(number);
-  // A slot holding a diskette in memory makes a fresh empty one.  It cannot
-  // bring back the one that was there: that medium exists nowhere but in this
-  // process, so there is nothing to bring back -- which is why the slot is
-  // named "nová prázdna v pamäti" wherever it is shown.
+  // A slot is a place, not a recipe: it holds the diskette that came out of
+  // it, with everything written on it since.  The worker keeps them, because
+  // it owns the machine -- so all this decides is what to do the first time,
+  // when the slot has nothing put away yet.  For a memory slot that is a
+  // fresh empty diskette; for a folder slot it is the folder.
   if (SlotIsRam(slot)) {
-    emulator_.PostCreateRamDisk(true);
+    emulator_.PostInsertSlot(number, slot, false);
     return;
   }
   const std::wstring folder = slot;
@@ -379,7 +444,11 @@ void MainWindow::InsertSlot(int number) {
                 L"Rýchla voľba", MB_OK | MB_ICONWARNING);
     return;
   }
-  emulator_.PostMountDisk(folder);
+  // The lock goes in with the diskette rather than after it: a diskette that
+  // arrived writable for a moment and locked afterwards would leave a window
+  // in which the guest could write to exactly what the lock is there to
+  // protect.
+  emulator_.PostInsertSlot(number, folder, settings_.disk_locked(folder));
 }
 
 // The .rc carries only what an empty slot says; the real names come from the
@@ -414,6 +483,14 @@ SlotList MainWindow::CurrentSlots() const {
   return slots;
 }
 
+SlotsDialog::Locks MainWindow::CurrentLocks() const {
+  SlotsDialog::Locks locks{};
+  for (int number = 1; number <= Settings::kSlots; ++number)
+    locks[static_cast<std::size_t>(number - 1)] =
+        settings_.disk_locked(settings_.slot(number));
+  return locks;
+}
+
 // Reported and not swallowed: the user has just arranged their slots, and
 // slots that quietly go back to how they were at the next start are the worst
 // of both worlds.
@@ -426,6 +503,59 @@ void MainWindow::SaveSettings() {
 void MainWindow::SaveSlot(int number, std::wstring value) {
   settings_.SetSlot(number, std::move(value));
   SaveSettings();
+}
+
+// The lock outlives the diskette being taken out, because that is what a
+// notch does: a diskette put back in comes back protected.  Kept by folder --
+// a diskette in memory has no folder and its lock lasts as long as it does,
+// which SetDiskLocked declines to write down.
+void MainWindow::RememberLock(const DiskState& disk) {
+  if (disk.folder.empty()) return;
+  if (settings_.disk_locked(disk.folder) == disk.writeProtected) return;
+  settings_.SetDiskLocked(disk.folder, disk.writeProtected);
+  SaveSettings();
+}
+
+// Asked before anything pushes the diskette out of the drive.
+//
+// A diskette in memory exists nowhere but in this process.  If a quick-choice
+// slot points at it, taking it out is safe -- it goes to that slot and comes
+// back from it.  If nothing points at it, the drive is the only thing holding
+// it, and swapping would destroy it.  That has to be the user's decision, not
+// a side effect of pressing Ctrl+2: the loss is silent, and silent loss is the
+// worst thing this program can do.
+//
+// Returns false when the user backed out, in which case the caller does
+// nothing at all.
+bool MainWindow::ConfirmLosingDiskette() {
+  if (!disk_.inMemory || disk_.files == 0 || disk_.slot != 0) return true;
+
+  const std::wstring question =
+      L"V mechanike je disketa v pamäti, na ktorej je " +
+      std::to_wstring(disk_.files) +
+      (disk_.files == 1 ? L" súbor" : disk_.files < 5 ? L" súbory" : L" súborov") +
+      L", a nepatrí žiadnemu slotu rýchlej voľby.\r\n\r\n"
+      L"Disketa v pamäti nikde inde neexistuje, takže vybratím zanikne.\r\n\r\n"
+      L"Áno — najprv ju uložím do priečinka.\r\n"
+      L"Nie — zahodiť ju.\r\n"
+      L"Zrušiť — nechať ju v mechanike.";
+  switch (MessageBoxW(hwnd_, question.c_str(), L"Disketa v pamäti",
+                      MB_YESNOCANCEL | MB_ICONWARNING)) {
+    case IDYES: {
+      // The export is the worker's job and takes a moment; the caller waits
+      // for it rather than swapping underneath it, so this answers "no, not
+      // now" and the user repeats the command once it is saved.
+      const std::wstring folder = win::PickFolderToCreate(
+          hwnd_, L"Kam sa má disketa uložiť", L"Disketa");
+      if (folder.empty()) return false;
+      emulator_.PostExportDisk(folder);
+      return false;
+    }
+    case IDNO:
+      return true;
+    default:
+      return false;
+  }
 }
 
 void MainWindow::RememberDisk(const std::wstring& folder) {
@@ -467,13 +597,18 @@ void MainWindow::RefreshTitle() const {
   // The diskette is named, not spelled out as a path: this whole line is read
   // aloud on every Alt+Tab and every NVDA+T, so it holds the answer and not
   // the paperwork.  The path is in Pomocník -> O programe.
+  // The lock is part of what the diskette is right now, so it belongs to the
+  // same answer.  Only when it is on: a title that said "odomknutá" about
+  // every ordinary diskette would spend a word on the usual case.
+  const std::wstring diskette =
+      disk_.labels.name + (disk_.writeProtected ? L", zamknutá" : L"");
   SetTitle(released_
                ? L"Eureka A4 — klávesnica uvoľnená, vráti ju Shift+F11 — "
                  L"režim: " + std::wstring(ModeName(emulator_.mode())) +
-                     L" — disketa: " + disk_.labels.name
+                     L" — disketa: " + diskette
                : L"Eureka A4 — klávesnica: " +
                      std::wstring(ModeName(emulator_.mode())) +
-                     L" — disketa: " + disk_.labels.name);
+                     L" — disketa: " + diskette);
 }
 
 void MainWindow::RefreshMenu() const {
@@ -513,6 +648,10 @@ void MainWindow::RefreshMenu() const {
       MF_BYCOMMAND | (disk_.present ? MF_ENABLED : MF_GRAYED);
   EnableMenuItem(menu, ID_DISK_EJECT, hasDisk);
   EnableMenuItem(menu, ID_FILE_EXPORT, hasDisk);
+  EnableMenuItem(menu, ID_DISK_PROTECT, hasDisk);
+  CheckMenuItem(menu, ID_DISK_PROTECT,
+                MF_BYCOMMAND |
+                    (disk_.writeProtected ? MF_CHECKED : MF_UNCHECKED));
   // Before RefreshShortcutText, which reads the item text back and would
   // otherwise be working on the names this is about to replace.
   RefreshSlotItems(menu);
@@ -532,7 +671,7 @@ void MainWindow::RefreshShortcutText(HMENU menu) const {
   static constexpr wchar_t kPrefix[] = L"F11, ";
   std::vector<UINT> ids = {ID_FILE_EXPORT,      ID_FILE_EXIT,
                            ID_DISK_INSERT,      ID_DISK_NEW,
-                           ID_DISK_EJECT,
+                           ID_DISK_EJECT,       ID_DISK_PROTECT,
                            ID_MACHINE_RESET,    ID_MACHINE_POWEROFF,
                            ID_KEYBOARD_TOGGLE,  ID_TOOLS_SETTINGS,
                            ID_TOOLS_DIAGDUMP,   ID_HELP_KEYS};
@@ -769,6 +908,14 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       if (!change.ok) {
         MessageBoxW(hwnd_, change.error.c_str(), L"Eureka A4",
                     MB_OK | MB_ICONERROR);
+      } else if (!change.swapped) {
+        // Only the notch moved, so the diskette itself is unchanged and there
+        // is nothing to remember about which one is in.  The lock, though, is
+        // written down: it has to be back the next time this diskette goes in
+        // -- the ROM's bulk copy sends the user to and fro between source and
+        // target and refuses a source that is not protected.
+        RememberLock(change.state);
+        if (change.state.writeProtected) ToneLocked(); else ToneUnlocked();
       } else if (change.state.present) {
         ToneInserted();
         RememberDisk(change.state.folder);

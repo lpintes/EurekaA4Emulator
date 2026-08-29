@@ -136,6 +136,74 @@ void ClearedSlotDisappears() {
   Check(loaded.slot(3).empty(), "vyprazdneny slot sa neulozi");
 }
 
+// The write protect notch, which belongs to the diskette and not to the drive
+// or to a slot.  This is the part the ROM's bulk copy depends on: it insists
+// the source diskette be protected and then sends the user back and forth
+// between source and target, so a lock that ended when the diskette came out
+// would be gone the first time it went back in -- and the machine would stop
+// with "zdrojový disk není chráněn proti zápisu".
+void DiskLockSurvivesTheFile() {
+  const fs::path file = FileNamed("zamok.txt");
+  std::wstring error;
+  Settings settings(file);
+  settings.SetDiskLocked(L"C:\\Hry\\e_games", true);
+  settings.SetDiskLocked(L"C:\\Pracovna", false);
+  Check(settings.Save(error), "subor so zamkom sa ulozi", Narrow(error));
+
+  Settings loaded(file);
+  loaded.Load();
+  Check(loaded.disk_locked(L"C:\\Hry\\e_games"), "zamok diskety prezil subor");
+  Check(!loaded.disk_locked(L"C:\\Pracovna"), "nezamknuta disketa zostala volna");
+  Check(!loaded.disk_locked(L""), "prazdna cesta nie je zamknuta");
+
+  // Taken off again, the line has to go: a lock that outlived the act that
+  // ended it is exactly the state the whole notch exists to make visible.
+  loaded.SetDiskLocked(L"C:\\Hry\\e_games", false);
+  Check(loaded.Save(error), "subor bez zamku sa ulozi", Narrow(error));
+  Settings again(file);
+  again.Load();
+  Check(!again.disk_locked(L"C:\\Hry\\e_games"), "zruseny zamok sa neulozi");
+}
+
+// One folder spelled several ways is one diskette.  The picker, a slot typed
+// by hand and VirtualDisk's canonical path differ in case, in the slash and
+// in a trailing separator, so a raw comparison would lose the lock whenever
+// the same diskette arrived by another road -- and lose it silently.
+void DiskLockIgnoresPathSpelling() {
+  Settings settings(FileNamed("zamok-cesty.txt"));
+  settings.SetDiskLocked(L"C:\\Hry\\E_Games", true);
+  Check(settings.disk_locked(L"c:\\hry\\e_games"), "zamok neriesi velke pismena");
+  Check(settings.disk_locked(L"C:/Hry/E_Games"), "zamok neriesi tvar lomky");
+  Check(settings.disk_locked(L"C:\\Hry\\E_Games\\"),
+        "zamok neriesi koncovu lomku");
+  Check(!settings.disk_locked(L"C:\\Hry"), "nadradeny priecinok nie je zamknuty");
+
+  // And locking the same diskette twice must not write it down twice: the
+  // second spelling would then outlive the unlock done through the first.
+  settings.SetDiskLocked(L"c:/hry/e_games/", true);
+  settings.SetDiskLocked(L"C:\\Hry\\E_Games", false);
+  Check(!settings.disk_locked(L"C:\\Hry\\E_Games"),
+        "odomknutie zrusi zamok bez ohladu na tvar cesty");
+}
+
+// The rule the slots dialog asks with, so that two slots holding one folder
+// cannot end up ticked differently.  One rule, one place: a second copy would
+// disagree with this one on exactly the spellings that matter.
+void SameDiskIsOneRule() {
+  Check(Settings::SameDisk(L"C:\\Hry", L"c:/hry\\"), "ta ista disketa dvoma zapismi");
+  Check(!Settings::SameDisk(L"C:\\Hry", L"C:\\Hry2"), "ine priecinky su ine diskety");
+  Check(!Settings::SameDisk(L"", L""), "prazdna cesta nie je disketa");
+}
+
+// A diskette in memory exists only for this run, so a line in the file would
+// point at nothing.  Its lock lasts as long as the diskette, which is the
+// honest span for it.
+void MemoryDisketteIsNeverRemembered() {
+  Settings settings(FileNamed("zamok-pamat.txt"));
+  settings.SetDiskLocked(kSlotRam, true);
+  Check(!settings.disk_locked(kSlotRam), "disketa v pamati sa nezapamata");
+}
+
 void CommentsAndBlanksAreIgnored() {
   const fs::path file = FileNamed("komentare.txt");
   WriteRaw(file,
@@ -297,6 +365,10 @@ int main() {
   RoundTripKeepsDiacritics();
   SaveOverwritesRatherThanAppends();
   ClearedSlotDisappears();
+  DiskLockSurvivesTheFile();
+  DiskLockIgnoresPathSpelling();
+  SameDiskIsOneRule();
+  MemoryDisketteIsNeverRemembered();
   CommentsAndBlanksAreIgnored();
   JunkLinesDoNotCostTheRest();
   BothLineEndingsRead();

@@ -139,6 +139,10 @@ generuje v `%TEMP%` a po sebe ich maže. Drží pravidlá kapacity diskety
 nestratí potichu. Skutočný diskový priečinok na to nepoužívaj, mení sa pod
 rukami.
 
+Drží aj **zásobník diskiet** (`DiskStash`): že slot vráti tú istú disketu aj
+s jej obsahom, že sa sloty navzájom nemiešajú, že priečinková disketa sa
+neodkladá a že slot 0 neexistuje.
+
 Drží aj **klasifikáciu typov súborov pri exporte**, a to je jediné, čo ju
 drží. `VirtualDisk::IsTextType` je allowlist a jeho dve chyby stoja rôzne:
 typ zle označený za textový sa oreže na prvom `1Ah` a **stratí dáta
@@ -150,19 +154,26 @@ koncovka vyzerá.
 
 `settings_test` beží tiež bez ROM a v `%TEMP%`. Drží formát súboru
 s nastaveniami a hlavne to, že cesta s diakritikou prežije zápis aj čítanie.
+Drží aj **zámok diskety proti zápisu** (`zamok1=`, `zamok2=`… so zoznamom
+ciest) — že prežije uloženie, že zrušený zámok zo súboru zmizne a že tá istá
+cesta napísaná inak je tá istá disketa. To posledné nie je kozmetika: výber
+priečinka, ručne napísaný slot a kanonická cesta z `VirtualDisk` sa líšia
+veľkosťou písmen, tvarom lomky a koncovou lomkou, a surové porovnanie by zámok
+stratilo potichu. Pravidlo je `Settings::SameDisk` a je len jedno — pýta sa naň
+aj dialóg slotov.
 Overené mutáciou: `CP_UTF8` → `CP_ACP` v `settings.cpp` zhodí tri kontroly.
 Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spúšťa.
 
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých jedenásť naraz — tri
-samostatné testy a osem režimov `integration_test`. Sú to nezávislé
+`run-tests.bat` zostaví testy a pustí všetkých dvanásť naraz — tri
+samostatné testy a deväť režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `eurekatech\TECHMAN1\READ.COM`, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`.
 
-Výstup drží pohromade `--output-sync=target`; bez neho sa riadky jedenástich
+Výstup drží pohromade `--output-sync=target`; bez neho sa riadky dvanástich
 procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
 
 **Pasca, do ktorej som už spadol:** režimy sa v `Makefile` generujú ako
@@ -171,7 +182,7 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť jedenásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
+byť dvanásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
 
 ## Diagnostická sonda
 
@@ -184,6 +195,30 @@ diag_probe ROM DISK_FOLDER sweep 4000000
 diag_probe ROM DISK_FOLDER seq 15000000 kD7 Y Y
 diag_probe ROM DISK_FOLDER trace 20000000 formatovaci
 ```
+
+Tokeny sekvencie:
+
+- `kXX` — kód klávesu v šestnástkovej sústave.
+- text — napíše sa na klávesnici; `~` je Enter.
+- `.` — **čakanie bez klávesu**. Nie je to pohodlie: kláves poslaný len
+  preto, aby sa čakalo, je odpoveď na otázku, ktorú stroj ešte nepoložil,
+  a mne raz takto `k00` uprostred formátovania podsunulo hlásenie, ktoré
+  tam inak nepatrí. Keď meriaš dialóg, čakaj `.`, nie klávesom.
+- `?text` — čaká, kým stroj **nepovie** daný text. Reč chodí oneskorene za
+  dejom, takže pevné čakanie vymení disketu uprostred kroku namiesto pri
+  výzve, ktorá si o ňu povedala. Porovnávaj len ASCII kúsky: reč je
+  v Kamenických, takže „vlož cílový disk“ príde ako `vlo. c.lov. disk`.
+- `+wp`, `-wp` — zapne a vypne ochranu diskety proti zápisu.
+- `ram`, `folder`, `mount:CESTA`, `slot1`, `slot2` — výmena diskety tak,
+  ako ju robí okno: počká na `DiskSwappable`, flushne a až potom vymení.
+  `slot1`/`slot2` idú cez `DiskStash`, teda vrátia **tú istú** disketu.
+- `stav` — vypíše, čo je naozaj na diskete v mechanike (médium, počet
+  súborov, zámok). Reč hovorí, čo si stroj myslí; toto hovorí, čo je na
+  médiu, a práve ten rozdiel odhalil 6.24.
+- `spin:N` — prebehne N inštrukcií a vypíše histogram fyzického PC. Takto
+  dostane zaseknutie adresu namiesto dohadu.
+- `trace` — od tejto chvíle sleduje porty radiča (`98h`–`9Bh`). Zámerne
+  nie `A8h`: ten sa číta v nečinnej slučke a zaplavil by ring buffer.
 
 Pred hádaním, čo firmvér robí, ho radšej spusti a pozri sa. Takto sa
 našla chyba `BIT b,(HL)` v jadre aj to, kde presne viazlo formátovanie.
@@ -218,8 +253,19 @@ lebo NVDA považuje doplnky za odvodené dielo (`nvda-addon/COPYING.txt`).
   v `%APPDATA%\EurekaA4`. O emulátore nevie nič a nič nehlási — chýbajúci
   súbor znamená defaulty, zlyhaný zápis vráti dôvod volajúcemu, ktorý ho
   ohlási v okamihu úkonu. Viď HANDOFF 6.22.
+- `src/disk_stash.*` je **zásobník diskiet**: sloty 1 až 9, v ktorých
+  diskety **sú**, kým nie sú v mechanike. Disketa je objekt, nie recept na
+  jej výrobu — slot, ktorý pri každom vložení vyrobil novú prázdnu, zabil
+  Eurekine hromadné kopírovanie a tichou stratou dát (HANDOFF 6.24).
+  Odkladajú sa len diskety v pamäti; tú z priečinka drží priečinok.
+  **Slot 0 zámerne neexistuje** a nie je tu ani polička na disketu bez
+  slotu: polička drží jednu, takže druhá odložená by prvú ticho prepísala.
+  Disketa v pamäti bez slotu je rozhodnutie používateľa, a pýta sa naň
+  `MainWindow::ConfirmLosingDiskette` pred **každou** cestou, ktorá by ju
+  z mechaniky vytlačila.
 - `src/emulator_thread.*` vlastní `EurekaMachine` aj `AudioPlayer` a beží
-  na vlastnom vlákne. Okno sa stroja **nedotýka**, všetko mu posiela cez
+  na vlastnom vlákne. Vlastní aj zásobník; okno mu posiela číslo slotu
+  a späť dostáva v `DiskState`, ktorému slotu disketa v mechanike patrí. Okno sa stroja **nedotýka**, všetko mu posiela cez
   jednu frontu príkazov — preto tam nie je ani jeden zámok nad strojom.
   Klávesy idú tou istou frontou ako príkazy, aby si prepnutie režimu
   nepredbehlo kláves napísaný po ňom.
@@ -275,7 +321,7 @@ v konflikte s hosťom. Platí:
   siahneš, porovnaj ju s tou tabuľkou.
 - **Akcelerátorové tabuľky sú dve a to je celý trik.** `IDR_ACCELERATORS`
   platí vždy a je to celá trvalá cena: `F11`, `Shift+F11`, `F12`.
-  `IDR_ACCELERATORS_HOST` (`Ctrl+U I M Q R V K N D H` a `Ctrl+0` až `Ctrl+9`
+  `IDR_ACCELERATORS_HOST` (`Ctrl+U I M Q R V K N D H Z` a `Ctrl+0` až `Ctrl+9`
   pre rýchlu voľbu diskiet) platí **len keď je
   klávesnica hosťova** — po `F11` alebo `Shift+F11`. Bez toho prefixu idú
   tie klávesy Eureke, takže `Ctrl+H` na exterke naozaj urobí to, čo robí

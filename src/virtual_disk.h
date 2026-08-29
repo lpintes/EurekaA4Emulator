@@ -49,6 +49,18 @@ class VirtualDisk {
   // machine answers both with the same "vadny disk".
   bool has_format() const { return formatted_.any(); }
 
+  // The write protect notch.  It belongs to the medium, not to the drive, so
+  // every way of putting a diskette in clears it here and the host says what
+  // the new one's notch is; a flag left standing would silently protect
+  // whatever came next.  Remembering which diskettes are locked is the host's
+  // job (Settings::disk_locked) -- this class knows only what is in now.  The
+  // firmware side is documented, not guessed -- DEVICES.10 has bit 6 of
+  // fdc_ctl_chkdsk as "Write protected", and SYSEQU.LIB folds that bit into
+  // write_error_mask (11011110b) but leaves it out of read_error_mask
+  // (10011110b), so a protected diskette still reads.
+  void set_write_protected(bool protect) { write_protected_ = protect; }
+  bool write_protected() const { return write_protected_; }
+
   bool ReadRecord(unsigned track, unsigned record, uint8_t* destination) const;
   bool WriteRecord(unsigned track, unsigned record, const uint8_t* source);
   bool ReadPhysicalSector(unsigned cylinder, unsigned side, unsigned sector,
@@ -114,6 +126,7 @@ class VirtualDisk {
   std::unordered_map<std::string, ImportedFile> imported_;
   Media media_ = Media::kNone;
   bool dirty_ = false;
+  bool write_protected_ = false;
 };
 
 #endif

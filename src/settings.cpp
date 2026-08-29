@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <shlobj.h>
 
+#include <cwctype>
 #include <fstream>
 #include <iterator>
 #include <sstream>
@@ -17,6 +18,10 @@ namespace {
 // otherwise stop matching.
 constexpr char kLastDiskKey[] = "posledna-disketa";
 constexpr char kSlotPrefix[] = "slot";
+// A locked diskette, one per line: "zamok1=C:\Hry".  Numbered rather than
+// repeated under one key, because the parser here takes the last value for a
+// key and a repeated one would quietly keep only the final lock.
+constexpr char kLockedPrefix[] = "zamok";
 constexpr char kBom[] = "\xef\xbb\xbf";
 
 std::string ToUtf8(const std::wstring& text) {
@@ -129,6 +134,13 @@ void Settings::Load() {
       lastDisk_ = std::move(value);
       continue;
     }
+    // Before the slot test: "zamok" and "slot" do not overlap, but the lock
+    // lines are the ones a hand-editing user is most likely to duplicate, and
+    // reading them first keeps that path short.
+    if (key.starts_with(kLockedPrefix)) {
+      if (!value.empty()) SetDiskLocked(value, true);
+      continue;
+    }
     if (key.starts_with(kSlotPrefix)) {
       const std::string number = key.substr(sizeof(kSlotPrefix) - 1);
       if (number.size() == 1 && number.front() >= '1' &&
@@ -159,10 +171,16 @@ bool Settings::Save(std::wstring& error) const {
       L"\r\n";
   if (!lastDisk_.empty()) text += L"posledna-disketa=" + lastDisk_ + L"\r\n";
   for (int number = 1; number <= kSlots; ++number) {
-    if (slots_[static_cast<std::size_t>(number - 1)].empty()) continue;
-    text += L"slot" + std::to_wstring(number) + L"=" +
-            slots_[static_cast<std::size_t>(number - 1)] + L"\r\n";
+    const auto index = static_cast<std::size_t>(number - 1);
+    if (slots_[index].empty()) continue;
+    text += L"slot" + std::to_wstring(number) + L"=" + slots_[index] + L"\r\n";
   }
+  // The locked diskettes, as paths.  They are not tied to the slots: a
+  // diskette put in from the folder picker can be locked too, and the ROM's
+  // bulk copy needs that lock back when the diskette goes in again.
+  int locked = 0;
+  for (const std::wstring& folder : lockedDisks_)
+    text += L"zamok" + std::to_wstring(++locked) + L"=" + folder + L"\r\n";
 
   std::ofstream output(file_, std::ios::binary | std::ios::trunc);
   const std::string bytes = kBom + ToUtf8(text);
@@ -188,4 +206,46 @@ const std::wstring& Settings::slot(int number) const {
 void Settings::SetSlot(int number, std::wstring path) {
   if (number < 1 || number > kSlots) return;
   slots_[static_cast<std::size_t>(number - 1)] = std::move(path);
+}
+
+// Two spellings of one folder are one diskette.  Windows paths are
+// case-insensitive and take either slash, and the picker, a slot typed by
+// hand and VirtualDisk's canonical form differ in exactly those ways -- so
+// comparing them raw would lose a lock the moment the same diskette arrived
+// by another road.
+std::wstring Settings::NormalizePath(const std::wstring& folder) {
+  std::wstring result;
+  result.reserve(folder.size());
+  for (wchar_t ch : folder)
+    result.push_back(ch == L'/' ? L'\\'
+                                : static_cast<wchar_t>(std::towlower(ch)));
+  // A trailing separator is the same folder; a bare root ("C:\") is not, so
+  // one character is always left.
+  while (result.size() > 1 && result.back() == L'\\') result.pop_back();
+  return result;
+}
+
+bool Settings::SameDisk(const std::wstring& left, const std::wstring& right) {
+  if (left.empty() || right.empty()) return false;
+  return NormalizePath(left) == NormalizePath(right);
+}
+
+bool Settings::disk_locked(const std::wstring& folder) const {
+  if (folder.empty()) return false;
+  for (const std::wstring& locked : lockedDisks_)
+    if (SameDisk(locked, folder)) return true;
+  return false;
+}
+
+void Settings::SetDiskLocked(const std::wstring& folder, bool locked) {
+  // A diskette in memory cannot be remembered: it exists nowhere but in this
+  // process, so a line in the file would point at nothing.  Its lock lasts as
+  // long as the diskette does, which is the honest span for it.
+  if (folder.empty() || SlotIsRam(folder)) return;
+  for (auto it = lockedDisks_.begin(); it != lockedDisks_.end(); ++it) {
+    if (!SameDisk(*it, folder)) continue;
+    if (!locked) lockedDisks_.erase(it);
+    return;  // Already there: locking again must not add a second line.
+  }
+  if (locked) lockedDisks_.push_back(folder);
 }

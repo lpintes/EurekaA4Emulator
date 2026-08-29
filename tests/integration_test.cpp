@@ -2,6 +2,7 @@
 #include <array>
 #include <cmath>
 #include <ctime>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -575,6 +576,145 @@ bool CheckFormatsBlankDiskette(EurekaMachine& machine) {
   return true;
 }
 
+// Runs for a fixed stretch and hands back everything the machine said in it.
+// Waiting for silence instead would cut a question in half: the ROM emits a
+// line in bursts with gaps between them, and half a second of quiet happens
+// inside "disk je uz naformatovan, preformatovat" rather than after it.  The
+// stretch has to be long enough for a whole question and is then spent idling
+// at the prompt, which costs nothing.
+std::vector<uint8_t> RunAndListen(EurekaMachine& machine, uint64_t budget) {
+  std::vector<uint8_t> spoken;
+  const uint64_t deadline = machine.instructions() + budget;
+  while (machine.instructions() < deadline) {
+    const auto said = machine.TakeSpeechInput();
+    spoken.insert(spoken.end(), said.begin(), said.end());
+    machine.TakeConsoleOutput();
+    machine.TakeAudio();
+    if (!machine.Step() && machine.powered_off()) break;
+  }
+  const auto said = machine.TakeSpeechInput();
+  spoken.insert(spoken.end(), said.begin(), said.end());
+  return spoken;
+}
+
+// The write protect notch.  Bit 6 of the controller status is the whole of the
+// model's side of it (DEVICES.10 has it as bit 6 of fdc_ctl_chkdsk), so what
+// this check is really about is that the firmware is the one enforcing it:
+// nothing here refuses a write on the host's behalf and then claims the ROM
+// did.  Measured with diag_probe before it was written -- Shift+F8 on a
+// protected diskette says "disk je chranen proti zapisu" (13D5E) instead of
+// asking the second question.
+//
+// Reading has to go on working.  SYSEQU.LIB draws that line itself:
+// write_error_mask is 11011110b and includes bit 6, read_error_mask is
+// 10011110b and does not.
+bool CheckProtectedDiskStillReads(EurekaMachine& machine) {
+  machine.SetDiskWriteProtected(true);
+  machine.Reset();
+  const uint64_t kQuiet = EurekaMachine::kCpuHz / 2;
+  std::vector<uint8_t> console;
+  uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
+  unsigned fed = 0;
+  while (machine.instructions() < 60'000'000) {
+    auto chunk = machine.TakeConsoleOutput();
+    if (!chunk.empty()) {
+      console.insert(console.end(), chunk.begin(), chunk.end());
+      lastOut = machine.cycles();
+    }
+    if (fed < 2 && machine.cycles() > lastOut + kQuiet) {
+      lastOut = machine.cycles();
+      // Shift+F7 is "spustit program z disku", then the program's name.
+      if (fed == 0) machine.QueueKey(0xd6);
+      else if (!Type(machine, "READ\r")) return false;
+      ++fed;
+    }
+    if (!machine.Step() && machine.powered_off()) break;
+    if (fed >= 2 && machine.cycles() > lastOut + 3 * kQuiet) break;
+  }
+  if (!Contains(console, "Read which file?")) {
+    std::cout << "  READ.COM sa z chranenej diskety nespustil\n";
+    return false;
+  }
+  // Loading a 16K program is what those reads are: a protected diskette that
+  // answered the prompt without them would mean the file came from somewhere
+  // other than the medium.
+  if (machine.debug_bios_reads() < 150) {
+    std::cout << "  chranena disketa dala len " << machine.debug_bios_reads()
+              << " citani BIOSu\n";
+    return false;
+  }
+  return true;
+}
+
+void Say(const char* label, const std::vector<uint8_t>& spoken) {
+  std::cout << "  " << label << " \"";
+  for (uint8_t byte : spoken)
+    std::cout << (byte >= 0x20 && byte < 0x7f ? static_cast<char>(byte) : '.');
+  std::cout << "\"\n";
+}
+
+// The other half: a write the firmware has to refuse.  Formatting is the
+// cleanest one to ask for, because a refusal is observable in the model as
+// well -- not one track may be laid down.
+//
+// The refusal comes at the end of the dialogue, not at the keystroke: the ROM
+// asks "mam formatovat disk" and, on a diskette that has a format on it, "disk
+// je uz naformatovan, preformatovat" as well, and the notch is answered for
+// only once those are.  Both confirmations are therefore sent here, and the
+// check is on the refusal arriving somewhere in what follows -- exactly when
+// it falls inside that dialogue is the firmware's business, and pinning it
+// would make this a test of the probe's key timing rather than of the notch.
+bool CheckProtectedDiskRefusesFormat(EurekaMachine& machine) {
+  machine.CreateRamDisk(false);
+  machine.SetDiskWriteProtected(true);
+  machine.Reset();
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step()) break;
+
+  machine.TakeSpeechInput();
+  machine.QueueKey(0xd7);  // Shift+F8, "formatovat disk"
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  if (!Type(machine, "y")) return false;
+  std::vector<uint8_t> spoken = RunAndListen(machine, 12'000'000);
+  if (!Type(machine, "y")) return false;
+  const auto more = RunAndListen(machine, 12'000'000);
+  spoken.insert(spoken.end(), more.begin(), more.end());
+
+  // "chranen proti zapisu" with the diacritics kept out of the way: the speech
+  // is Kamenicky, so only plain-ASCII stretches are safe to match on.
+  if (!Contains(spoken, "n proti z")) {
+    Say("na chranenej diskete stroj nepovedal, ze je chranena, povedal", spoken);
+    return false;
+  }
+  if (machine.disk().has_format()) {
+    std::cout << "  chranena disketa sa napriek odmietnutiu naformatovala\n";
+    return false;
+  }
+
+  // And the lock is a lock, not a wall: taking it off lets the very same
+  // keystrokes through.  Only the first track is waited for -- the whole
+  // format is the format mode's job, this one is about the notch.
+  machine.SetDiskWriteProtected(false);
+  machine.TakeSpeechInput();
+  machine.QueueKey(0xd7);
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  if (!Type(machine, "y")) return false;
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  if (!Type(machine, "y")) return false;
+  for (int step = 0; step < 40'000'000; ++step) {
+    machine.TakeSpeechInput();
+    machine.TakeConsoleOutput();
+    machine.TakeAudio();
+    if (!machine.Step() && machine.powered_off()) break;
+    if (machine.disk().TrackFormatted(0, 0)) return true;
+  }
+  std::cout << "  po zruseni ochrany sa nenaformatovala ani prva stopa\n";
+  return false;
+}
+
 void Grind(EurekaMachine& machine, uint64_t instructions) {
   const uint64_t deadline = machine.instructions() + instructions;
   while (machine.instructions() < deadline) {
@@ -707,9 +847,9 @@ int wmain(int argc, wchar_t** argv) {
        std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power" &&
        std::wstring(argv[3]) != L"dc" && std::wstring(argv[3]) != L"rtc" &&
        std::wstring(argv[3]) != L"hudba" &&
-       std::wstring(argv[3]) != L"format")) {
+       std::wstring(argv[3]) != L"format" && std::wstring(argv[3]) != L"wp")) {
     std::wcerr << L"usage: integration_test ROM DISK_FOLDER "
-                  L"com|bas|kbd|power|dc|rtc|hudba|format\n";
+                  L"com|bas|kbd|power|dc|rtc|hudba|format|wp\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -724,6 +864,18 @@ int wmain(int argc, wchar_t** argv) {
   if (std::wstring(argv[3]) == L"hudba") {
     const bool passed = CheckMusicStops(*machine);
     std::cout << (passed ? "PASS" : "FAIL") << " mode=HUDBA\n";
+    return passed ? 0 : 1;
+  }
+
+  if (std::wstring(argv[3]) == L"wp") {
+    // Reading first, while the host folder is still the medium: the refusal
+    // check needs a blank in memory and cannot give it back.
+    const bool reads = CheckProtectedDiskStillReads(*machine);
+    const bool refuses = CheckProtectedDiskRefusesFormat(*machine);
+    const bool passed = reads && refuses;
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=WP"
+              << " citanie=" << (reads ? "ok" : "chyba")
+              << " odmietnutie=" << (refuses ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 
