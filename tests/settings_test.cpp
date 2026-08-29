@@ -326,7 +326,10 @@ void MemorySlotsSurviveTheFile() {
 void SlotNamesAreReadable() {
   Check(SlotDisplayName(L"") == L"(prázdny)", "prazdny slot sa vola prazdny",
         Narrow(SlotDisplayName(L"")));
-  Check(SlotDisplayName(kSlotRam) == L"nová prázdna v pamäti",
+  // Deliberately not "nová prázdna": the slot hands the same diskette back
+  // with everything written on it, so a name promising an empty one would be
+  // wrong from the first save on.
+  Check(SlotDisplayName(kSlotRam) == L"Disketa v pamäti",
         "slot v pamati ma meno", Narrow(SlotDisplayName(kSlotRam)));
   // The name is the leaf, not the whole path: it goes in a menu item that a
   // screen reader reads out, where a full path is noise.

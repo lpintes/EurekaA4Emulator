@@ -2516,6 +2516,14 @@ ukončení emulátora nikde nie je — **vyrobí novú prázdnu**. Preto sa
 všade volá „nová prázdna v pamäti“. Slot, ktorý by sľuboval návrat
 a ticho podal prázdnu disketu, by bol horší než žiadny.
 
+**Toto už neplatí, viď 6.24.** Slot disketu v pamäti drží (`DiskStash`),
+takže druhé vloženie vráti tú istú so všetkým, čo na ňu Eureka zapísala;
+prázdnu vyrobí len prvé vloženie nepoužitého slotu. Meno preto od
+29. 8. 2026 znie len **„Disketa v pamäti“** — pôvodné „nová prázdna“
+klamalo od prvého uloženého súboru. Čo z neho zostalo v platnosti, je
+druhá polovica: cez ukončenie emulátora sa taká disketa neprenesie, a preto
+sa naň `main.cpp` pri ukončení pýta.
+
 **Značka pre nenaformátovanú disketu bola a je zrušená** (majiteľ,
 28. 8. 2026). Slot menovaný „nenaformátovaná“ by taký zostal aj potom,
 ako ju používateľ naformátuje — popisoval by stav, ktorý trvá po prvé

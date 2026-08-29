@@ -235,8 +235,8 @@ Slot sa dá priradiť aj rovno pri vytváraní novej diskety.
 vráti aj s tým, čo na ňu Eureka medzitým zapísala — vložením ju máte
 naspäť takú, aká bola. To platí aj pre **disketu v pamäti**: taká nikde
 inde neexistuje, takže ju drží práve ten slot, kým emulátor beží. Prvé
-stlačenie prázdneho slotu s „nová prázdna v pamäti" ju vyrobí, ďalšie ju
-vracajú. Novú prázdnu spravíte cez `F11`, `Ctrl+M`.
+stlačenie slotu označeného „Disketa v pamäti" ju vyrobí prázdnu, ďalšie ju
+vracajú takú, aká je. Novú prázdnu spravíte cez `F11`, `Ctrl+M`.
 
 Disketa z priečinka sa v slote nedrží a nemusí: jej obsah je v tom
 priečinku. Pri vytiahnutí sa doň zapíše, pri vrátení sa z neho načíta —
@@ -294,10 +294,11 @@ sa dajú aj prečítať a upraviť ručne.
 V dialógu **Spravovať rýchlu voľbu…** je pri vybranom slote začiarkávacie
 políčko *Zamknúť túto disketu proti zápisu* — je to ten istý zámok, len
 prístupný pri slote, a v zozname slotov to je napísané aj v riadku. Pre
-slot s disketou v pamäti políčko nie je aktívne: tá vzniká prázdna, takže
-zamknúť ju znamená vyrobiť disketu, na ktorú sa nedá nič dať. Zamknúť sa
-dá aj disketa v pamäti, ale ten zámok trvá len dovtedy, kým tá disketa —
-teda do konca behu, lebo nikde inde neexistuje.
+slot s disketou v pamäti políčko nie je aktívne: zoznam zámkov je vedený
+podľa cesty a disketa v pamäti žiadnu nemá, takže by sa taký zámok pri
+uložení nastavení ticho zabudol. Zamknúť sa dá aj disketa v pamäti, ale
+cez `F11`, `Ctrl+Z`, a ten zámok trvá len dovtedy, kým tá disketa — teda
+do konca behu, lebo nikde inde neexistuje.
 
 ## Čo si emulátor pamätá
 

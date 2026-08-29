@@ -37,9 +37,10 @@ std::wstring SlotLine(int number, const std::wstring& slot, bool locked) {
   return line;
 }
 
-// Only a folder slot can be locked.  The memory marker makes a fresh empty
-// diskette, and one that arrives locked is a diskette nothing can ever be put
-// on -- a slot whose whole purpose is to be written to.
+// Only a folder slot can be locked.  The lock list in the settings is keyed by
+// path and outlives the run; a diskette in memory has no path and does not
+// outlive it, so Settings drops such a lock on save (see settings_test) and a
+// check box promising one would be a switch that quietly forgets itself.
 bool SlotCanLock(const std::wstring& slot) {
   return !slot.empty() && !SlotIsRam(slot);
 }

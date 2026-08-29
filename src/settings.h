@@ -96,10 +96,12 @@ class Settings {
 // mistaken for each other, and the settings file stays readable:
 // "slot3=*pamat" says what it does.
 //
-// The marker does not restore a diskette, it makes a fresh empty one.  That is
-// the honest thing for a medium that lives only in memory: the one that was
-// there is gone when the emulator closes, and pretending otherwise would be a
-// slot that quietly hands back nothing.  Hence "nová" in the name.
+// The marker says what the medium is and nothing more.  It used to be called
+// "nová prázdna v pamäti", from the days when every insert made a fresh empty
+// diskette; DiskStash keeps the diskette now, so the second insert hands back
+// what was written on it and the name was a lie from the first save on.  Only
+// the first insert of an unused slot makes one, and across runs the diskette
+// is gone -- neither is a reason to call a written diskette empty.
 //
 // There is deliberately no marker for an unformatted diskette.  Unformatted is
 // a state that lasts until the first Shift+F8, so a slot promising one would

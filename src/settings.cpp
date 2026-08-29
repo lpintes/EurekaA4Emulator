@@ -81,7 +81,7 @@ bool SlotIsRam(const std::wstring& slot) {
 
 std::wstring SlotDisplayName(const std::wstring& slot) {
   if (slot.empty()) return L"(prázdny)";
-  if (SlotIsRam(slot)) return L"nová prázdna v pamäti";
+  if (SlotIsRam(slot)) return L"Disketa v pamäti";
   const fs::path path(slot);
   fs::path leaf = path.filename();
   // A trailing separator ("C:\disky\eureka\") leaves filename() empty.
