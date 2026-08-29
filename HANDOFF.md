@@ -3033,7 +3033,7 @@ integration_test ROM DISK_FOLDER dc    -> PASS (výstup po reči sadne na ticho)
 integration_test ROM DISK_FOLDER rtc   -> PASS (budík sa nastaví a zazvoní)
 integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
 integration_test ROM DISK_FOLDER format-> PASS (Shift+F8 naformátuje prázdnu)
-disk_test                              -> PASS (55 kontrol, bez ROM)
+disk_test                              -> PASS (63 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 settings_test                          -> PASS (36 kontrol, bez ROM)
 ```

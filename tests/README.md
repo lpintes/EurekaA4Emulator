@@ -13,6 +13,38 @@ encoding this could accidentally use -- the failure being guarded against is
 the quiet one, where a saved path comes back mangled and the slot simply points
 somewhere else. Runs without the ROM, in the system temp folder.
 
+`disk_test.cpp` covers the diskette model: capacity, naming, swapping, the
+unformatted state, and what a file looks like on its way back to the host.
+Everything it needs it makes for itself in the system temp folder, because a
+real disk folder is a moving target and a test that reads one measures whatever
+happened to be there. The capacity numbers come from the Disk Parameter Block
+in the technical manual -- 396 free blocks of 2 KiB and 256 directory entries
+-- so a change in the disk model has to break this test before it breaks a
+diskette. Runs without the ROM.
+
+Two of its groups are worth knowing about before touching `VirtualDisk`:
+
+- the checks around a diskette in memory write the image the only way a guest
+  can, through `WritePhysicalSector`, laying down the directory entry and the
+  data blocks by hand. That is not ceremony: a folder-backed diskette has
+  `imported_` full, so it knows every file's exact length and the export never
+  has to work one out. The paths that do have to work it out are reachable only
+  from a diskette the host folder knows nothing about, and `Mount` cannot get
+  there;
+
+- `klasifikacia_typov_je_pribita` pins, one type at a time, which extensions
+  the export may cut at the 01Ah end-of-file marker. `IsTextType` is an
+  allowlist whose two mistakes cost differently: a type wrongly called text
+  loses data for good, a type wrongly called binary keeps a few bytes of
+  padding. `BAS` sat on that list for two years -- a saved BASIC program is
+  binary, and 01Ah is an ordinary byte in it -- and only surfaced as a backup
+  that would no longer load. Measured over 723 real files, cutting at the first
+  01Ah would have destroyed 61 of 108 `.BAS`, 78 of 81 `.COM`, 95 of 240 `.MEL`
+  and all 65 archives, two of them down to zero bytes. The roster in this test
+  is the barrier; moving a type across it has to fail here rather than turn up
+  as a damaged file months later. `HANDOFF.md` section 6.23 has the whole
+  measurement.
+
 `integration_test.cpp` boots the real ROM and has several modes:
 
 - `format` boots with an unformatted RAM diskette -- the only medium on which

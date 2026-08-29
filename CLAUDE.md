@@ -139,6 +139,15 @@ generuje v `%TEMP%` a po sebe ich maže. Drží pravidlá kapacity diskety
 nestratí potichu. Skutočný diskový priečinok na to nepoužívaj, mení sa pod
 rukami.
 
+Drží aj **klasifikáciu typov súborov pri exporte**, a to je jediné, čo ju
+drží. `VirtualDisk::IsTextType` je allowlist a jeho dve chyby stoja rôzne:
+typ zle označený za textový sa oreže na prvom `1Ah` a **stratí dáta
+natrvalo**, typ zle označený za binárny nechá pár bajtov výplne. `BAS` v tom
+zozname stál dva roky a prezradil sa až zničenou zálohou (HANDOFF 6.23).
+Keď na `IsTextType` siahneš, zmenu musí prijať `klasifikacia_typov_je_pribita`
+— a nový typ patrí najprv overiť v `FILE-FMT.D`, nie odhadnúť podľa toho, ako
+koncovka vyzerá.
+
 `settings_test` beží tiež bez ROM a v `%TEMP%`. Drží formát súboru
 s nastaveniami a hlavne to, že cesta s diakritikou prežije zápis aj čítanie.
 Overené mutáciou: `CP_UTF8` → `CP_ACP` v `settings.cpp` zhodí tri kontroly.
