@@ -2792,6 +2792,113 @@ viac priečinkov a striedajte ich ako diskety.“ To je presne tá rada, ktorú
 má rozdeľovač nahradiť skutkom — tá hláška je jeho prirodzené miesto
 vstupu a je to aj miesto, kde už kapacitná aritmetika stojí hotová.
 
+### 6.23 Export orezával programy BASICu na prvom 1Ah — opravené
+
+Nahlásené majiteľom 29. 8. 2026 a je to najhoršia trieda chyby, akú tento
+projekt má: **tichá strata dát**. Postup, ktorý ju vyrobí, je úplne bežný —
+disketa `C:\b\e_games`, v BASICu `LOAD "LET.BAS"`, potom prázdna disketa
+v pamäti, `SAVE "HRALET.BAS"`, načítať späť, program beží. Po skončení
+emulátora sa disketa uloží do priečinka a v ňom je `HRALET.BAS`
+o veľkosti **6399** bajtov namiesto 9856.
+
+Príčina bola v `VirtualDisk::ExportImage`. CP/M nepozná presnú dĺžku
+súboru, len počet 128-bajtových záznamov, takže export mal dve cesty:
+pre súbor, ktorý na disketu prišiel z hostiteľského priečinka, sa dĺžka
+vzala z `imported_`, a pre ostatné sa u „textových“ typov orezalo na
+prvom `1Ah`. Disketa v pamäti nemá `imported_` **žiadne** — nebolo odkiaľ
+importovať — takže na súbor napísaný hosťom vždy padla tá druhá cesta.
+A `IsTextType` mala v zozname aj `BAS`.
+
+`.BAS` textový nie je. Manuál to hovorí priamo (`FILE-FMT.D`, oddiel
+*BASIC (.BAS)*): trojbajtová hlavička `0C2h` (Standard) alebo `0E2h`
+(Advanced) a 16-bitová dĺžka programu, za ňou tokenizované riadky, kde
+tokeny sú bajty `80h`–`0FFh` a `1Ah` je obyčajný dátový bajt. Nie je to
+ani teoretická možnosť: `LET.BAS` má prvý `1Ah` na offsete **6399** z 9856
+a ďalšie na 6400, 6406, 6472 a 6500. Sedí to na bajt — 6399 je presne to,
+čo majiteľ nameral.
+
+Orezaný program sa **nenačíta**. Hlavička nesie dĺžku programu (9798),
+takže zavádzač si vypýta 9798 bajtov, v súbore ich zvyšuje 6396, narazí
+na koniec a BASIC ohlási chybu. Tretina programu jednoducho chýba.
+
+Ticho teda nie je pri načítaní, ale **pri ukladaní**: export prebehne bez
+jediného hlásenia a súbor vyzerá ako hotová záloha. Že je zničený, sa
+zistí až pri pokuse použiť ju — možno o mesiace, možno keď už originál
+nie je. To je horšie než hlučná chyba v okamihu zápisu.
+
+Rovnaký zdroj mal aj druhý dopad, len menej viditeľný: `.BAS`, ktorý hosť
+**vytvorí alebo skráti** na priečinkovej diskete, ide tou istou cestou
+(v `imported_` buď nie je, alebo je s väčšou `exact_size`), takže sa
+orezal tiež.
+
+Oprava je jeden riadok — `BAS` je zo zoznamu preč. Ostatné typy tam
+zostávajú právom: `TXT`, `DOC` a zdrojáky vývojárskej diskety sú textové
+súbory CP/M a manuál pre ne to pravidlo výslovne stanovuje („the last
+character emitted is always an End of File character (ASCII code $1A) …
+you should ignore all characters after the End of File character“).
+Binárne formáty Eureky (`.TEL`, `.DIA`, `.MEL`, `.DAT`, `.ARK`) v zozname
+nikdy neboli.
+
+Po oprave sa súbor z diskety v pamäti exportuje zarovnaný na záznamy,
+teda 9856 bajtov — presne to, čo na diskete naozaj je, a presne to, ako
+vyzerajú súbory v pôvodnej zbierke (všetky sú násobkom 128). Presnejšiu
+dĺžku by dala hlavička `.BAS` (`3 + dĺžka`, teda 9801), ale vymýšľať
+dĺžku, ktorú médium nenesie, nie je čo zlepšovať.
+
+Drží to `disk_test`, kontroly `bas_z_ram_diskety_sa_neskrati_na_1ah`,
+`bas_z_ram_diskety_je_bajt_na_bajt` a `txt_z_ram_diskety_konci_na_1ah`.
+Test si disketu v pamäti popíše tak, ako to robí hosť — cez
+`WritePhysicalSector` položí adresárovú položku aj bloky — lebo cez
+`Mount` sa na túto cestu vôbec nedá dostať: priečinková disketa má
+`imported_` plné a chyba sa v nej neprejaví. Overené mutáciou: `BAS`
+späť do zoznamu zhodí obe kontroly nad `.BAS` a tú nad `.TXT` nechá
+prejsť.
+
+**Poznatok na inokedy:** dva roky tu stálo, že koncovka rozhoduje o tom,
+či je súbor text. Rozhoduje o tom formát, a ten je v manuáli. Keď bude
+treba pridať ďalší typ, patrí to overiť v `FILE-FMT.D`, nie odhadnúť
+podľa toho, ako koncovka vyzerá.
+
+**Neznámy typ znamená výplň, a to je zámer.** Zoznam je allowlist:
+súbor bez bodky v mene (`text1`, `poznamky`) aj s neznámou koncovkou
+(`citaj.ma`) sa neoreže nikdy, exportuje sa zarovnaný na 128 bajtov aj so
+značkou a výplňou. Drží to `disk_test`, kontroly
+`subor_bez_pripony_sa_exportuje` a `subor_bez_pripony_sa_neoreze`.
+Asymetria je tým vedomá: `poznamky.txt` sa oreže, `poznamky` nie.
+Zlý odhad „text“ maže dáta, zlý odhad „binárka“ nechá pár bajtov výplne
+navyše — a za takú cenu sa neháda.
+
+**Otvorené, s nízkou prioritou: zoznam ako nastavenie.** Ponúka sa nechať
+používateľa dopísať vlastné textové koncovky do `nastavenia.txt`. Je to
+bezpečné, lebo rozhoduje človek, ktorý tie súbory píše, a nie odhad
+z bajtov. Či to za tú prácu stojí, závisí na jedinom: **ako veľmi `1Ah`
+na konci naozaj prekáža.** Odmerané na Windows 11 na súbore s 50 bajtmi
+`1Ah` na konci:
+
+- Nechajú ho tak a nekrátia: `type`, `more`, `copy` nad jedným súborom,
+  `copy /b`, `findstr`, PowerShell aj `[IO.File]::ReadAllText`, Python
+  `open('r')`.
+- Orežú na ňom: `copy /a` (a dopíše si ďalší `1Ah`), spájanie
+  `copy a.txt+b.txt` — to je režim ASCII **implicitne**, stačí `+`
+  a v C `fopen(..., "r")`, teda textový režim CRT, ktorý zo 62 bajtov
+  prečíta 10. Overené s mingw gcc; `"rb"` prečíta všetkých 62.
+
+Takže prekáža málo a tam, kde prekáža, je to stará cesta. K tomu
+prichádza, že písať na emulovanej Eureke texty nikto nečaká — je to
+stroj na hranie starých programov. Preto nízka priorita.
+
+**Rozhodovanie z obsahu bolo zmerané a zamietnuté.** Pravidlo „orež
+koncový beh `1Ah` kratší než jeden záznam“ siahne na zbierke v
+`C:\b\eureka` (723 súborov) na **164** z nich, vrátane 95 `.BAS` a
+všetkých 33 `.ICO`. Pridanie podmienky „obsah pred chvostom je čistý
+text“ to zúži na **11** a zastaví všetky `.BAS`, `.ICO`, `.ARC`, `.ARK`
+aj `.COM` — trafí presne nápovedy a hlásenia s divnou koncovkou
+(`EUR.HLP`, `EUREKA.MSG`, `DE.TUT`, `INTRO.SPK`). Napriek tomu nie:
+v tých jedenástich sú tri tokenizované `.MBS`, ktoré prešli preto, že
+tokeny sú bajty nad `80h` a tá oblasť sa musí povoliť kvôli diakritike.
+Diera je viditeľná a neškodná; problém je, že heuristika s takou dierou
+zlyháva rovnako ticho ako chyba vyššie, a zisk je najviac 127 bajtov.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

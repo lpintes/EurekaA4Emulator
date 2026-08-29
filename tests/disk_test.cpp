@@ -423,6 +423,112 @@ void FormattingAFolderDiskChangesNothing() {
   Check(disk.StoredFiles() == 1, "subor_v_priecinku_formatovanie_prezil");
 }
 
+// Lays bytes into the image the only way a guest can: through the controller.
+// offset and the data length have to be whole 512 byte sectors.
+bool PutImageBytes(VirtualDisk& disk, std::size_t offset,
+                   const std::vector<uint8_t>& data) {
+  for (std::size_t done = 0; done < data.size(); done += 512) {
+    const std::size_t index = (offset + done) / 512;
+    const unsigned track = static_cast<unsigned>(index / 10);
+    if (!disk.WritePhysicalSector(track / 2, track % 2,
+                                  static_cast<unsigned>(index % 10) + 1,
+                                  data.data() + done)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// One directory entry: name, record count and the blocks holding the data.
+std::vector<uint8_t> DirectorySector(const std::string& stem, const std::string& type,
+                                     unsigned records, unsigned firstBlock,
+                                     unsigned blocks) {
+  std::vector<uint8_t> sector(512, 0xe5);
+  std::fill(sector.begin(), sector.begin() + 32, 0);
+  std::fill(sector.begin() + 1, sector.begin() + 12, ' ');
+  std::copy(stem.begin(), stem.end(), sector.begin() + 1);
+  std::copy(type.begin(), type.end(), sector.begin() + 9);
+  sector[15] = static_cast<uint8_t>(records);
+  for (unsigned slot = 0; slot < blocks; ++slot) {
+    sector[16 + slot * 2] = static_cast<uint8_t>(firstBlock + slot);
+    sector[17 + slot * 2] = static_cast<uint8_t>((firstBlock + slot) >> 8);
+  }
+  return sector;
+}
+
+// A program written by the guest onto a diskette in memory and then saved to a
+// host folder.  Nothing in imported_ knows its length -- there was no host file
+// to import -- so the export has only the diskette to go by, and 01Ah inside a
+// tokenised BASIC program is data, not the end of it.  Measured on the real
+// LET.BAS: 9856 bytes with a 01Ah at 6399, exported as 6399 and the program
+// gone from there on, silently.
+void RamDisketteKeepsBinaryFilesWhole() {
+  VirtualDisk disk;
+  disk.CreateRamDisk();
+
+  // 77 records, the size of LET.BAS, in five blocks starting right after the
+  // directory.  0C2h and the 16-bit program length are the real .BAS header.
+  const std::size_t exact = 9856;
+  std::vector<uint8_t> program(10240, 0x1a);
+  program[0] = 0xc2;
+  program[1] = static_cast<uint8_t>((9801 - 3) & 0xff);
+  program[2] = static_cast<uint8_t>((9801 - 3) >> 8);
+  for (std::size_t i = 3; i < 9801; ++i)
+    program[i] = static_cast<uint8_t>(1 + (i * 37) % 200);
+  program[6399] = 0x1a;  // where the real file has one
+  program[6400] = 0x1a;
+
+  // A text file next to it, so the rule that 01Ah does end a .TXT stays checked
+  // rather than merely removed.
+  std::vector<uint8_t> note(2048, 0xe5);
+  const std::string text = "Poznamka.";
+  std::copy(text.begin(), text.end(), note.begin());
+  note[text.size()] = 0x1a;
+
+  // And the same content under a name with no extension at all, which is what a
+  // note typed on the machine looks like.  There is no type to go by, so it
+  // takes the safe branch: whole records, 01Ah left where it is.
+  std::vector<uint8_t> plain(2048, 0xe5);
+  std::copy(text.begin(), text.end(), plain.begin());
+  plain[text.size()] = 0x1a;
+
+  const bool laid =
+      PutImageBytes(disk, 0, DirectorySector("HRALET", "BAS", 77, 4, 5)) &&
+      PutImageBytes(disk, 512, DirectorySector("POZNAMKA", "TXT", 1, 9, 1)) &&
+      PutImageBytes(disk, 1024, DirectorySector("POZNAMKY", "", 1, 10, 1)) &&
+      PutImageBytes(disk, 4 * 2048, program) &&
+      PutImageBytes(disk, 9 * 2048, note) &&
+      PutImageBytes(disk, 10 * 2048, plain);
+  Check(laid && disk.StoredFiles() == 3, "ram_disketa_prijala_zapis_hosta",
+        "v adresari " + std::to_string(disk.StoredFiles()));
+  if (!laid) return;
+
+  const fs::path target = MakeFolder("ram-export");
+  std::wstring error;
+  Check(disk.ExportTo(target, error), "ram_disketa_sa_ulozi_do_priecinka",
+        Narrow(error));
+
+  const std::vector<uint8_t> exported = ReadAll(target / "HRALET.BAS");
+  Check(exported.size() == exact, "bas_z_ram_diskety_sa_neskrati_na_1ah",
+        "ulozenych " + std::to_string(exported.size()) + " z " +
+            std::to_string(exact));
+  Check(exported.size() == exact &&
+            std::equal(exported.begin(), exported.end(), program.begin()),
+        "bas_z_ram_diskety_je_bajt_na_bajt");
+
+  const std::vector<uint8_t> savedNote = ReadAll(target / "POZNAMKA.TXT");
+  Check(savedNote.size() == text.size(), "txt_z_ram_diskety_konci_na_1ah",
+        "ulozenych " + std::to_string(savedNote.size()) + " z " +
+            std::to_string(text.size()));
+
+  // No dot in the name, so IsTextType never gets a type to judge: the file
+  // arrives under its bare name and keeps its whole record.
+  const std::vector<uint8_t> savedPlain = ReadAll(target / "POZNAMKY");
+  Check(fs::exists(target / "POZNAMKY"), "subor_bez_pripony_sa_exportuje");
+  Check(savedPlain.size() == 128, "subor_bez_pripony_sa_neoreze",
+        "ulozenych " + std::to_string(savedPlain.size()) + " z 128");
+}
+
 void EmptyFolderAndMissingFolder() {
   const fs::path folder = MakeFolder("prazdny");
   VirtualDisk disk;
@@ -460,6 +566,7 @@ int main() {
   UnformattedDisketteAnswersNothing();
   FormattedRamDiskAndReformatting();
   FormattingAFolderDiskChangesNothing();
+  RamDisketteKeepsBinaryFilesWhole();
   EmptyFolderAndMissingFolder();
 
   fs::remove_all(Root(), ec);

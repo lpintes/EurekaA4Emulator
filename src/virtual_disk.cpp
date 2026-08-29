@@ -414,11 +414,24 @@ std::string VirtualDisk::DirectoryName(const uint8_t* entry) {
   return type.empty() ? stem : stem + "." + type;
 }
 
+// Only for types on which 01Ah really is the end of the file.  The technical
+// manual says it of the word processor's output ("the last character emitted is
+// always an End of File character (ASCII code $1A)", FILE-FMT.D, and a reader
+// is to ignore everything after it); the rest are the development disk's
+// sources, which are CP/M text too.
+//
+// .BAS is deliberately NOT here.  A saved BASIC program is binary: a 3 byte
+// header (0C2h or 0E2h, then the program length as a 16-bit word) followed by
+// tokenised lines, in which 01Ah is an ordinary data byte -- and it is not rare,
+// LET.BAS carries one at offset 6399 of 9856.  Cut there, a third of the
+// program is gone and BASIC refuses to load it: the header still asks for 9798
+// bytes and the file no longer has them.  The export itself says nothing, so
+// the loss surfaces only when the backup is needed.
 bool VirtualDisk::IsTextType(const std::string& cpmName) {
   const std::size_t dot = cpmName.find('.');
   if (dot == std::string::npos) return false;
   const std::string type = cpmName.substr(dot + 1);
-  return type == "BAS" || type == "TXT" || type == "DOC" || type == "PAS" ||
+  return type == "TXT" || type == "DOC" || type == "PAS" ||
          type == "C" || type == "H" || type == "ASM" || type == "MAC" ||
          type == "LIB" || type == "INC" || type == "BAT" || type == "SUB";
 }
