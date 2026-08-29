@@ -249,17 +249,17 @@ far enough to ask a second question ("already formatted, reformat?"), so the
 mode stops one gate short of the format itself; drive it with `seq` instead:
 
 ```text
-diag_probe A4ROM.DMP disk-folder seq 15000000 kD7 Y Y
+diag_probe A4ROM.DMP disk-folder seq 300000000 kD7 Y Y ?skonceno
 ```
 
 Formatting runs to completion and the machine says "formatovani skonceno":
-162 track writes, 1620 verify reads, 81 steps.  The sequence above no longer
-reaches that on its own, though: `RunUntilPrompt` returns half a second after
-the console falls quiet, and a format is a long quiet, so `seq` prints its last
-answer and exits within four million instructions.  Driven by hand and then
-simply left running, the same machine still says it after 206 million, so what
-is missing is a way to tell the sequence "now just run" -- not anything in the
-model.
+162 track writes, 1620 verify reads, 81 steps.  The last token is what carries
+the sequence through it.  Waiting by silence does not: `RunUntilPrompt` returns
+half a second after the console falls quiet, a format is a long quiet, and
+`seq 15000000 kD7 Y Y` therefore printed its last answer and exited within four
+million instructions -- before the format finished.  `?text` waits for the
+machine to say something instead of for it to stop talking, so it spans the
+whole job; the budget has to be large enough to hold it, hence 300 million.
 
 That was the first time DMA channel 1 and Write Track were ever executed, and
 getting there took four more model fixes -- DMA arming order and direction,
