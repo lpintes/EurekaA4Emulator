@@ -2839,6 +2839,44 @@ you should ignore all characters after the End of File character“).
 Binárne formáty Eureky (`.TEL`, `.DIA`, `.MEL`, `.DAT`, `.ARK`) v zozname
 nikdy neboli.
 
+**Meranie, ktoré ten zoznam odteraz drží.** Zbierka v `C:\b\eureka`, 723
+súborov. Kritérium: nájdi prvý `1Ah` a pozri sa, či je za ním ešte niečo
+iné než výplň (`1Ah`, `00`, `E5`). Ak áno, orezanie na tom mieste zahodí
+skutočné dáta.
+
+| typ | súborov | rozsypalo by sa | najhorší prípad |
+|---|---|---|---|
+| `.MEL` | 240 | 95 | `koledy1.mel` → 565 z 29056 |
+| `.BAS` | 108 | 61 | `chram3.bas` → 1288 zo 44416 |
+| `.COM` | 81 | 78 | `database.com` → 131 z 36736 |
+| `.ARC` | 49 | 49 | `ac_slv_2.arc` → **0** zo 470123 |
+| `.ARK` | 16 | 16 | `basic.ark` → **0** z 35840 |
+| `.EXE`, `.GRF` | 6 | 6 | `EUREKA.GRF` → 2706 z 2816 |
+| `.MBS`, `.EUR`, `.DAT` | 12 | 5 | `BACKSPK.MBS` → 187 z 512 |
+| `.SYS`, `.OVR`, `.SNG`, `.TAB` | 4 | 4 | `ccp.sys` → 565 z 2048 |
+| `.PAS` | 52 | 5 | všetky zvyšok po dlhšej verzii |
+| `.TXT`, `.DOC`, `.C` | 62 | 4 | všetky zvyšok po dlhšej verzii |
+| `.ASM`, `.H`, `.INC`, `.LIB`, `.MAC`, `.BAT`, `.LST` | 75 | 0 | — |
+
+Prvých osem riadkov je dôvod, prečo je zoznam allowlist: `1Ah` je
+v binárke bežný bajt, nie zvláštnosť. U `.COM` je to priam zákonité,
+lebo `1Ah` je inštrukcia `LD A,(DE)`; u `.MEL` je to výška tónu 26 zo 47.
+
+Posledné tri riadky sú dôvod, prečo textové typy orezávať ďalej.
+Deväť súborov, kde za `1Ah` niečo je, som prešiel jeden po druhom a vo
+všetkých deviatich je to **zvyšok po dlhšej predošlej verzii** — CP/M
+nevie súbor skrátiť, takže kratší zápis nechá starý chvost ležať.
+`EUR.PAS` má za značkou 1228 bajtov starého pascalu, `database.txt` 119
+bajtov starého textu, `joy.doc` zvyšok bloku po melódii. Neorezať by
+znamenalo vrátiť do exportu zdvojený zdroják, a to je horšie než výplň.
+Ani jeden protipríklad.
+
+Klasifikáciu odteraz pribíja `disk_test`, kontrola
+`klasifikacia_typov_je_pribita`: položí na disketu po jednom súbore od
+každého typu, exportuje a porovná, ktoré sa orezali. Presun typu cez tú
+hranicu tak zhodí test a povie meno — overené mutáciou, `MEL` do zoznamu
+dá `T13.MEL 3 (cakane 128)`.
+
 Po oprave sa súbor z diskety v pamäti exportuje zarovnaný na záznamy,
 teda 9856 bajtov — presne to, čo na diskete naozaj je, a presne to, ako
 vyzerajú súbory v pôvodnej zbierke (všetky sú násobkom 128). Presnejšiu

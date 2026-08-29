@@ -333,6 +333,20 @@ doplnku; tu je prioritou verná činnosť ROM.
   Prevedie sa len horná úroveň; podpriečinok aj s obsahom zostáva
   v hostiteľskom priečinku nedotknutý a Eureka o ňom nevie. Ak teda niektorý
   súbor na diskete chýba, pozrite sa, či nie je v podpriečinku.
+- **Súbor uložený späť môže byť o niečo dlhší, než bol na Eureke.** CP/M
+  nikde nedrží presnú dĺžku súboru, len počet 128-bajtových záznamov, takže
+  posledný záznam sa doplní výplňou — spravidla znakom `1Ah`, ktorým sa na
+  Eureke značí koniec súboru. Emulátor tú výplň odreže len u typov, o ktorých
+  vie z manuálu, že sú textové: `TXT`, `DOC` a zdrojáky vývojárskej diskety
+  (`PAS`, `C`, `H`, `ASM`, `MAC`, `LIB`, `INC`, `BAT`, `SUB`).
+- **Pri ostatných typoch sa neoreže nič, a to zámerne.** Platí to pre `BAS`,
+  `COM`, `MEL`, `TEL`, `DIA`, `DAT`, archívy, pre koncovky, ktoré emulátor
+  nepozná, aj pre mená úplne bez prípony (`text1`, `poznamky`). Tieto formáty
+  sú binárne a `1Ah` je v nich bežný dátový bajt, nie koniec súboru — program
+  v BASICu ho má takmer vždy niekde uprostred. Preto sa taký súbor uloží celý
+  a Windows si s pár bajtmi výplne na konci poradí; oreže ho len `copy /a`,
+  spájanie `copy a.txt+b.txt` a program v C, ktorý súbor otvorí v textovom
+  režime.
 - Nezmestí sa toľko, koľko by veľkosť priečinka naznačovala: CP/M prideľuje
   miesto po blokoch 2 KiB, takže aj 300-bajtový súbor zaberie celý blok.
   Na disk sa vojde 396 blokov a 256 položiek adresára. Keď sa priečinok

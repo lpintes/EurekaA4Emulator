@@ -440,20 +440,33 @@ bool PutImageBytes(VirtualDisk& disk, std::size_t offset,
 }
 
 // One directory entry: name, record count and the blocks holding the data.
-std::vector<uint8_t> DirectorySector(const std::string& stem, const std::string& type,
-                                     unsigned records, unsigned firstBlock,
-                                     unsigned blocks) {
-  std::vector<uint8_t> sector(512, 0xe5);
-  std::fill(sector.begin(), sector.begin() + 32, 0);
-  std::fill(sector.begin() + 1, sector.begin() + 12, ' ');
-  std::copy(stem.begin(), stem.end(), sector.begin() + 1);
-  std::copy(type.begin(), type.end(), sector.begin() + 9);
-  sector[15] = static_cast<uint8_t>(records);
-  for (unsigned slot = 0; slot < blocks; ++slot) {
-    sector[16 + slot * 2] = static_cast<uint8_t>(firstBlock + slot);
-    sector[17 + slot * 2] = static_cast<uint8_t>((firstBlock + slot) >> 8);
+struct DirEntry {
+  std::string stem;
+  std::string type;
+  unsigned records = 1;
+  unsigned firstBlock = 0;
+  unsigned blocks = 1;
+};
+
+// The entries packed the way the directory really holds them, sixteen to a
+// sector, so a test can lay down more than sixteen files.
+std::vector<uint8_t> DirectoryImage(const std::vector<DirEntry>& entries) {
+  const std::size_t sectors = (entries.size() + 15) / 16;
+  std::vector<uint8_t> image(sectors * 512, 0xe5);
+  for (std::size_t i = 0; i < entries.size(); ++i) {
+    const DirEntry& e = entries[i];
+    uint8_t* d = image.data() + i * 32;
+    std::fill(d, d + 32, 0);
+    std::fill(d + 1, d + 12, ' ');
+    std::copy(e.stem.begin(), e.stem.end(), d + 1);
+    std::copy(e.type.begin(), e.type.end(), d + 9);
+    d[15] = static_cast<uint8_t>(e.records);
+    for (unsigned slot = 0; slot < e.blocks; ++slot) {
+      d[16 + slot * 2] = static_cast<uint8_t>(e.firstBlock + slot);
+      d[17 + slot * 2] = static_cast<uint8_t>((e.firstBlock + slot) >> 8);
+    }
   }
-  return sector;
+  return image;
 }
 
 // A program written by the guest onto a diskette in memory and then saved to a
@@ -492,10 +505,13 @@ void RamDisketteKeepsBinaryFilesWhole() {
   std::copy(text.begin(), text.end(), plain.begin());
   plain[text.size()] = 0x1a;
 
+  std::vector<DirEntry> entries;
+  entries.push_back({"HRALET", "BAS", 77, 4, 5});
+  entries.push_back({"POZNAMKA", "TXT", 1, 9, 1});
+  entries.push_back({"POZNAMKY", "", 1, 10, 1});
+
   const bool laid =
-      PutImageBytes(disk, 0, DirectorySector("HRALET", "BAS", 77, 4, 5)) &&
-      PutImageBytes(disk, 512, DirectorySector("POZNAMKA", "TXT", 1, 9, 1)) &&
-      PutImageBytes(disk, 1024, DirectorySector("POZNAMKY", "", 1, 10, 1)) &&
+      PutImageBytes(disk, 0, DirectoryImage(entries)) &&
       PutImageBytes(disk, 4 * 2048, program) &&
       PutImageBytes(disk, 9 * 2048, note) &&
       PutImageBytes(disk, 10 * 2048, plain);
@@ -527,6 +543,95 @@ void RamDisketteKeepsBinaryFilesWhole() {
   Check(fs::exists(target / "POZNAMKY"), "subor_bez_pripony_sa_exportuje");
   Check(savedPlain.size() == 128, "subor_bez_pripony_sa_neoreze",
         "ulozenych " + std::to_string(savedPlain.size()) + " z 128");
+}
+
+// Which types the export may cut at 01Ah, pinned one type at a time.  The list
+// in IsTextType is an allowlist and its two mistakes cost differently: a type
+// wrongly called text loses data for good, a type wrongly called binary keeps
+// a few bytes of padding.  So the roster below is the barrier -- moving a type
+// across it has to fail this test rather than surface as a damaged file months
+// later (6.23).
+//
+// Text: the word processor's own output (FILE-FMT.D says its last character is
+// always 01Ah) and the development disk's sources.  Binary: everything Eureka
+// itself writes.  Measured over 723 real files, cutting these at the first
+// 01Ah would have destroyed 61 of 108 .BAS, 78 of 81 .COM, 95 of 240 .MEL and
+// all 65 archives.
+void FileTypeClassificationIsPinned() {
+  struct Type {
+    const char* extension;
+    bool text;
+  };
+  static const Type roster[] = {
+      {"TXT", true},  {"DOC", true},  {"PAS", true},  {"C", true},
+      {"H", true},    {"ASM", true},  {"MAC", true},  {"LIB", true},
+      {"INC", true},  {"BAT", true},  {"SUB", true},
+      {"BAS", false}, {"COM", false}, {"MEL", false}, {"TEL", false},
+      {"DIA", false}, {"DAT", false}, {"ARK", false}, {"ARC", false},
+      {"MBS", false}, {"OVR", false}, {"SYS", false}, {"GRF", false},
+      {"SNG", false}, {"X0", false},  {"X1", false},  {"DEF", false},
+      {"LST", false}, {"", false},
+  };
+  // .DEF and .LST are text by the manual ("a text file that can be edited
+  // freely with the Word Processor", "a simple text file") and are still off
+  // the list: the owner's call, since an unlisted type only carries padding
+  // while a wrongly listed one loses data.  Moving them is a decision, not a
+  // bug fix, so it belongs here as a deliberate edit.
+  //
+  // The empty extension is the note typed on the machine with no dot in its
+  // name at all -- there is no type to judge, so it keeps its whole record.
+
+  // "AAA", the marker, then real content behind it.  A type treated as text
+  // comes back as the three bytes before the marker; any other type keeps the
+  // whole record, so the two outcomes cannot be confused.
+  std::vector<uint8_t> content(2048, 0x1a);
+  const char* head = "AAA";
+  const char* tail = "BBB";
+  std::copy(head, head + 3, content.begin());
+  std::copy(tail, tail + 3, content.begin() + 4);
+
+  VirtualDisk disk;
+  disk.CreateRamDisk();
+  std::vector<DirEntry> entries;
+  unsigned block = 4;
+  for (const Type& type : roster) {
+    char stem[16];
+    std::snprintf(stem, sizeof stem, "T%02u", static_cast<unsigned>(entries.size()));
+    entries.push_back({stem, type.extension, 1, block, 1});
+    if (!PutImageBytes(disk, block * 2048, content)) {
+      Check(false, "klasifikacia_typov_zapis", "blok " + std::to_string(block));
+      return;
+    }
+    ++block;
+  }
+  if (!PutImageBytes(disk, 0, DirectoryImage(entries))) {
+    Check(false, "klasifikacia_typov_adresar");
+    return;
+  }
+
+  const fs::path target = MakeFolder("typy-export");
+  std::wstring error;
+  if (!disk.ExportTo(target, error)) {
+    Check(false, "klasifikacia_typov_export", Narrow(error));
+    return;
+  }
+
+  std::string wrong;
+  unsigned compared = 0;
+  for (std::size_t i = 0; i < entries.size(); ++i) {
+    const Type& type = roster[i];
+    std::string name = entries[i].stem;
+    if (*type.extension) name += std::string(".") + type.extension;
+    const std::size_t got = ReadAll(target / name).size();
+    const std::size_t want = type.text ? 3u : 128u;
+    if (got != want) {
+      wrong += (wrong.empty() ? "" : ", ") + name + " " + std::to_string(got) +
+               " (cakane " + std::to_string(want) + ")";
+    }
+    ++compared;
+  }
+  Check(compared == entries.size() && wrong.empty(),
+        "klasifikacia_typov_je_pribita", wrong);
 }
 
 void EmptyFolderAndMissingFolder() {
@@ -567,6 +672,7 @@ int main() {
   FormattedRamDiskAndReformatting();
   FormattingAFolderDiskChangesNothing();
   RamDisketteKeepsBinaryFilesWhole();
+  FileTypeClassificationIsPinned();
   EmptyFolderAndMissingFolder();
 
   fs::remove_all(Root(), ec);
