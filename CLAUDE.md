@@ -7,6 +7,14 @@ doložené, čo je otvorené a v akom poradí pokračovať. Bez neho budeš
 znovu odvodzovať veci, ktoré sú už overené. Mapa hardvéru je
 v `hardware-map.md`.
 
+Vedľa neho je `HANDOFF-archiv.md` s uzavretými zásahmi aj s meraniami.
+**Pri štarte ho nečítaj** — otvor ho, až keď robíš na téme, ktorú menuje
+niektorý odsek v `HANDOFF.md`. Zásah sa doň sťahuje, len keď jeho záver
+**niekde inde naozaj stojí** (v kóde, tu, v mape alebo v README), text sa
+pri sťahovaní neupravuje, čísla `6.x` zostávajú platné — odkazuje sa na ne
+zo zdrojákov — a otvorený zvyšok uzavretej témy zostáva v `HANDOFF.md`.
+Kým záver inde nestojí, sekcia je otvorená, aj keď je práca hotová.
+
 ## Máme oficiálny manuál — pozri doň skôr, než začneš odvodzovať
 
 V `eurekatech/` je **Eureka A4 Technical Manual** od Robotronu aj
@@ -459,6 +467,28 @@ kedykoľvek, nie len v okamihu zmeny.
 `Beep()` je synchrónny a to je v poriadku **len preto, že stroj beží na
 vlastnom vlákne**. Keby sa emulátor niekedy vrátil do správovej slučky,
 toto je jedno z miest, ktoré by ho zaseklo.
+
+## Čo znamená hotovo
+
+Kým toto neplatí, nehlás hotovo — a nehlás ani „malo by to fungovať“:
+
+1. `build.bat` prejde bez jediného varovania.
+2. `run-tests.bat` dá **dvanásť** riadkov `PASS`. Že sa to preložilo, nie je
+   výsledok merania.
+3. Dokumentácia dobehla **v tom istom kroku**, nie „potom“. README, keď sa
+   zmenilo správanie; HANDOFF, keď v ňom niečo prestalo platiť — ten odsek sa
+   nemaže, pripíše sa pod neho, čo už neplatí a prečo; a komentár v zdrojáku,
+   ktorý zmenu zdôvodňoval, lebo komentár s neplatným dôvodom je horší než
+   žiadny. HANDOFF je nosič kontextu: zastaraná veta v ňom sa číta ako pravda.
+4. Reťazce pre používateľa sa overujú na hotovom EXE v UTF-16, nie na zdrojáku.
+
+Až potom sa pýtaj na commit. Keď niečo z toho nevyšlo, povedz to rovno aj
+s výstupom — nedokončená vec ohlásená ako hotová stojí viac než nedokončená
+vec.
+
+Rozsah drží zadanie: keď zmena spraví neplatnou vec, ktorá je mimo neho,
+vypíš ju, nespravuj ju bez slova. Bod 3 je o tom, čo tou istou zmenou
+prestalo platiť, nie povolenie prepisovať okolie.
 
 ## Git
 
