@@ -28,8 +28,8 @@ BEGIN
     END
     POPUP "&Disketa"
     BEGIN
-        MENUITEM "&Vložiť z priečinka…\tF11, Ctrl+I",           ID_DISK_INSERT
-        MENUITEM "&Nová disketa…\tF11, Ctrl+M",                 ID_DISK_NEW
+        MENUITEM "&Vložiť disketu z priečinka…\tF11, Ctrl+I",   ID_DISK_INSERT
+        MENUITEM "Vložiť &novú disketu…\tF11, Ctrl+M",          ID_DISK_NEW
         MENUITEM "V&ysunúť disketu\tF11, Ctrl+0",               ID_DISK_EJECT
         MENUITEM "&Zamknúť proti zápisu\tF11, Ctrl+Z",          ID_DISK_PROTECT
         MENUITEM SEPARATOR
@@ -48,7 +48,7 @@ BEGIN
         MENUITEM "&8 (prázdny)\tF11, Ctrl+8",                   ID_DISK_SLOT8
         MENUITEM "&9 (prázdny)\tF11, Ctrl+9",                   ID_DISK_SLOT9
         MENUITEM SEPARATOR
-        MENUITEM "&Spravovať rýchlu voľbu…",                    ID_DISK_SLOTS
+        MENUITEM "&Spravovať sloty…",                           ID_DISK_SLOTS
     END
     POPUP "&Stroj"
     BEGIN
@@ -199,45 +199,64 @@ END
 /////////////////////////////////////////////////////////////////////////////
 // New diskette
 //
-// One dialog and not a wizard.  Four choices fit on one page, and one page is
+// One dialog and not a wizard.  Three choices fit on one page, and one page is
 // one role, one tab order and one Enter for a screen reader to deal with,
 // where a property sheet would be three of each.
 //
-// No slot picker here: after this the diskette is in the drive, and "Sem
-// vloženú disketu" in the quick-choice dialog puts it in a slot in one step.
+// Only kinds that make a diskette.  There was a fourth radio here, "from an
+// existing folder", and it was the same act as Disketa -> Vložiť disketu z
+// priečinka down to the identical PostMountDisk call -- one deed under two
+// names, in a dialog whose own caption then contradicted it.  Putting an
+// existing diskette in is Ctrl+I; this dialog makes new ones.
+//
+// The radios name what the user is choosing between, which is whether the
+// diskette keeps itself.  "Nový prázdny priečinok" named the mechanism
+// instead, and a folder is not a thing beside a diskette -- it is what a
+// permanent diskette is made of.
+//
+// The memory one says "prežije, len keď ju uložíte do priečinka" and not
+// "zanikne s emulátorom", which is what it said first.  A diskette in memory
+// does not have to be lost at all: Ctrl+U saves it whenever, and main.cpp
+// offers on the way out.  Stating the loss flat is a warning about something
+// the program in fact prevents, and a label that overstates once is a label
+// nobody believes the next time.
 
-IDD_NEWDISK DIALOGEX 0, 0, 292, 178
+IDD_NEWDISK DIALOGEX 0, 0, 292, 164
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Nová disketa"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
-    GROUPBOX        "Aká disketa", IDC_STATIC, 7, 7, 278, 78
-    CONTROL         "Z &existujúceho priečinka", IDC_NEW_FOLDER, "Button",
+    GROUPBOX        "Aká disketa", IDC_STATIC, 7, 7, 278, 64
+    CONTROL         "&Trvalá — nový priečinok, prežije aj ukončenie emulátora",
+                    IDC_NEW_EMPTYFOLDER, "Button",
                     BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, 16, 20, 260, 12
-    CONTROL         "&Nový prázdny priečinok — disketa prežije aj ukončenie",
-                    IDC_NEW_EMPTYFOLDER, "Button", BS_AUTORADIOBUTTON,
-                    16, 34, 260, 12
-    CONTROL         "Prázdna &v pamäti, naformátovaná — zanikne s emulátorom",
-                    IDC_NEW_RAM, "Button", BS_AUTORADIOBUTTON, 16, 48, 260, 12
-    CONTROL         "Prázdna v pamäti, ne&naformátovaná — Eureka ju ohlási "
+    CONTROL         "&Dočasná v pamäti — prežije, len keď ju uložíte do "
+                    "priečinka",
+                    IDC_NEW_RAM, "Button", BS_AUTORADIOBUTTON, 16, 34, 260, 12
+    CONTROL         "Dočasná v pamäti, ne&naformátovaná — Eureka ju ohlási "
                     "ako vadný disk", IDC_NEW_UNFORMATTED, "Button",
-                    BS_AUTORADIOBUTTON, 16, 62, 260, 12
+                    BS_AUTORADIOBUTTON, 16, 48, 260, 12
 
-    LTEXT           "&Priečinok:", IDC_STATIC, 7, 95, 40, 9
-    EDITTEXT        IDC_NEW_PATH, 50, 93, 176, 14, ES_AUTOHSCROLL | WS_GROUP |
+    LTEXT           "&Priečinok:", IDC_STATIC, 7, 81, 40, 9
+    EDITTEXT        IDC_NEW_PATH, 50, 79, 176, 14, ES_AUTOHSCROLL | WS_GROUP |
                     WS_TABSTOP
-    PUSHBUTTON      "P&rehľadávať…", IDC_NEW_BROWSE, 232, 93, 53, 14
+    PUSHBUTTON      "P&rehľadávať…", IDC_NEW_BROWSE, 232, 79, 53, 14
 
-    LTEXT           "&Uložiť do slotu:", IDC_STATIC, 7, 117, 60, 9
-    COMBOBOX        IDC_NEW_SLOT, 70, 115, 215, 100,
+    LTEXT           "&Uložiť do slotu:", IDC_STATIC, 7, 103, 60, 9
+    COMBOBOX        IDC_NEW_SLOT, 70, 101, 215, 100,
                     CBS_DROPDOWNLIST | WS_VSCROLL | WS_GROUP | WS_TABSTOP
 
-    DEFPUSHBUTTON   "OK", IDOK, 178, 157, 50, 14, WS_GROUP
-    PUSHBUTTON      "Zrušiť", IDCANCEL, 235, 157, 50, 14
+    DEFPUSHBUTTON   "OK", IDOK, 178, 143, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 235, 143, 50, 14
 END
 
 /////////////////////////////////////////////////////////////////////////////
-// Quick choice
+// Slots
+//
+// "Slot" and nothing else.  This was "rýchla voľba" in the menu and in the
+// caption while the very same thing was a numbered "slot" in the list, in the
+// settings file and in the shortcut help -- two names for one place, which is
+// one name too many in a menu the user is already navigating by ear.
 //
 // A listbox and three buttons, and no coordinates computed anywhere: nine
 // slots always fit, so there is nothing to lay out at run time.  The list
@@ -245,22 +264,41 @@ END
 // the shortcut -- a screen reader reading "3: Slovník" has said which key
 // puts it in.
 
-IDD_SLOTS DIALOGEX 0, 0, 300, 168
+// Four buttons and not three, because a slot holds exactly two things -- a
+// path, or the *pamat marker -- and only one of them could be put here.  The
+// marker got in solely through "Sem vloženú disketu", so a slot for a diskette
+// in memory could not be set up unless one happened to be in the drive.
+//
+// Deliberately not the "Nová disketa" dialog reused: it offers three kinds, of
+// which a slot can hold two -- unformatted is barred by the rule that a slot
+// must not name a state that ends at the first Shift+F8, and the new-folder
+// kind already assigns a slot from its own combo.  A shared dialog would put
+// two dead ends in front of a two-way question.
+//
+// The buttons read in tab order down the pairs, which is the order a screen
+// reader walks them: point the slot somewhere, or fill it from the drive; then
+// make it a memory slot, or empty it.
+
+IDD_SLOTS DIALOGEX 0, 0, 300, 190
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
-CAPTION "Rýchla voľba diskiet"
+CAPTION "Sloty s disketami"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     LTEXT           "&Sloty — vkladá ich F11 a číslo s Ctrl:", IDC_STATIC,
                     7, 7, 286, 9
     LISTBOX         IDC_SLOT_LIST, 7, 19, 286, 90,
                     LBS_NOTIFY | WS_VSCROLL | WS_GROUP | WS_TABSTOP
-    PUSHBUTTON      "&Priradiť priečinok…", IDC_SLOT_ASSIGN, 7, 115, 90, 14
-    PUSHBUTTON      "Sem &vloženú disketu", IDC_SLOT_CURRENT, 103, 115, 90, 14
-    PUSHBUTTON      "&Vyprázdniť slot", IDC_SLOT_CLEAR, 199, 115, 94, 14
+    PUSHBUTTON      "&Priradiť priečinok…", IDC_SLOT_ASSIGN, 7, 115, 138, 14
+    PUSHBUTTON      "Sem &vloženú disketu", IDC_SLOT_CURRENT, 155, 115, 138, 14
+    PUSHBUTTON      "Sem &novú v pamäti", IDC_SLOT_NEWRAM, 7, 133, 138, 14
+    /* "Vyprázdniť s&lot" and not "&Vyprázdniť": V and the v of "Sem vloženú"
+       are the same mnemonic to Windows, so Alt+V cycled between two buttons
+       instead of pressing one.  It was that way before this row existed. */
+    PUSHBUTTON      "Vyprázdniť s&lot", IDC_SLOT_CLEAR, 155, 133, 138, 14
     AUTOCHECKBOX    "&Zamknúť túto disketu proti zápisu", IDC_SLOT_LOCK,
-                    7, 133, 286, 10
-    DEFPUSHBUTTON   "OK", IDOK, 186, 147, 50, 14, WS_GROUP
-    PUSHBUTTON      "Zrušiť", IDCANCEL, 243, 147, 50, 14
+                    7, 155, 286, 10
+    DEFPUSHBUTTON   "OK", IDOK, 186, 169, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 243, 169, 50, 14
 END
 
 IDD_ABOUT DIALOGEX 0, 0, 268, 156

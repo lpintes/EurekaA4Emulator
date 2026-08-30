@@ -48,7 +48,7 @@ bool SlotCanLock(const std::wstring& slot) {
 }  // namespace
 
 bool NewDiskDialog::OnInit() {
-  SetChecked(IDC_NEW_FOLDER, true);
+  SetChecked(IDC_NEW_EMPTYFOLDER, true);
   const HWND slots = Item(IDC_NEW_SLOT);
   SendMessageW(slots, CB_ADDSTRING, 0,
                reinterpret_cast<LPARAM>(L"nenastavený"));
@@ -70,16 +70,14 @@ bool NewDiskDialog::OnInit() {
 }
 
 NewDiskDialog::Kind NewDiskDialog::SelectedKind() const {
-  if (IsChecked(IDC_NEW_EMPTYFOLDER)) return Kind::kEmptyFolder;
   if (IsChecked(IDC_NEW_RAM)) return Kind::kRam;
   if (IsChecked(IDC_NEW_UNFORMATTED)) return Kind::kUnformattedRam;
-  return Kind::kFolder;
+  return Kind::kEmptyFolder;
 }
 
 void NewDiskDialog::RefreshEnabled() {
   const Kind kind = SelectedKind();
-  const bool needsFolder =
-      kind == Kind::kFolder || kind == Kind::kEmptyFolder;
+  const bool needsFolder = kind == Kind::kEmptyFolder;
   SetEnabled(IDC_NEW_PATH, needsFolder);
   SetEnabled(IDC_NEW_BROWSE, needsFolder);
   // An unformatted diskette cannot go in a slot: unformatted lasts until the
@@ -91,20 +89,17 @@ void NewDiskDialog::RefreshEnabled() {
 }
 
 bool NewDiskDialog::OnCommand(int id, int notification) {
-  if (id == IDC_NEW_FOLDER || id == IDC_NEW_EMPTYFOLDER ||
-      id == IDC_NEW_RAM || id == IDC_NEW_UNFORMATTED) {
+  if (id == IDC_NEW_EMPTYFOLDER || id == IDC_NEW_RAM ||
+      id == IDC_NEW_UNFORMATTED) {
     RefreshEnabled();
     return true;
   }
   if (id == IDC_NEW_BROWSE) {
-    // A new diskette is named, an existing one is picked.  Two different acts,
-    // so two different pickers: the naming one has an edit field and does not
-    // require the folder to be there yet.
-    const std::wstring folder =
-        SelectedKind() == Kind::kEmptyFolder
-            ? win::PickFolderToCreate(hwnd_, L"Kde sa má nová disketa vytvoriť",
-                                      L"Disketa")
-            : win::PickFolder(hwnd_, L"Vyberte priečinok, ktorý bude disketou");
+    // The naming picker, not the choosing one: a diskette being made does not
+    // require the folder to be there yet, and having to go and create it first
+    // would turn one act into two.  Choosing a folder that exists is Ctrl+I.
+    const std::wstring folder = win::PickFolderToCreate(
+        hwnd_, L"Kde sa má nová disketa vytvoriť", L"Disketa");
     if (!folder.empty()) SetText(IDC_NEW_PATH, folder);
     return true;
   }
@@ -129,7 +124,7 @@ bool NewDiskDialog::OnOk() {
       return false;
     }
   }
-  if (kind_ != Kind::kFolder && kind_ != Kind::kEmptyFolder) return true;
+  if (kind_ != Kind::kEmptyFolder) return true;
 
   folder_ = GetText(IDC_NEW_PATH);
   if (folder_.empty()) {
@@ -143,15 +138,6 @@ bool NewDiskDialog::OnOk() {
   }
   std::error_code ec;
   const std::filesystem::path path(folder_);
-  if (kind_ == Kind::kFolder) {
-    if (!std::filesystem::is_directory(path, ec)) {
-      MessageBoxW(hwnd_, (L"Priečinok neexistuje:\r\n\r\n" + folder_).c_str(),
-                  L"Nová disketa", MB_OK | MB_ICONWARNING);
-      SetFocus(Item(IDC_NEW_PATH));
-      return false;
-    }
-    return true;
-  }
   // A new diskette must not land on top of something that is already there.
   // Creating it into an existing folder would quietly adopt whatever files
   // it holds, and "new and empty" would be neither.
@@ -159,7 +145,8 @@ bool NewDiskDialog::OnOk() {
     MessageBoxW(hwnd_,
                 (L"Toto už existuje:\r\n\r\n" + folder_ +
                  L"\r\n\r\nNová disketa musí byť nový priečinok. Zvoľte iné "
-                 L"meno, alebo taký priečinok vložte ako existujúcu disketu.")
+                 L"meno, alebo tento priečinok vložte ako hotovú disketu "
+                 L"cez Disketa → Vložiť disketu z priečinka (F11, Ctrl+I).")
                     .c_str(),
                 L"Nová disketa", MB_OK | MB_ICONWARNING);
     SetFocus(Item(IDC_NEW_PATH));
@@ -214,6 +201,14 @@ int SlotsDialog::Selected() const {
 
 void SlotsDialog::SetSlotAndRefresh(int index, std::wstring path) {
   const auto slot = static_cast<std::size_t>(index);
+  // Pointing this slot anywhere new takes back the promise that the diskette
+  // in the drive would go into it.  Without this the settings and the stash
+  // disagree: the settings say the slot is a folder while the worker parks the
+  // memory diskette under that number -- and kInsertSlot takes from the stash
+  // *before* it looks at the path, so Ctrl+3 would hand back the memory
+  // diskette while the menu named the folder.  Silent and wrong, not loud.
+  // "Sem vloženú disketu" sets it again right after calling this.
+  if (assignedCurrent_ == index + 1) assignedCurrent_ = 0;
   slots_[slot] = std::move(path);
   // Pointed somewhere else, the box has to follow the new folder rather than
   // stay ticked from the old one -- otherwise OK would lock a diskette nobody
@@ -230,8 +225,11 @@ bool SlotsDialog::OnCommand(int id, int notification) {
   if (index < 0) return false;
   switch (id) {
     case IDC_SLOT_ASSIGN: {
+      // Worded like the menu's own Vložiť disketu z priečinka, because it is
+      // the same act asked in a different place: pick the folder a diskette
+      // already lives in.
       const std::wstring folder = win::PickFolder(
-          hwnd_, L"Vyberte priečinok, ktorý bude v tomto slote");
+          hwnd_, L"Vyberte priečinok s disketou pre tento slot");
       if (!folder.empty()) SetSlotAndRefresh(index, folder);
       return true;
     }
@@ -241,11 +239,18 @@ bool SlotsDialog::OnCommand(int id, int notification) {
         assignedCurrent_ = index + 1;
       }
       return true;
+    case IDC_SLOT_NEWRAM:
+      // The marker, not a diskette: nothing is made here and nothing could be
+      // -- a diskette in memory is the worker's to create, and it does so on
+      // the first insert of a slot that has nothing put away yet.  Until then
+      // this slot is a promise of an empty one, which is what the list line
+      // "Disketa v pamäti" says.
+      //
+      // The only other road to this value was "Sem vloženú disketu", so a
+      // memory slot could not be set up unless one was already in the drive.
+      SetSlotAndRefresh(index, kSlotRam);
+      return true;
     case IDC_SLOT_CLEAR:
-      // Emptying the slot the current diskette was just put into takes that
-      // promise back; leaving it set would send the diskette to a slot the
-      // user has since cleared.
-      if (assignedCurrent_ == index + 1) assignedCurrent_ = 0;
       SetSlotAndRefresh(index, L"");
       return true;
     case IDC_SLOT_LOCK: {

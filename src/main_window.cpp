@@ -88,12 +88,12 @@ constexpr wchar_t kShortcutHelp[] =
     L"F11, Ctrl+I — vloží disketu z iného priečinka. Vymieňať sa dá za\r\n"
     L"      behu: EurekaDOS si nový disk prihlási sám, tak ako skutočný\r\n"
     L"      stroj.\r\n"
-    L"F11, Ctrl+M — nová disketa: z priečinka, nový prázdny priečinok, alebo\r\n"
-    L"      prázdna v pamäti. Tá sa dá vyrobiť aj nenaformátovaná — Eureka ju\r\n"
+    L"F11, Ctrl+M — vloží novú disketu: trvalú v novom priečinku, alebo\r\n"
+    L"      dočasnú v pamäti. Tá sa dá vyrobiť aj nenaformátovaná — Eureka ju\r\n"
     L"      ohlási ako vadný disk, kým ju Shift+F8 nenaformátuje.\r\n"
-    L"F11, Ctrl+1 až Ctrl+9 — vloží disketu z rýchlej voľby. Čo je v ktorom\r\n"
-    L"      slote, je napísané priamo v ponuke Disketa; priraďuje sa tam\r\n"
-    L"      v položke Spravovať rýchlu voľbu.\r\n"
+    L"F11, Ctrl+1 až Ctrl+9 — vloží disketu zo slotu. Čo je v ktorom slote,\r\n"
+    L"      je napísané priamo v ponuke Disketa; priraďuje sa tam v položke\r\n"
+    L"      Spravovať sloty.\r\n"
     L"F11, Ctrl+0 — vysunie disketu, teda nechá mechaniku prázdnu.\r\n"
     L"F11, Ctrl+Z — zamkne disketu proti zápisu, alebo zámok zruší. Je to\r\n"
     L"      prelepená dierka na diskete: Eureka z nej číta a spúšťa programy\r\n"
@@ -323,18 +323,13 @@ void MainWindow::RegisterCommands() {
                       L"Nová disketa", MB_OK | MB_ICONERROR);
           return;
         }
-        // A folder just created cannot have a lock on it, so this one asks
-        // nothing; the other kind can, because it may be a diskette the user
-        // locked long ago and is now putting back in.
+        // A folder that has just been created cannot carry a lock, so this
+        // asks the settings nothing.  Putting a diskette in that may have been
+        // locked long ago is Ctrl+I, and that is where the lock is looked up.
         emulator_.PostMountDisk(dialog.folder());
         slotValue = dialog.folder();
         break;
       }
-      case NewDiskDialog::Kind::kFolder:
-        emulator_.PostMountDisk(dialog.folder(),
-                                settings_.disk_locked(dialog.folder()));
-        slotValue = dialog.folder();
-        break;
     }
     if (dialog.slot() > 0) SaveSlot(dialog.slot(), slotValue);
   });
@@ -423,10 +418,10 @@ void MainWindow::InsertSlot(int number) {
   if (folder.empty()) {
     MessageBoxW(hwnd_,
                 (L"Slot " + std::to_wstring(number) +
-                 L" je prázdny.\r\n\r\nPriradiť mu priečinok môžete v ponuke "
-                 L"Disketa → Spravovať rýchlu voľbu.")
+                 L" je prázdny.\r\n\r\nPriradiť mu disketu môžete v ponuke "
+                 L"Disketa → Spravovať sloty.")
                     .c_str(),
-                L"Rýchla voľba", MB_OK | MB_ICONINFORMATION);
+                L"Sloty s disketami", MB_OK | MB_ICONINFORMATION);
     return;
   }
   std::error_code ec;
@@ -438,10 +433,9 @@ void MainWindow::InsertSlot(int number) {
                 (L"Priečinok zo slotu " + std::to_wstring(number) +
                  L" sa nedá nájsť:\r\n\r\n" + folder +
                  L"\r\n\r\nAk je to odpojený disk, pripojte ho. Inak slotu "
-                 L"priraďte iný priečinok v ponuke Disketa → Spravovať "
-                 L"rýchlu voľbu.")
+                 L"priraďte inú disketu v ponuke Disketa → Spravovať sloty.")
                     .c_str(),
-                L"Rýchla voľba", MB_OK | MB_ICONWARNING);
+                L"Sloty s disketami", MB_OK | MB_ICONWARNING);
     return;
   }
   // The lock goes in with the diskette rather than after it: a diskette that
@@ -534,7 +528,7 @@ bool MainWindow::ConfirmLosingDiskette() {
       L"V mechanike je disketa v pamäti, na ktorej je " +
       std::to_wstring(disk_.files) +
       (disk_.files == 1 ? L" súbor" : disk_.files < 5 ? L" súbory" : L" súborov") +
-      L", a nepatrí žiadnemu slotu rýchlej voľby.\r\n\r\n"
+      L", a nepatrí žiadnemu slotu.\r\n\r\n"
       L"Disketa v pamäti nikde inde neexistuje, takže vybratím zanikne.\r\n\r\n"
       L"Áno — najprv ju uložím do priečinka.\r\n"
       L"Nie — zahodiť ju.\r\n"

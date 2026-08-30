@@ -1296,6 +1296,10 @@ diskety.
 
 #### Ponuka `Disketa` a rýchla voľba
 
+**Mená položiek aj slovník ponuky sa zmenili 30. 8. 2026, viď 6.25.**
+Nižšie stojí návrh v pôvodnom znení; čo z neho platí, je štruktúra, nie
+texty.
+
 `Uložiť disketu do priečinka…` sa presunie zo `Súboru` do novej ponuky
 `Disketa`, kde bude aj `Vložiť z priečinka…`, `Nová disketa…`,
 `Vysunúť`, deväť slotov rýchlej voľby, `Spravovať rýchlu voľbu…`
@@ -1388,6 +1392,11 @@ jedno poradie Tab, jedno Enter sa čítačke číta lepšie než tri stránky
 `PropertySheet`. Prepínače: z existujúceho priečinka, nový prázdny
 priečinok, prázdna v pamäti naformátovaná, prázdna v pamäti
 nenaformátovaná. Plus voľba „pridať do rýchlej voľby ako slot …".
+
+**Prepínače už takto nevyzerajú, viď 6.25.** „Z existujúceho priečinka“
+zrušené ako duplikát `Ctrl+I`, zvyšné tri premenované na trvalá /
+dočasná v pamäti / dočasná v pamäti nenaformátovaná. Voľba slotu
+zostala.
 
 Nenaformátovaná disketa je lacná, lebo model už vie povedať „tento sektor
 tu nie je" — `StartFdcCommand` vracia `0x10` (Record Not Found):
@@ -1647,6 +1656,119 @@ aby v sade nezostal zlyhávajúci test. Zásobník drží `disk_test`, ale
 **celá cesta cez ROM zatiaľ testom krytá nie je**; kto sa k tomu vráti,
 pozor na tie tri pasce a na `diag_probe`, ktorý na to má tokeny (`?text`,
 `slot1`/`slot2`, `stav`, `spin:`).
+
+### 6.25 Ponuka `Disketa` mala jeden úkon pod tromi menami — zjednotené
+
+**Nahlásil majiteľ 30. 8. 2026** vetou, ktorá je presnou diagnózou: „na
+začiatku sme mali vložiť disketu, potom pribudlo *nová disketa*, akoby to
+isté, potom *správa diskiet*“. Nebol to zmätok používateľa, bol to zmätok
+ponuky.
+
+**Príčina.** V ponuke sú vecne len štyri úkony — vložiť, vysunúť,
+zamknúť, uložiť kópiu — a k tomu upratovanie slotov. Vkladanie ale malo
+**tri vchody s tromi menami** (`Vložiť z priečinka…`, `Nová disketa…`,
+sloty), hoci sa líšili iba tým, **odkiaľ disketa príde**. „Nová disketa“
+je zdroj, nie úkon, a keďže bola pomenovaná slovesom, čítala sa ako
+samostatná schopnosť programu.
+
+Doložené to bolo tým, že sa obe cesty stretávali na tom istom riadku:
+`ID_DISK_INSERT` aj `NewDiskDialog::Kind::kFolder` volali
+`PostMountDisk(folder, settings_.disk_locked(folder))` a obe najprv
+`ConfirmLosingDiskette()`. Nie podobné — **identické**. A prepínač, ktorý
+to robil, sa volal „Z existujúceho priečinka“ v dialógu s titulkom **Nová
+disketa**, teda dialóg si protirečil s vlastným menom.
+
+Druhá polovica bola inflácia podstatných mien: **disketa, priečinok,
+pamäť, slot, rýchla voľba** — päť slov na dve veci. „Priečinok“ je
+mechanizmus, ktorý presiakol do reči; pre používateľa je priečinok
+disketa. A „slot“ so „rýchlou voľbou“ boli dve mená na jedno miesto, čo
+je v ponuke, po ktorej sa chodí sluchom, o jedno meno viac.
+
+**Čo sa spravilo (rozhodol majiteľ, obe otázky):**
+
+- Ponuka pomenúva úkon, nie zdroj: `Vložiť disketu z priečinka…`
+  (`Ctrl+I`) a `Vložiť novú disketu…` (`Ctrl+M`). Rozdiel v mene je
+  presne ten, čo je v skutočnosti.
+- `Kind::kFolder` zrušený aj s prepínačom, s vetvou v `ID_DISK_NEW`
+  a s druhým `win::PickFolder` v `NewDiskDialog::OnCommand`.
+  `IDC_NEW_FOLDER` (1030) sa **nepriraďuje znovu**, aby stará `.res` nemohla
+  padnúť na to číslo.
+- Zvyšné tri prepínače menujú to, na čom záleží — či sa disketa uchová
+  sama: `Trvalá`, `Dočasná v pamäti`, `Dočasná v pamäti,
+  nenaformátovaná`. Predtým menovali mechanizmus („nový prázdny
+  priečinok“).
+
+  **Opravené v ten istý deň po pripomienke majiteľa:** prvé znenie toho
+  prostredného bolo „Dočasná v pamäti — **zanikne s emulátorom**“, a to
+  je nepravda. Disketa v pamäti zanikať nemusí: `Ctrl+U` ju uloží
+  kedykoľvek a `main.cpp` sa pri ukončení pýta sám. Vyhlásiť stratu za
+  hotovú vec je varovanie pred niečím, čomu program práve bráni. Znie to
+  preto `prežije, len keď ju uložíte do priečinka` — povie aj podmienku,
+  aj to, že cesta existuje. Poučenie je všeobecné: **popiska, ktorá raz
+  prestrelí, je popiska, ktorej sa nabudúce neverí** — a v programe, kde
+  je zvuk a text celé rozhranie, je to draho zaplatené.
+- „Rýchla voľba“ zrušená ako druhé meno slotu: `Spravovať sloty…`,
+  titulok `Sloty s disketami`, a rovnaké slovo v hláškach o prázdnom
+  a stratenom slote.
+
+  **Tlačidlo `Priradiť priečinok…` sa najprv premenovalo na `Priradiť
+  disketu…` a majiteľ to ešte v ten deň zamietol — právom.** Volá
+  `win::PickFolder`, takže vie do slotu dať len cestu; značka `*pamat` sa
+  doň dostala jedine tlačidlom `Sem vloženú disketu`, a to len keď
+  disketa v pamäti zrovna bola v mechanike. Meno teda sľubovalo obe veci
+  a robilo jednu — tá istá chyba ako „zanikne s emulátorom“ o pár riadkov
+  vyššie, len ju tentoraz spravil agent pri „zjednocovaní slovníka“.
+  **Zjednocovanie mien je zmena významu, nie kozmetika**; nové meno treba
+  overiť proti tomu, čo funkcia naozaj robí.
+
+- **Slot má odvtedy štyri tlačidlá**, pribudlo `Sem novú v pamäti`
+  (`IDC_SLOT_NEWRAM`), ktoré slotu dá `kSlotRam`. Nič nevyrába — disketu
+  v pamäti robí worker pri prvom vložení slotu, ktorý ešte nič odložené
+  nemá.
+
+  Majiteľ navrhol použiť na to rovno dialóg `Nová disketa`. Zamietnuté
+  z vecného dôvodu, nie z vkusu: **slot unesie práve dve veci** (cesta
+  alebo `*pamat`), kým ten dialóg ponúka tri druhy, z ktorých
+  nenaformátovaná do slotu nesmie (`RefreshEnabled` jej výber slotu
+  zošedí) a „trvalá — nový priečinok“ si slot priradí vlastným
+  comboboxom. Zdieľaný dialóg by pred dvojznačnú otázku postavil štyri
+  voľby, z toho dve slepé.
+
+  Pri tom sa opravila aj **kolízia mnemoník**, ktorá tam bola predtým:
+  `&Vyprázdniť slot` a `Sem &vloženú disketu` majú pre Windows to isté
+  písmeno, takže `Alt+V` medzi nimi prepínal namiesto stlačenia. Teraz
+  `Vyprázdniť s&lot`.
+
+**Čo to stálo.** Priečinkovej diskete sa už nedá priradiť slot v tom
+kroku, v ktorom sa vkladá — combobox v dialóge zostal, ale ten dialóg
+priečinkové diskety už nevkladá. Náhrada je `Spravovať sloty → Sem
+vloženú disketu`. Pozor, netýka sa to diskety v pamäti: tá sa do slotu
+priraďuje pri vytvorení ďalej, a to je vec, ktorú si majiteľ vypýtal
+28. 8. 2026 (viď 6.22, „Slot unesie aj disketu v pamäti“).
+
+**Vedľajší nález, opravený v `SlotsDialog::SetSlotAndRefresh`.** Slot,
+ktorému sa v jednom sedení dialógu najprv dalo `Sem vloženú disketu`
+a potom sa prepísal (`Priradiť priečinok…`), si nechal `assignedCurrent_`.
+Okno preto po OK zapísalo do nastavení priečinok a **zároveň** poslalo
+`PostAssignSlot` na to isté číslo, takže worker pod ním zaparkoval disketu
+z pamäte. A keďže `kInsertSlot` berie zo zásobníka **skôr**, než sa pozrie
+na cestu (`emulator_thread.cpp`, vetva `stash.Take(command.slot)`), `Ctrl+3`
+by podal disketu z pamäte, kým ponuka menuje priečinok. Tichý rozpor medzi
+nastaveniami a zásobníkom, nie strata dát. Sľub sa teraz ruší pri každom
+prepísaní slotu; `Vyprázdniť slot` už na to nepotrebuje vlastnú vetvu.
+Nebolo to zadanie — je to chyba, ktorá tam bola predtým, a opravená je
+preto, že nové tlačidlo by ju zdedilo. Testom krytá nie je.
+
+**Čo sa nemenilo, hoci to tak vyzerá.** Zámok je aj v ponuke (`Ctrl+Z`,
+médium v mechanike), aj políčkom v dialógu slotov (vybraný slot). Nie sú
+to dve mená na jednu vec, sú to dve rôzne otázky o tej istej vlastnosti
+a `Settings::SameDisk` ich drží v zhode.
+
+Overené: `build.bat` bez varovania, dvanásť `PASS`, a všetky nové
+reťazce nájdené v hotovom EXE v UTF-16 vrátane diakritiky (`Trvalá — nový
+priečinok`, `Sloty s disketami`, `Vložiť disketu z priečinka`), staré
+(`Z &existujúceho priečinka`, `Rýchla voľba`) v ňom už nie sú.
+Kontrolovaná bola aj negatívna vzorka, aby test naozaj meral.
 
 ## 7. Nástroje
 

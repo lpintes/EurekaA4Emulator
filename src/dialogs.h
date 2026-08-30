@@ -31,20 +31,25 @@ class SettingsDialog : public win::Dialog {
 // The nine quick-choice slots as the dialogs pass them around.
 using SlotList = std::array<std::wstring, Settings::kSlots>;
 
-// Making a diskette.  Four kinds, and the unformatted one is not a joke: it
+// Making a diskette.  Three kinds, and the unformatted one is not a joke: it
 // is the only medium on which the firmware's own format routine has anything
 // to do (6.5 leaves a host folder alone), so it is also the only way to try
 // Shift+F8 and see it work.
+//
+// Making, not inserting.  A fourth kind, kFolder, mounted a folder that was
+// already there -- the same deed as ID_DISK_INSERT, down to the identical
+// PostMountDisk call, under a second name in a dialog called "Nová disketa".
+// Putting an existing diskette in is Ctrl+I and always was.
 class NewDiskDialog : public win::Dialog {
  public:
-  enum class Kind { kFolder, kEmptyFolder, kRam, kUnformattedRam };
+  enum class Kind { kEmptyFolder, kRam, kUnformattedRam };
 
   // slots is what the nine hold now, so the picker can name them and so the
   // user can see they are about to overwrite one.
   explicit NewDiskDialog(SlotList slots) : slots_(std::move(slots)) {}
 
   Kind kind() const { return kind_; }
-  // The chosen folder, for kFolder and kEmptyFolder.  Empty otherwise.
+  // The chosen folder, for kEmptyFolder.  Empty otherwise.
   const std::wstring& folder() const { return folder_; }
   // 0 when the diskette is not to be put in a slot, otherwise 1..kSlots.
   int slot() const { return slot_; }
@@ -55,13 +60,13 @@ class NewDiskDialog : public win::Dialog {
   bool OnOk() override;
 
  private:
-  // The path field and Prehľadávať are only meaningful for the two folder
-  // kinds; greying them out for the RAM ones says so where a screen reader
+  // The path field and Prehľadávať are only meaningful for the permanent
+  // kind; greying them out for the RAM ones says so where a screen reader
   // reads it, rather than leaving a control that does nothing.
   void RefreshEnabled();
   Kind SelectedKind() const;
 
-  Kind kind_ = Kind::kFolder;
+  Kind kind_ = Kind::kEmptyFolder;
   std::wstring folder_;
   int slot_ = 0;
   SlotList slots_;

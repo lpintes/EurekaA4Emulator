@@ -64,7 +64,7 @@ rovno, lebo vtedy je klávesnica hosťova aj tak — a ponuka vtedy prefix
 `F11` prestane ukazovať, aby neradila kláves, ktorý v tom stave nerobí nič.
 
 Písmená sú `Ctrl+U I M Q R V K N D H Z`, k tomu `Ctrl+0` až `Ctrl+9` pre
-rýchlu voľbu diskiet. Že je to `Ctrl` a nie `Ctrl+Shift`,
+sloty s disketami. Že je to `Ctrl` a nie `Ctrl+Shift`,
 má dôvod: do `Ctrl+Shift` si svoje **globálne** skratky vešajú iné
 programy a globálna skratka vyhrá nad oknom bez ohľadu na `F11`, takže
 by kláves do emulátora vôbec nedošiel a bolo by to ticho.
@@ -141,8 +141,13 @@ Disketa je nepovinná:
 ## Výmena diskety za behu
 
 Disketa sa dá vymeniť bez toho, aby ste Eureku ukončili: ponuka
-**Disketa → Vložiť z priečinka…**, alebo `F11`, `Ctrl+I`. Vysunúť sa dá
-tou istou ponukou.
+**Disketa → Vložiť disketu z priečinka…**, alebo `F11`, `Ctrl+I`. Vysunúť
+sa dá tou istou ponukou.
+
+Celá ponuka `Disketa` hovorí o jedinom úkone — **vložiť** — a položky sa
+líšia len tým, odkiaľ tá disketa príde: z priečinka (`Ctrl+I`), nová
+(`Ctrl+M`), alebo zo slotu (`Ctrl+1` až `Ctrl+9`). Vysunutie, zámok
+a uloženie kópie sú zvyšné tri veci, ktoré sa s disketou dajú robiť.
 
 Na skutočnom stroji bola výmena bezstarostná vec a tu je to rovnako:
 EurekaDOS si nový disk prihlási sám, lebo si ku každému záznamu adresára
@@ -167,7 +172,7 @@ je, a disketa v pamäti, ktorá patrí niektorému slotu, počká v ňom.
 
 Jediná výnimka je disketa v pamäti, na ktorej **niečo je a nepatrí
 žiadnemu slotu**: tá by výmenou zanikla, tak sa na ňu emulátor spýta.
-Podrobnosti sú v kapitole Rýchla voľba diskiet.
+Podrobnosti sú v kapitole Sloty s disketami.
 
 Uložiť disketu môžete kedykoľvek cez `F11`, `Ctrl+U`, a pri ukončení sa
 emulátor spýta sám.
@@ -178,16 +183,22 @@ je teda nutné ho najprv niekde založiť a potom sa poň vracať.
 
 ## Nová disketa
 
-Ponuka **Disketa → Nová disketa…** (`F11`, `Ctrl+M`) vyrobí disketu
-štyroch druhov:
+Ponuka **Disketa → Vložiť novú disketu…** (`F11`, `Ctrl+M`) vyrobí
+disketu a hneď ju vloží. Druhy sú tri a líšia sa tým, **či sa disketa
+uchová sama**:
 
-- **z existujúceho priečinka** — to isté ako Vložiť z priečinka,
-- **nový prázdny priečinok** — vytvorí sa a hneď vloží; taká disketa
-  prežije aj ukončenie emulátora,
-- **prázdna v pamäti, naformátovaná** — pripravená na písanie, ale
-  zanikne s emulátorom (pri ukončení sa emulátor spýta, či ju uložiť),
-- **prázdna v pamäti, nenaformátovaná** — Eureka ju ohlási ako **vadný
+- **trvalá** — vytvorí sa nový priečinok a disketa v ňom zostane aj po
+  ukončení,
+- **dočasná v pamäti** — naformátovaná a pripravená na písanie; prežije,
+  len keď ju uložíte do priečinka — `F11`, `Ctrl+U` kedykoľvek, a pri
+  ukončení sa emulátor spýta sám,
+- **dočasná v pamäti, nenaformátovaná** — Eureka ju ohlási ako **vadný
   disk**, presne ako skutočná nová disketa z krabice.
+
+Disketu, ktorá **už niekde je**, sem nedávajte — na to je `F11`, `Ctrl+I`.
+Tento dialóg mal kedysi štvrtú voľbu „z existujúceho priečinka" a robila
+presne to isté, čo `Ctrl+I`: jeden úkon pod dvoma menami, a to v dialógu,
+ktorý sa volá „Nová disketa".
 
 Tá posledná nie je len pre zábavu: je to jediné médium, na ktorom
 formátovanie **naozaj niečo robí**. Disketa z priečinka je hostiteľský
@@ -213,30 +224,48 @@ kedykoľvek. Disketa v pamäti je v ňom vždy „v pamäti" — či je
 naformátovaná, alebo nie, je vec, ktorú práve meníte, nie to, čo tá
 disketa je.
 
-V dialógu sa dá novej diskete rovno priradiť **slot rýchlej voľby**.
-Zoznam pri každom slote ukáže, čo v ňom práve je, a keď doň priraďujete
-cez niečo, čo tam už bolo, emulátor sa ešte spýta. Pri nenaformátovanej
-diskete je výber slotu neprístupný — nenaformátovaná je stav, ktorý trvá
-po prvé `Shift+F8`, takže pod skratkou by nedával zmysel.
+V dialógu sa dá novej diskete rovno priradiť **slot**. Zoznam pri každom
+slote ukáže, čo v ňom práve je, a keď doň priraďujete cez niečo, čo tam
+už bolo, emulátor sa ešte spýta. Pri nenaformátovanej diskete je výber
+slotu neprístupný — nenaformátovaná je stav, ktorý trvá po prvé
+`Shift+F8`, takže pod skratkou by nedával zmysel.
 
-## Rýchla voľba diskiet
+## Sloty s disketami
 
 Deväť diskiet sa dá mať poruke pod `F11` a číslom s `Ctrl`:
 
 - `F11`, `Ctrl+1` až `Ctrl+9` vloží disketu z príslušného slotu,
 - `F11`, `Ctrl+0` disketu vysunie.
 
-Sloty sa priraďujú v ponuke **Disketa → Spravovať rýchlu voľbu…**.
-V dialógu si vyberiete slot a buď mu priradíte priečinok, alebo doň
-uložíte disketu, ktorá je práve vložená. Zmeny sa zapíšu až tlačidlom OK.
-Slot sa dá priradiť aj rovno pri vytváraní novej diskety.
+Sloty sa priraďujú v ponuke **Disketa → Spravovať sloty…**. Vyberiete si
+slot a máte štyri tlačidlá:
+
+- **Priradiť priečinok…** — slot bude ukazovať na priečinok, ktorý si
+  vyberiete,
+- **Sem vloženú disketu** — do slotu pôjde tá, ktorá je práve v mechanike,
+- **Sem novú v pamäti** — slot bude dočasná disketa v pamäti; vyrobí sa
+  prázdna, keď ho prvý raz stlačíte,
+- **Vyprázdniť slot**.
+
+Zmeny sa zapíšu až tlačidlom OK. Slot sa dá priradiť aj rovno pri
+vytváraní novej diskety.
+
+Slot totiž unesie práve dve veci: **priečinok**, alebo **disketu
+v pamäti**. Tlačidlá sú preto dve na napĺňanie a nie jeden spoločný dialóg
+s dialógom `Nová disketa` — ten ponúka aj nenaformátovanú disketu, ktorú
+slot niesť nesmie, a nový priečinok, ktorý si slot priradí sám.
+
+Toto miesto sa kedysi volalo „rýchla voľba“ v ponuke a „slot“ v zozname,
+v hláškach aj v súbore s nastaveniami. Sú to dve mená na jednu vec, a to
+je v ponuke, ktorou sa chodí po sluchu, o jedno meno viac.
 
 **Slot je miesto, nie recept.** Disketa, ktorú z neho vyberiete, sa doň
 vráti aj s tým, čo na ňu Eureka medzitým zapísala — vložením ju máte
 naspäť takú, aká bola. To platí aj pre **disketu v pamäti**: taká nikde
 inde neexistuje, takže ju drží práve ten slot, kým emulátor beží. Prvé
 stlačenie slotu označeného „Disketa v pamäti" ju vyrobí prázdnu, ďalšie ju
-vracajú takú, aká je. Novú prázdnu spravíte cez `F11`, `Ctrl+M`.
+vracajú takú, aká je. Taký slot založíte tlačidlom *Sem novú v pamäti*,
+alebo pri vytváraní diskety cez `F11`, `Ctrl+M`.
 
 Disketa z priečinka sa v slote nedrží a nemusí: jej obsah je v tom
 priečinku. Pri vytiahnutí sa doň zapíše, pri vrátení sa z neho načíta —
@@ -255,8 +284,8 @@ bol horší než žiadny.
 **Disketa v pamäti nezanikne ticho.** Ak je v mechanike, má na sebe súbory
 a nepatrí žiadnemu slotu, emulátor sa pred každou výmenou spýta: uložiť ju
 do priečinka, zahodiť, alebo nechať v mechanike a nerobiť nič. Platí to
-pre všetky cesty — vloženie z priečinka, novú disketu, rýchlu voľbu aj
-vysunutie. Slot jej dáte v dialógu **Spravovať rýchlu voľbu…** tlačidlom
+pre všetky cesty — vloženie z priečinka, novú disketu, slot aj
+vysunutie. Slot jej dáte v dialógu **Spravovať sloty…** tlačidlom
 *Sem vloženú disketu*; potom už otázka nechodí, lebo disketa má kam ísť.
 Pri ukončení emulátora sa rovnaká otázka spýta aj na diskety čakajúce
 v slotoch.
@@ -279,7 +308,7 @@ v titulku okna — `NVDA+T` naň odpovie kedykoľvek.
 
 **Zámok patrí diskete a drží, kým ho nezrušíte.** Prežije vysunutie,
 výmenu za inú disketu aj ukončenie emulátora: keď tú istú disketu vložíte
-znova — z ponuky, z rýchlej voľby aj pri štarte — príde zamknutá. Je to
+znova — z ponuky, zo slotu aj pri štarte — príde zamknutá. Je to
 prelepená dierka, nie prepínač na mechanike.
 
 Nie je to detail. Eurekine **hromadné kopírovanie** žiada, aby zdrojová
@@ -291,7 +320,7 @@ výmene zmizol, by tú prácu zastavil hneď na druhom kroku.
 Zamknuté diskety sú v nastaveniach ako riadky `zamok1=`, `zamok2=`…, takže
 sa dajú aj prečítať a upraviť ručne.
 
-V dialógu **Spravovať rýchlu voľbu…** je pri vybranom slote začiarkávacie
+V dialógu **Spravovať sloty…** je pri vybranom slote začiarkávacie
 políčko *Zamknúť túto disketu proti zápisu* — je to ten istý zámok, len
 prístupný pri slote, a v zozname slotov to je napísané aj v riadku. Pre
 slot s disketou v pamäti políčko nie je aktívne: zoznam zámkov je vedený
@@ -302,11 +331,11 @@ do konca behu, lebo nikde inde neexistuje.
 
 ## Čo si emulátor pamätá
 
-Dve veci: **disketu, ktorú ste mali naposledy**, a **deväť slotov rýchlej
-voľby** a k tomu **zoznam diskiet zamknutých proti zápisu**. Posledná
+Dve veci: **disketu, ktorú ste mali naposledy**, a **deväť slotov**, a
+k tomu **zoznam diskiet zamknutých proti zápisu**. Posledná
 disketa sa vloží pri ďalšom štarte, takže sa program
 nepýta na priečinok pri každom spustení; zapíše sa vždy, keď disketu
-vložíte — pri štarte, pri výmene za behu aj z rýchlej voľby. Pamätá sa
+vložíte — pri štarte, pri výmene za behu aj zo slotu. Pamätá sa
 len disketa z priečinka — disketa v pamäti nemá čo obnovovať.
 
 Keď priečinok medzitým zmizne (typicky odpojený USB disk), Eureka

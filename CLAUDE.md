@@ -330,7 +330,7 @@ v konflikte s hosťom. Platí:
 - **Akcelerátorové tabuľky sú dve a to je celý trik.** `IDR_ACCELERATORS`
   platí vždy a je to celá trvalá cena: `F11`, `Shift+F11`, `F12`.
   `IDR_ACCELERATORS_HOST` (`Ctrl+U I M Q R V K N D H Z` a `Ctrl+0` až `Ctrl+9`
-  pre rýchlu voľbu diskiet) platí **len keď je
+  pre sloty s disketami) platí **len keď je
   klávesnica hosťova** — po `F11` alebo `Shift+F11`. Bez toho prefixu idú
   tie klávesy Eureke, takže `Ctrl+H` na exterke naozaj urobí to, čo robí
   na stroji. Bránu vyhodnocuje `MainWindow::HostShortcutsActive()` a pýta

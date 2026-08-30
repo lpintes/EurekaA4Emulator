@@ -67,8 +67,9 @@
 // About dialog controls.
 #define IDC_ABOUT_TEXT       1010
 
-// New diskette dialog controls.
-#define IDC_NEW_FOLDER       1030
+// New diskette dialog controls.  1030 was IDC_NEW_FOLDER, the "from an
+// existing folder" radio, which duplicated ID_DISK_INSERT; the number is left
+// unused rather than reassigned, so a stale .res cannot land on it.
 #define IDC_NEW_EMPTYFOLDER  1031
 #define IDC_NEW_RAM          1032
 #define IDC_NEW_UNFORMATTED  1033
@@ -76,12 +77,13 @@
 #define IDC_NEW_BROWSE       1035
 #define IDC_NEW_SLOT         1036
 
-// Quick-choice dialog controls.
+// Slots dialog controls.
 #define IDC_SLOT_LIST        1020
 #define IDC_SLOT_ASSIGN      1021
 #define IDC_SLOT_CURRENT     1022
 #define IDC_SLOT_CLEAR       1023
 #define IDC_SLOT_LOCK        1024
+#define IDC_SLOT_NEWRAM      1025
 
 // Labels and group boxes need no id of their own.
 #ifndef IDC_STATIC
