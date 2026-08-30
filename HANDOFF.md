@@ -1648,6 +1648,10 @@ disketu bez slotu neexistuje a na disketu v pamäti bez slotu sa pýta
 (rozvrstvenie GUI) a drží ho `disk_test`. Otvorené z tejto témy zostáva
 toto:
 
+**Druhý dôsledok toho istého pravidla, doplnený 30. 8. 2026: 6.26.** Ak je
+disketa objekt, musí sa dať zamknúť bez ohľadu na médium. Model to tak robí
+a je to odmerané; dialóg slotov to popiera zošedeným políčkom.
+
 **Čo zostalo nedokončené:** režim `kopia` v `integration_test`, ktorý mal
 ten scenár prehrať sám. Zápasil som so synchronizáciou reči — hlášky
 chodia oneskorene, kláves reč preruší a „ano“ + „kopíruji“ dá reťazec,
@@ -1769,6 +1773,72 @@ reťazce nájdené v hotovom EXE v UTF-16 vrátane diakritiky (`Trvalá — nov�
 priečinok`, `Sloty s disketami`, `Vložiť disketu z priečinka`), staré
 (`Z &existujúceho priečinka`, `Rýchla voľba`) v ňom už nie sú.
 Kontrolovaná bola aj negatívna vzorka, aby test naozaj meral.
+
+### 6.26 Zámok diskety v pamäti — model to vie, dialóg to popiera (otvorené)
+
+**Nahlásil majiteľ 30. 8. 2026** vetou, ktorá je pravidlo, nie pripomienka:
+*„Ak disketa je objekt, MUSÍ sa dať zamknúť. A je jedno či je/nie je
+v pamäti.“* Je to priamy dôsledok 6.24 a treba ho brať tak.
+
+**Model to už tak robí a je to odmerané.** Zámok je člen `VirtualDisk`
+(`write_protected_`), `DiskStash::Put` odkladá celý objekt kópiou
+a `Machine::InsertDisk` je `disk_ = disk`, takže notch cestuje s diskettou.
+Odmerané sondou na bežiacej ROM:
+
+```
+diag_probe ROM DISK seq 12000000 slot2 +wp stav slot1 stav slot2 stav
+slot2  -> [vlozeny slot 2: v pamati]
++wp    -> [zamok proti zapisu zapnuty]
+stav   -> [v pamati, suborov=0, zamknuta]
+slot1  -> [vlozeny slot 1: priecinok]
+slot2  -> [vlozeny slot 2: v pamati]
+stav   -> [v pamati, suborov=0, zamknuta]
+```
+
+Disketa v pamäti odišla do slotu zamknutá a vrátila sa zamknutá. (Riadok
+`slot1` hovorí „zamknuta“ z iného dôvodu — sonda si slot 1 zamyká sama
+v svojej vetve — takže dôkazom je prvý a posledný `stav`, nie ten
+prostredný.)
+
+**Chybný je hostiteľský dialóg.** V `Sloty s disketami` je políčko
+`Zamknúť túto disketu proti zápisu` pri pamäťovom slote **zošedené**, lebo
+`SlotLockIsRemembered` (kedysi `SlotCanLock` — to meno bolo časť problému)
+sa pýta na to, či sa zámok dá **zapamätať**, a odpoveď použije na to, či sa
+dá **nastaviť**. Sú to dve rôzne veci:
+
+- **zámok diskety** — vlastnosť objektu, funguje na akomkoľvek médiu, trvá
+  presne tak dlho ako disketa,
+- **zapamätaný zámok** — riadok `zamok1=` v `nastavenia.txt`, vedený podľa
+  cesty; `Settings::SetDiskLocked` pamäťový zahodí (`settings.cpp:244`),
+  a správne, lebo by ukazoval na nič.
+
+Zošedené políčko teda tvrdí „táto disketa sa nedá zamknúť“, čo je nepravda.
+Pravda je „tento zámok neprežije ukončenie emulátora“. Je to ten istý druh
+prestrelenej popisky ako „zanikne s emulátorom“ v 6.25 — a všimnime si, že
+to už je tretíkrát v jednom dni: **keď sa niečo nedá uložiť, neznamená to,
+že sa to nedá nastaviť.** Stojí za to hľadať ďalšie miesta, kde je
+perzistencia zamenená za schopnosť.
+
+**Prečo to nie je opravené hneď.** Chýba rozhodnutie, na čo sa to políčko
+pri pamäťovom slote má vzťahovať, a sú to tri rôzne veci:
+
+1. **Na disketu, ktorá je v tom slote odložená.** Zásobník vlastní worker,
+   takže by to bol nový príkaz do fronty, nie zmena v kópii nastavení —
+   dialóg dnes celý pracuje na kópii a odovzdáva ju až na OK.
+2. **Na slot ako predpis** („čokoľvek sem príde, príde zamknuté“). Dá sa
+   uložiť aj pre pamäť, ale je to nová vlastnosť slotu a stojí za zváženie,
+   či nie je v spore s tým, že slot je miesto, nie recept (6.24).
+3. **Na disketu, ktorá ešte neexistuje.** Pamäťový slot, do ktorého sa
+   nikdy nevkladalo, nemá žiadny objekt — worker ju vyrobí až pri prvom
+   vložení. Zaškrtnúť zámok tu nemá čoho sa chytiť, pokiaľ sa nezvolí (2).
+
+Kým sa nerozhodne, platí aspoň toto: **cesta zamknúť disketu v pamäti
+existuje a je to `F11`, `Ctrl+Z`** — README to hovorí správne v kapitole
+Zámok proti zápisu. Dialóg je jediné miesto, kde to znie inak.
+
+Testom nekryté: že zámok prežije cestu cez zásobník, drží zatiaľ len tá
+sonda vyššie, nie `disk_test`. Kto to bude opravovať, nech to pribije
+testom prv, než siahne na dialóg.
 
 ## 7. Nástroje
 

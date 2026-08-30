@@ -37,11 +37,17 @@ std::wstring SlotLine(int number, const std::wstring& slot, bool locked) {
   return line;
 }
 
-// Only a folder slot can be locked.  The lock list in the settings is keyed by
-// path and outlives the run; a diskette in memory has no path and does not
-// outlive it, so Settings drops such a lock on save (see settings_test) and a
-// check box promising one would be a switch that quietly forgets itself.
-bool SlotCanLock(const std::wstring& slot) {
+// Whether this slot's lock can be *remembered* -- which is not the same as
+// whether the diskette can be locked, and the difference is worth the name.
+// A diskette in memory locks perfectly well: the notch is a member of
+// VirtualDisk, InsertDisk copies the whole object, and a locked one measured
+// through a slot and back comes out locked (HANDOFF 6.26).  What it has no
+// room for is the settings file, whose lock list is keyed by path -- so
+// Settings::SetDiskLocked drops it and the box would forget itself on save.
+//
+// The greying therefore says less than it seems to say, and 6.26 has the open
+// question about what it ought to offer instead.
+bool SlotLockIsRemembered(const std::wstring& slot) {
   return !slot.empty() && !SlotIsRam(slot);
 }
 
@@ -190,7 +196,7 @@ void SlotsDialog::RefreshLock(int index) {
   if (index < 0 || index >= Settings::kSlots) return;
   const auto slot = static_cast<std::size_t>(index);
   SetChecked(IDC_SLOT_LOCK, locks_[slot]);
-  SetEnabled(IDC_SLOT_LOCK, SlotCanLock(slots_[slot]));
+  SetEnabled(IDC_SLOT_LOCK, SlotLockIsRemembered(slots_[slot]));
 }
 
 int SlotsDialog::Selected() const {
@@ -214,7 +220,7 @@ void SlotsDialog::SetSlotAndRefresh(int index, std::wstring path) {
   // stay ticked from the old one -- otherwise OK would lock a diskette nobody
   // asked about.  The lock itself lives in the settings, by folder, so a
   // folder that is already locked arrives ticked.
-  locks_[slot] = SlotCanLock(slots_[slot]) &&
+  locks_[slot] = SlotLockIsRemembered(slots_[slot]) &&
                  settings_->disk_locked(slots_[slot]);
   FillList(index);
   SetFocus(Item(IDC_SLOT_LIST));
