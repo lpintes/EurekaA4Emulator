@@ -44,6 +44,17 @@ class DiskStash {
   // worker thread.  Measured -- it overflowed (0xC00000FD).
   std::unique_ptr<VirtualDisk> Take(int slot);
   bool holds(int slot) const;
+  // Makes an empty diskette in a slot that has none, and says whether it had
+  // to.  This is what "Sem novú neuloženú" means: the button names making a
+  // diskette, so it makes one.  It used to only write a marker and leave the
+  // making until the slot was first inserted -- which is our bookkeeping and
+  // not the user's act, and it showed: the slot then had no diskette to lock
+  // and the dialog had to explain itself in the list.
+  //
+  // Built straight into the slot rather than handed in by value: a VirtualDisk
+  // carries its whole 800 KiB image, and one built on the worker's stack
+  // overflows it (measured, 0xC00000FD).
+  bool CreateEmptyIfMissing(int slot);
   // Moves the notch on a diskette that is on the shelf.  False when the slot
   // holds none, which is the caller's cue that there is nothing to lock: an
   // unsaved slot that has never been inserted has no diskette yet, and a

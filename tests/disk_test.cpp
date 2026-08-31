@@ -615,6 +615,46 @@ void StashKeepsTheLock() {
   Check(!stash.SetWriteProtected(0, true), "slot nula sa neda zamknut");
 }
 
+// A slot marked unsaved is given its diskette when it is set up, not when it
+// is first inserted.  The button says "Sem novú neuloženú" -- it names making
+// one -- and a slot that named a diskette but held none was the reason its
+// lock could not be set at all (6.26, 6.28).
+//
+// The half that matters is the second call: it must not make a new one.  A
+// "create" that ran again on the next OK would hand back an empty diskette in
+// place of the one the guest had written, which is exactly the silent loss
+// 6.24 was about, only reached from the dialog instead of from the slot key.
+void SlotGetsItsDisketteWhenItIsSetUp() {
+  DiskStash stash;
+  Check(stash.CreateEmptyIfMissing(4), "prazdny slot dostane disketu");
+  Check(stash.holds(4), "slot ju drzi hned, nie az pri vlozeni");
+
+  auto made = stash.Take(4);
+  Check(made && made->present(), "vyrobena disketa je disketa");
+  Check(made && !made->has_home(), "a je neulozena");
+  Check(made && made->has_format(), "a je naformatovana, teda pouzitelna");
+  Check(made && made->StoredFiles() == 0, "a prazdna");
+  stash.Put(4, *made);
+
+  // Something written on it, then the same call again: it has to decline.
+  auto written = stash.Take(4);
+  uint8_t sector[512];
+  std::fill_n(sector, sizeof(sector), 0x5e);
+  Check(written && written->WritePhysicalSector(1, 0, 1, sector),
+        "na vyrobenu disketu sa da pisat");
+  stash.Put(4, *written);
+
+  Check(!stash.CreateEmptyIfMissing(4), "druhe volanie disketu nevyrobi");
+  auto back = stash.Take(4);
+  uint8_t read[512]{};
+  Check(back && back->ReadPhysicalSector(1, 0, 1, read) && read[0] == 0x5e,
+        "zapisane data prezili druhe volanie");
+
+  Check(!stash.CreateEmptyIfMissing(0), "slot nula sa nevyraba");
+  Check(!stash.CreateEmptyIfMissing(DiskStash::kSlots + 1),
+        "slot za hranicou sa nevyraba");
+}
+
 // Saving is Save As: the folder becomes the diskette's own, so what it writes
 // afterwards goes there by itself and a file it deletes leaves the folder.
 //
@@ -943,6 +983,7 @@ int main() {
   StashDeclinesFolderDiskettes();
   StashKeepsEverySlotApart();
   StashKeepsTheLock();
+  SlotGetsItsDisketteWhenItIsSetUp();
   SavingAdoptsTheFolder();
   SavingAnUnsavedDisketteGivesItAHome();
   RamDisketteKeepsBinaryFilesWhole();

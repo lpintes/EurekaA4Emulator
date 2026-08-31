@@ -368,6 +368,13 @@ void MainWindow::RegisterCommands() {
       // are on the shelf as well.  For an unsaved diskette this writes
       // nothing, by SetDiskLocked's own rule -- there is no path to key it by.
       settings_.SetDiskLocked(value, locked);
+      // A slot marked unsaved gets its diskette now, not at the first insert.
+      // The button is called "Sem novú neuloženú" -- it names making one, so
+      // it makes one; deferring that left a slot that named a diskette and had
+      // none, which is why its lock could not be set.  The worker does nothing
+      // if it already has one, so this is safe for every slot every time.
+      // Before the lock below, so the lock lands on a diskette that exists.
+      if (SlotIsUnsaved(value)) emulator_.PostEnsureSlotDiskette(number);
       // Which is exactly why a real diskette needs telling as well.  The notch
       // is a member of the diskette and the worker holds it, so a lock the
       // user ticked here has to travel to the shelf or to the drive; without

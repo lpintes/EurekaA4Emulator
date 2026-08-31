@@ -305,6 +305,17 @@ int Run() {
   // that HWND, and one arriving before there is a window to take it would be
   // lost with no sign of it.
   emulator.Start(std::move(machine), window.handle(), startMode, diagnostics);
+  // Every slot the settings mark unsaved gets its diskette back.  The marker
+  // survives in nastavenia.txt and the shelf does not, so without this a slot
+  // set up in an earlier run would start the next one naming a diskette that
+  // does not exist -- and its lock could not be set until it had been inserted
+  // once.  Posted rather than reached for directly: the shelf is the worker's.
+  //
+  // Nine empty diskettes cost about 7 MB of heap in the worst case, and only
+  // for slots the user actually marked.  An empty one carries no files, so
+  // nothing here makes the closing question ask about diskettes nobody wrote.
+  for (int slot = 1; slot <= Settings::kSlots; ++slot)
+    if (SlotIsUnsaved(settings.slot(slot))) emulator.PostEnsureSlotDiskette(slot);
   window.Show(SW_SHOW);
   SetFocus(window.handle());
 

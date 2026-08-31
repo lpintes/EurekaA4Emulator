@@ -256,8 +256,8 @@ slot a máte štyri tlačidlá:
 - **Priradiť priečinok…** — slot bude ukazovať na priečinok, ktorý si
   vyberiete,
 - **Sem vloženú disketu** — do slotu pôjde tá, ktorá je práve v mechanike,
-- **Sem novú neuloženú** — slot bude neuložená disketa; vyrobí sa
-  prázdna, keď ho prvý raz stlačíte,
+- **Sem novú neuloženú** — vyrobí prázdnu neuloženú disketu a odloží ju
+  do slotu,
 - **Vyprázdniť slot**.
 
 Zmeny sa zapíšu až tlačidlom OK. Slot sa dá priradiť aj rovno pri
@@ -276,9 +276,10 @@ je v ponuke, ktorou sa chodí po sluchu, o jedno meno viac.
 vráti aj s tým, čo na ňu Eureka medzitým zapísala — vložením ju máte
 naspäť takú, aká bola. To platí aj pre **neuloženú disketu**: taká nikde
 inde neexistuje, takže ju drží práve ten slot, kým emulátor beží. Vyrobí sa
-prázdna pri prvom stlačení takého slotu, ďalšie stlačenia ju vracajú takú,
-aká je. Taký slot založíte tlačidlom *Sem novú neuloženú*, alebo pri
-vytváraní diskety cez `F11`, `Ctrl+M`.
+prázdna vo chvíli, keď slot založíte tlačidlom *Sem novú neuloženú* — nie až
+pri prvom stlačení — a pri každom ďalšom spustení emulátora dostane taký slot
+prázdnu disketu znovu, lebo neuložená disketu reštart neprežije. Založiť taký
+slot sa dá aj pri vytváraní diskety cez `F11`, `Ctrl+M`.
 
 Disketa z priečinka sa v slote nedrží a nemusí: jej obsah je v tom
 priečinku. Pri vytiahnutí sa doň zapíše, pri vrátení sa z neho načíta —
@@ -347,10 +348,8 @@ prístupný pri slote, a v zozname slotov to je napísané aj v riadku:
 `— zamknutá` pri diskete s priečinkom, `— zamknutá dočasne` pri
 neuloženej, ktorej zámok koniec behu neprežije.
 
-Políčko je neprístupné **len vtedy, keď v tom slote žiadna disketa
-nie je** — teda pri prázdnom slote a pri neuloženom slote, ktorý ste ešte
-nikdy nepoužili. Po reštarte emulátora je v tomto stave každý neuložený
-slot, lebo neuložená disketa reštart neprežije.
+Políčko je neprístupné **len vtedy, keď je slot prázdny** — vtedy nie je
+čo zamknúť.
 
 ## Čo si emulátor pamätá
 

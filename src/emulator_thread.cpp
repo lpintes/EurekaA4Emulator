@@ -434,6 +434,13 @@ void EmulatorThread::PostInsertSlot(int slot, std::wstring value,
   Post(std::move(command));
 }
 
+void EmulatorThread::PostEnsureSlotDiskette(int slot) {
+  Command command;
+  command.type = Command::Type::kEnsureSlotDisk;
+  command.slot = slot;
+  Post(std::move(command));
+}
+
 void EmulatorThread::PostSetSlotWriteProtect(int slot, bool writeProtected) {
   Command command;
   command.type = Command::Type::kSetSlotWriteProtect;
@@ -699,12 +706,26 @@ void EmulatorThread::Run() {
           currentSlot = command.slot;
           break;
         case Command::Type::kInsertSlot: {
-          // The slot's own diskette first, if it has one: that is the whole
-          // point of a slot being a place rather than a recipe.
-          if (auto disk = stash.Take(command.slot)) {
-            machine.InsertDisk(*disk);
-          } else if (SlotIsUnsaved(command.path)) {
-            machine.CreateEmptyDisk(true);
+          // What the slot *names* decides where to look, and only then does
+          // the shelf come into it.  The other way round -- shelf first,
+          // whatever the slot names -- was a quiet trap: point a used memory
+          // slot at a folder and Ctrl+3 went on handing back the diskette from
+          // the shelf while the menu named the folder.  Same family as the
+          // stale promise in 6.25, and eager creation would have made it easy
+          // to meet.
+          //
+          // The shelved diskette is left where it is rather than dropped: it
+          // may have files on it, and main.cpp offers to save every one of
+          // them on the way out.  Unreachable for the rest of the session is
+          // the user's own doing; destroyed without asking would not be.
+          if (SlotIsUnsaved(command.path)) {
+            // Its own diskette, or a fresh one the first time.  Since a marked
+            // slot is given a diskette when it is set up, the second branch is
+            // only for a slot whose diskette is somehow not there.
+            if (auto disk = stash.Take(command.slot))
+              machine.InsertDisk(*disk);
+            else
+              machine.CreateEmptyDisk(true);
           } else {
             result.ok = machine.MountDisk(command.path, changeError);
             if (result.ok) machine.SetDiskWriteProtected(command.flag);
@@ -833,6 +854,16 @@ void EmulatorThread::Run() {
         if (notify) PostMessageW(notify, WM_EMU_SAVED, 0, 0);
         break;
       }
+      case Command::Type::kEnsureSlotDisk:
+        // Not while that slot's diskette is in the drive: it is not on the
+        // shelf because the machine has it, and making a second one there
+        // would leave two diskettes claiming one slot -- the one in the drive
+        // would then be the one that loses, because putting it away overwrites.
+        if (command.slot != currentSlot) {
+          stash.CreateEmptyIfMissing(command.slot);
+          publishStash();
+        }
+        break;
       case Command::Type::kSetSlotWriteProtect: {
         // The diskette this slot owns, wherever it is.  In the drive it is the
         // machine's and the window has to hear about it -- the title carries

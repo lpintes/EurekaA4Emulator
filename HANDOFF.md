@@ -1836,11 +1836,39 @@ slote to už tak bolo: zoznam `zamok1=` je vedený **podľa cesty**, nie podľa
 tým menom sám objekt v zásobníku. Je to tá istá vec bez mena, ktoré by sa
 dalo zapísať do súboru — nie druhý druh zámku.
 
-Tretia možnosť ostáva v platnosti: slot, do ktorého sa nikdy nevkladalo,
-žiadny objekt nemá a nastaviť vlastnosť neexistujúcej veci sa nedá. Políčko
-tam preto zostáva zošedené — bez textu, ktorý by to v zozname vysvetľoval.
-Po reštarte je v tomto stave **každý** neuložený slot, lebo zásobník reštart
-neprežije; ani editor nevie zapamätať nepomenovaný dokument.
+Tretia možnosť **zanikla**, a zabila ju veta majiteľa. Skúsil som dôvod
+zošedenia napísať do zoznamu (`Neuložená disketa (vznikne pri vložení)`)
+a on to zamietol dvakrát: každé slovo v tom riadku sa číta nahlas pri každej
+šípke, a hlavne — **disketa vzniká pri vytvorení, nie pri vkladaní**. To, že
+ju worker vyrábal až pri prvom vložení, je naše účtovníctvo, nie jeho úkon.
+
+Keď to bolo raz vyslovené, ukázalo sa, že chyba nebola v texte, ale
+o poschodie nižšie: **tlačidlo `Sem novú neuloženú` sa volá po vytvorení
+a nič nevytváralo.** Zapísalo len značku `*pamat`. Preto som ten text vôbec
+musel písať — vysvetľoval som popisku, ktorá mala byť pravdivá sama. Odvtedy:
+
+- `DiskStash::CreateEmptyIfMissing` a príkaz `kEnsureSlotDisk`. Tlačidlo
+  disketu naozaj vyrobí (pri OK, cez frontu — zásobník je workerov).
+- `main.cpp` po `Start()` pošle ten istý príkaz za každý slot, ktorý majú
+  nastavenia označený `*pamat`. Značka reštart prežije, polička nie, takže bez
+  toho by slot po reštarte znovu nemal disketu. Deväť prázdnych stojí najviac
+  ~7 MB haldy a nesú nula súborov, takže otázka pri ukončení sa na ne nepýta.
+- Políčko zámku je odteraz zošedené **len pri naozaj prázdnom slote**. Žiadna
+  výnimka, žiadny text.
+
+**Pri tom vypadla latentná chyba z rodiny 6.25.** `kInsertSlot` bral
+z poličky **skôr**, než sa pozrel na to, čo slot menuje. Keď sa použitý
+pamäťový slot prepísal na priečinok, `Ctrl+3` naďalej podával disketu
+z poličky, kým ponuka menovala priečinok — tiché a nesprávne. Poradie je teraz
+opačné: rozhoduje značka slotu, polička až potom. Odložená disketa sa pritom
+**nezahadzuje** — môže na nej niečo byť a `main.cpp` sa na ňu pri ukončení
+spýta. Nedosiahnuteľná do konca relácie je rozhodnutie používateľa; zmazaná
+bez opýtania by nebola.
+
+Drží to `SlotGetsItsDisketteWhenItIsSetUp` v `disk_test`, a jeho podstatná
+polovica je druhé volanie: „vyrobiť“, ktoré by pri ďalšom OK bežalo znovu, by
+vrátilo prázdnu disketu namiesto tej popísanej — tá istá tichá strata ako
+6.24, len dosiahnutá z dialógu namiesto z klávesu.
 
 Druhá možnosť (slot ako predpis) je zamietnutá: bola by to nová vlastnosť
 slotu a spor s 6.24.
@@ -2024,7 +2052,7 @@ istého dôvodu ako meranie skupín — tých dvanásť procesov je bez GUI.
 značka `*pamat` a číslovanie `IDC_*`.
 
 Overené: `build.bat` bez varovania, dvanásť `PASS` (`disk_test` má
-133 kontrol namiesto pôvodných 63), a všetky nové reťazce nájdené
+144 kontrol namiesto pôvodných 63), a všetky nové reťazce nájdené
 v hotovom EXE v UTF-16 vrátane diakritiky — `neuložená`,
 `Neuložená disketa`, `Sem &novú neuloženú`, `— zamknutá dočasne`,
 `Odteraz je to jej priečinok a zapisuje sa doň sama.`
@@ -2139,7 +2167,7 @@ integration_test ROM DISK_FOLDER dc    -> PASS (výstup po reči sadne na ticho)
 integration_test ROM DISK_FOLDER rtc   -> PASS (budík sa nastaví a zazvoní)
 integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
 integration_test ROM DISK_FOLDER format-> PASS (Shift+F8 naformátuje prázdnu)
-disk_test                              -> PASS (133 kontrol, bez ROM)
+disk_test                              -> PASS (144 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 settings_test                          -> PASS (36 kontrol, bez ROM)
 ```

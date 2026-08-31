@@ -17,6 +17,14 @@ bool DiskStash::holds(int slot) const {
   return Valid(slot) && disks_[static_cast<std::size_t>(slot)] != nullptr;
 }
 
+bool DiskStash::CreateEmptyIfMissing(int slot) {
+  if (!Valid(slot) || holds(slot)) return false;
+  auto disk = std::make_unique<VirtualDisk>();
+  disk->CreateEmpty(true);
+  disks_[static_cast<std::size_t>(slot)] = std::move(disk);
+  return true;
+}
+
 bool DiskStash::SetWriteProtected(int slot, bool protect) {
   if (!holds(slot)) return false;
   disks_[static_cast<std::size_t>(slot)]->set_write_protected(protect);

@@ -42,6 +42,16 @@ bool SlotLockPersists(const std::wstring& slot) {
 std::wstring SlotLine(int number, const std::wstring& slot, bool locked) {
   std::wstring line =
       std::to_wstring(number) + L": " + SlotDisplayName(slot);
+  // Deliberately nothing here about a slot whose diskette does not exist yet.
+  // It said "(vznikne pri vložení)" for a few hours, to explain why the lock
+  // below is greyed, and it was wrong twice over: a diskette comes into being
+  // when it is made, not when it is put in -- that the worker defers making it
+  // to the first insert is our bookkeeping, not something the user is doing --
+  // and every word in this line is read aloud on every arrow key.  The greying
+  // stands on its own; the reason belongs in README, not in nine list rows.
+  // Reported by the owner 31. 8. 2026, and it is the 6.25 mistake again:
+  // mechanism leaking into speech.
+  //
   // Said in the line itself and not only in the check box below it: the list
   // is what a screen reader reads when arrowing through the slots, and a lock
   // that showed up only after moving the focus elsewhere would be a property
@@ -225,12 +235,11 @@ void SlotsDialog::SetSlotAndRefresh(int index, std::wstring path) {
   // "Sem vloženú disketu" sets it again right after calling this.
   if (assignedCurrent_ == index + 1) assignedCurrent_ = 0;
   slots_[slot] = std::move(path);
-  // A slot pointed at a folder names a diskette that exists on disk; one
-  // pointed at the marker names one that does not exist yet, because the
-  // worker makes it on the first insert.  "Sem vloženú disketu" is the
-  // exception and sets both of these again right after calling this: that
-  // diskette is in the drive, so it is very much there.
-  present_[slot] = SlotLockPersists(slots_[slot]);
+  // Any slot that names something has a diskette: a folder is one, and a slot
+  // marked unsaved gets one made for it when OK is pressed.  Only an emptied
+  // slot has none.  This used to say "a folder, and nothing else", from when
+  // the marker was a promise rather than a diskette.
+  present_[slot] = !slots_[slot].empty();
   // Pointed somewhere else, the box has to follow the new diskette rather than
   // stay ticked from the old one -- otherwise OK would lock a diskette nobody
   // asked about.  For a folder the lock lives in the settings, so one that is

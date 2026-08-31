@@ -151,7 +151,12 @@ Drží aj **zásobník diskiet** (`DiskStash`): že slot vráti tú istú disket
 s jej obsahom, že sa sloty navzájom nemiešajú, že disketa s priečinkom sa
 neodkladá a že slot 0 neexistuje. A od 6.26 aj **zámok**: že cestuje na
 poličku a späť, že sa dá hýbať aj kým disketa leží v slote, a že prázdny slot
-sa zamknúť nedá — to posledné je jediný poctivý dôvod zošediť to políčko.
+sa zamknúť nedá — to je jediný dôvod zošediť to políčko.
+
+Drží aj to, že **slot dostane disketu, keď sa zakladá, nie až pri vložení**
+(`CreateEmptyIfMissing`), a hlavne že **druhé volanie ju nevyrobí znovu** —
+inak by ďalšie OK v dialógu vrátilo prázdnu disketu namiesto popísanej, teda
+tichá strata z 6.24 dosiahnutá z dialógu.
 
 Drží aj **to, že uloženie je „uložiť ako“** (6.28): `VirtualDisk::SaveAs`
 priečinok prevezme, a hlavne prestavia `imported_`. Bez toho by disketa
@@ -283,7 +288,12 @@ lebo NVDA považuje doplnky za odvodené dielo (`nvda-addon/COPYING.txt`).
   diskety **sú**, kým nie sú v mechanike. Disketa je objekt, nie recept na
   jej výrobu — slot, ktorý pri každom vložení vyrobil novú prázdnu, zabil
   Eurekine hromadné kopírovanie a tichou stratou dát (HANDOFF 6.24).
-  Odkladajú sa len neuložené diskety; tú s priečinkom drží priečinok.
+  Odkladajú sa len neuložené diskety; tú s priečinkom drží priečinok. Slot
+  označený `*pamat` disketu **má** — vyrobí sa pri jeho založení a znovu pri
+  každom štarte (`main.cpp` po `Start()`), nie až pri prvom vložení.
+  A `kInsertSlot` sa pýta najprv na to, **čo slot menuje**, a až potom siaha
+  na poličku; opačné poradie podávalo disketu z poličky pri slote, ktorý
+  medzitým menoval priečinok.
   **Slot 0 zámerne neexistuje** a nie je tu ani polička na disketu bez
   slotu: polička drží jednu, takže druhá odložená by prvú ticho prepísala.
   Neuložená disketa bez slotu je rozhodnutie používateľa, a pýta sa naň

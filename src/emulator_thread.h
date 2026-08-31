@@ -219,6 +219,15 @@ class EmulatorThread {
   // and the slots dialog used to answer the first question with the second
   // (6.26).
   void PostSetSlotWriteProtect(int slot, bool writeProtected);
+  // Makes sure an unsaved slot has its diskette, making an empty one if it has
+  // none.  Nothing is swapped and nothing waits for the drive.
+  //
+  // Sent when the slot is set up and once per marked slot at start-up, so that
+  // a slot the settings call "*pamat" really holds a diskette from the moment
+  // it exists.  Deferring the making until the first insert left a slot that
+  // named a diskette and had none -- which is why its lock could not be set,
+  // and why the list had to explain that in words (6.26, 6.28).
+  void PostEnsureSlotDiskette(int slot);
   // A blank diskette with no home folder.  Unformatted, no track
   // answers until the guest's own format routine has been over it.
   // slot is where the new diskette belongs (0 for none), so that taking it
@@ -265,7 +274,7 @@ class EmulatorThread {
       kKey, kReset, kSetMode, kToggleMode, kSetDiagnostics,
       kDumpDiagnostics, kPowerOff, kFocusLost, kSaveDiskAs,
       kMountDisk, kEjectDisk, kCreateEmptyDisk, kInsertSlot, kAssignSlot,
-      kSetWriteProtect, kSetSlotWriteProtect, kQuit,
+      kSetWriteProtect, kSetSlotWriteProtect, kEnsureSlotDisk, kQuit,
     } type = Type::kQuit;
     HostKeyEvent key{};
     InputMode mode = InputMode::kPc;

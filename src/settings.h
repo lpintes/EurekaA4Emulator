@@ -107,8 +107,10 @@ class Settings {
 // diskette; DiskStash keeps the diskette now, so the second insert hands back
 // what was written on it and the name was a lie from the first save on.
 //
-// Only the first insert of an unused slot makes one, and across runs the
-// diskette is gone -- neither is a reason to call a written diskette empty.
+// A slot carrying this marker has a real diskette from the moment it is set
+// up, and again at every start-up -- main.cpp asks the worker for one per
+// marked slot.  The making used to wait for the first insert, which left a
+// slot that named a diskette and held none.
 //
 // There is deliberately no marker for an unformatted diskette.  Unformatted is
 // a state that lasts until the first Shift+F8, so a slot promising one would
