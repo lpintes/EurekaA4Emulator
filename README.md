@@ -174,12 +174,25 @@ Jediná výnimka je neuložená disketa, na ktorej **niečo je a nepatrí
 žiadnemu slotu**: tá by výmenou zanikla, tak sa na ňu emulátor spýta.
 Podrobnosti sú v kapitole Sloty s disketami.
 
-Uložiť disketu môžete kedykoľvek cez `F11`, `Ctrl+U`, a pri ukončení sa
-emulátor spýta sám.
+## Uložiť disketu do priečinka
+
+`F11`, `Ctrl+U`, alebo ponuka **Disketa → Uložiť disketu do priečinka…**.
+
+Je to **uložiť ako**, nie „urobiť kópiu": ten priečinok je odvtedy
+diskety a zapisuje sa doň sama, tak ako každá disketa z priečinka. Preto
+sa po uložení zmení aj titulok okna — disketa v ňom už nie je
+„neuložená", ale nesie meno svojho priečinka.
+
+Rovnaký úkon má aj disketa, ktorá priečinok už mala: **presťahuje sa**
+do nového a starý si ponechá to, čo v ňom bolo. Je to jedno pravidlo pre
+obe, tak ako v editore.
 
 Pri ukladaní **priečinok nemusí existovať**. Dialóg má pole na názov,
 tak ako pri ukladaní súboru: napíšete meno a priečinok sa vytvorí. Nie
 je teda nutné ho najprv niekde založiť a potom sa poň vracať.
+
+Pri ukončení sa emulátor spýta sám, ak v mechanike alebo v slote zostala
+neuložená disketa so súbormi.
 
 ## Nová disketa
 

@@ -65,7 +65,10 @@ enum : UINT {
   WM_EMU_STATE = WM_APP + 1,   // mode or diagnostics changed; refresh the UI
   WM_EMU_POWERED_OFF = WM_APP + 2,
   WM_EMU_DISK_ERROR = WM_APP + 3,
-  WM_EMU_EXPORT_DONE = WM_APP + 4,
+  // A Save As finished.  It carries the new state as well as the outcome: a
+  // diskette that had no home has one now, so the title stops saying
+  // "neuložená" in the same breath as the box that says where it went.
+  WM_EMU_SAVED = WM_APP + 4,
   // The sound device would not open.  On this machine that is not a degraded
   // experience, it is no user interface at all, so the window has to say so.
   WM_EMU_NO_AUDIO = WM_APP + 5,
@@ -132,6 +135,17 @@ struct DiskChange {
   DiskState state;
 };
 
+// The outcome of a Save As, picked up when WM_EMU_SAVED arrives.  The state
+// travels with it because saving changes what the diskette *is* -- it has a
+// home afterwards -- and reporting that through a second message would leave a
+// window in which the box names a folder the title has not heard of.
+struct SaveResult {
+  bool ok = true;
+  // The folder it went to, or why it did not go.
+  std::wstring detail;
+  DiskState state;
+};
+
 class EmulatorThread {
  public:
   EmulatorThread() = default;
@@ -167,11 +181,11 @@ class EmulatorThread {
   // WM_KILLFOCUS, where the real key releases are delivered to whoever took
   // the focus instead.
   void PostFocusLost();
-  // Writes the current diskette out to a folder without disturbing the guest.
-  // It has to be the worker that does it: the machine is the worker's, and an
-  // export taken from another thread mid-update would see a half-written
-  // directory.
-  void PostExportDisk(std::wstring folder);
+  // Save As: writes the current diskette out to a folder and keeps that folder
+  // as its home.  It has to be the worker that does it: the machine is the
+  // worker's, and a save taken from another thread mid-update would see a
+  // half-written directory.
+  void PostSaveDiskAs(std::wstring folder);
   // Puts a different diskette in, or takes the current one out.  Both wait for
   // the drive to go quiet before they touch anything -- see the worker.
   // writeProtected travels with the mount rather than following it, so a
@@ -240,8 +254,8 @@ class EmulatorThread {
   bool running() const { return running_.load(std::memory_order_relaxed); }
   // Last disk error the worker reported, for the WM_EMU_DISK_ERROR handler.
   std::wstring TakeDiskError();
-  // Empty when the last export succeeded, otherwise why it did not.
-  std::wstring TakeExportResult(bool& ok);
+  // What the last Save As did, for the WM_EMU_SAVED handler.
+  SaveResult TakeSaveResult();
   // What the last swap did, for the WM_EMU_DISK_CHANGED handler.
   DiskChange TakeDiskChange();
 
@@ -249,7 +263,7 @@ class EmulatorThread {
   struct Command {
     enum class Type {
       kKey, kReset, kSetMode, kToggleMode, kSetDiagnostics,
-      kDumpDiagnostics, kPowerOff, kFocusLost, kExportDisk,
+      kDumpDiagnostics, kPowerOff, kFocusLost, kSaveDiskAs,
       kMountDisk, kEjectDisk, kCreateEmptyDisk, kInsertSlot, kAssignSlot,
       kSetWriteProtect, kSetSlotWriteProtect, kQuit,
     } type = Type::kQuit;
@@ -276,8 +290,7 @@ class EmulatorThread {
 
   std::mutex errorMutex_;
   std::wstring diskError_;
-  std::wstring exportResult_;
-  bool exportOk_ = false;
+  SaveResult saveResult_;
   DiskChange diskChange_;
 
   // Written by the worker, read by the owner after Stop().

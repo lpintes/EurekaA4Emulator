@@ -42,8 +42,19 @@ class VirtualDisk {
   // Takes the medium out.  Whatever was owed to the home folder has to have
   // been flushed already: this drops the image on the floor.
   void Eject();
+  // Pays the image back to the home folder, if there is one and anything is
+  // owed.  Nothing to do for a diskette that has none.
   bool Flush(std::wstring& error);
-  bool ExportTo(const std::filesystem::path& folder, std::wstring& error);
+  // Writes the whole diskette out to a folder and keeps that folder as its
+  // home from then on -- Save As, not Save a copy.  For a diskette that had
+  // no home this is the act that gives it one; for a diskette that had a
+  // different one it moves house, and the old folder keeps what it had.
+  //
+  // One rule for both, because two would need the user to know which one they
+  // were in: an editor's Save As does exactly this, and a "save" that left the
+  // document unsaved afterwards is the sort of half-act this program has been
+  // caught wording before (6.25, 6.26).
+  bool SaveAs(const std::filesystem::path& folder, std::wstring& error);
 
   // Whether laying a track down really erases it.  Its own question and its
   // own name on purpose: it happens to have the same answer as has_home(),
@@ -135,8 +146,13 @@ class VirtualDisk {
   // writeBack distinguishes the two directions: updating the home folder in
   // place (host paths and deletions honoured, unchanged files left alone) from
   // copying the whole image out to a folder that knows nothing about it.
+  //
+  // adopted, when given, collects what was written where, so SaveAs can take
+  // the destination as the new home with a file list that matches it.  Without
+  // that the first Flush afterwards would find imported_ empty and leave every
+  // file the guest had deleted lying in the folder.
   bool ExportImage(const std::filesystem::path& destination, bool writeBack,
-                   std::wstring& error);
+                   std::wstring& error, ImportedFiles* adopted = nullptr);
 
   static bool ValidTrack(unsigned cylinder, unsigned side);
 

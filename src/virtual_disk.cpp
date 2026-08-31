@@ -143,7 +143,7 @@ void VirtualDisk::Eject() {
 
 // A diskette with no home: 0E5h everywhere is exactly what a freshly formatted
 // CP/M disk looks like, so the firmware sees an empty directory without any
-// host folder behind it.
+// host folder behind it.  SaveAs is what gives it one.
 //
 // Unformatted, it is 0E5h too, but no track answers: the drive is what a blank
 // out of the box was, and the machine says "vadny disk" until Shift+F8 has
@@ -446,7 +446,7 @@ std::wstring VirtualDisk::DecodeCpmName(const std::string& cpmName) {
 }
 
 bool VirtualDisk::ExportImage(const fs::path& destination, bool writeBack,
-                              std::wstring& error) {
+                              std::wstring& error, ImportedFiles* adopted) {
   std::map<std::string, ExportedFile> files;
   for (unsigned index = 0; index < kDirectoryEntries; ++index) {
     const uint8_t* entry = image_.data() + index * 32;
@@ -508,6 +508,12 @@ bool VirtualDisk::ExportImage(const fs::path& destination, bool writeBack,
     }
     stream.write(reinterpret_cast<const char*>(data.data()),
                  static_cast<std::streamsize>(length));
+    // What the new home holds now, in the shape a mount would have left
+    // behind: the host path, the exact length written and its hash.  Without
+    // the length being the *written* one, the first Flush after adopting
+    // would think every file had changed and rewrite the lot.
+    if (adopted)
+      (*adopted)[name] = {output, length, Hash(data.data(), length)};
   }
 
   if (!writeBack) return true;
@@ -535,15 +541,15 @@ bool VirtualDisk::ExportImage(const fs::path& destination, bool writeBack,
 }
 
 bool VirtualDisk::Flush(std::wstring& error) {
-  // A diskette with no home has nowhere to write back to; main() offers to
-  // export it once, when the machine is switched off.
+  // A diskette with no home has nowhere to write back to; SaveAs is what
+  // gives it one, and main() offers that on the way out.
   if (!has_home() || !dirty_) return true;
   if (!ExportImage(home_, true, error)) return false;
   dirty_ = false;
   return true;
 }
 
-bool VirtualDisk::ExportTo(const fs::path& target, std::wstring& error) {
+bool VirtualDisk::SaveAs(const fs::path& target, std::wstring& error) {
   if (!present_) return true;
   std::error_code ec;
   fs::create_directories(target, ec);
@@ -553,7 +559,19 @@ bool VirtualDisk::ExportTo(const fs::path& target, std::wstring& error) {
   }
   fs::path absolute = fs::weakly_canonical(target, ec);
   if (ec) absolute = target;
-  if (!ExportImage(absolute, false, error)) return false;
+  // Collected rather than kept from before: the file list is what ties the
+  // image to a folder, and after this the folder is a different one.  A failed
+  // write leaves the old home and the old list untouched, so a diskette that
+  // could not be saved is still the diskette it was.
+  ImportedFiles adopted;
+  if (!ExportImage(absolute, false, error, &adopted)) return false;
+  imported_ = std::move(adopted);
+  home_ = absolute;
+  // A folder is a filesystem, so the diskette now carries a format whether or
+  // not it did a moment ago.  That is the one thing saving really changes
+  // about the medium: an unformatted diskette written out to a folder is a
+  // formatted diskette afterwards, because a folder cannot be half laid down.
+  formatted_.set();
   dirty_ = false;
   return true;
 }

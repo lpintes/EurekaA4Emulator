@@ -22,7 +22,7 @@ in the technical manual -- 396 free blocks of 2 KiB and 256 directory entries
 -- so a change in the disk model has to break this test before it breaks a
 diskette. Runs without the ROM.
 
-Three of its groups are worth knowing about before touching `VirtualDisk`:
+Four of its groups are worth knowing about before touching `VirtualDisk`:
 
 - the checks around an unsaved diskette write the image the only way a guest
   can, through `WritePhysicalSector`, laying down the directory entry and the
@@ -40,6 +40,13 @@ Three of its groups are worth knowing about before touching `VirtualDisk`:
   only that the lock cannot be written into `nastavenia.txt`. The last three
   checks pin the one honest reason to grey it: a slot that holds no diskette
   yet has no notch to move;
+
+- `SavingAdoptsTheFolder` pins that saving is Save As. The half that matters is
+  the second one: after saving, a file the guest then deletes has to leave the
+  new folder. Copying the image out and leaving `imported_` empty would look
+  identical on the day -- every file there, contents right -- and the diskette
+  would quietly stop honouring deletions from then on, because the write-back
+  only trashes host files it knows about;
 
 - `klasifikacia_typov_je_pribita` pins, one type at a time, which extensions
   the export may cut at the 01Ah end-of-file marker. `IsTextType` is an

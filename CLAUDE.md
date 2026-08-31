@@ -153,6 +153,12 @@ neodkladá a že slot 0 neexistuje. A od 6.26 aj **zámok**: že cestuje na
 poličku a späť, že sa dá hýbať aj kým disketa leží v slote, a že prázdny slot
 sa zamknúť nedá — to posledné je jediný poctivý dôvod zošediť to políčko.
 
+Drží aj **to, že uloženie je „uložiť ako“** (6.28): `VirtualDisk::SaveAs`
+priečinok prevezme, a hlavne prestavia `imported_`. Bez toho by disketa
+v deň uloženia vyzerala v poriadku a odvtedy by ticho prestala rešpektovať
+mazanie súborov — write-back presúva do `.eureka-trash` len súbory, o ktorých
+vie. Drží to `SavingAdoptsTheFolder`.
+
 Drží aj **klasifikáciu typov súborov pri exporte**, a to je jediné, čo ju
 drží. `VirtualDisk::IsTextType` je allowlist a jeho dve chyby stoja rôzne:
 typ zle označený za textový sa oreže na prvom `1Ah` a **stratí dáta

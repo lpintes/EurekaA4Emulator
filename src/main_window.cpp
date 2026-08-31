@@ -107,8 +107,11 @@ constexpr wchar_t kShortcutHelp[] =
     L"      neuloženej; ukončenie emulátora prežije len zámok diskety, ktorá\r\n"
     L"      má priečinok — zapisuje sa k jeho ceste. Zámok diskety, čo leží\r\n"
     L"      v slote, sa nastavuje v Spravovať sloty.\r\n"
-    L"F11, Ctrl+U — uloží disketu do priečinka. Priečinok nemusí existovať,\r\n"
-    L"      stačí ho v dialógu pomenovať a vytvorí sa.\r\n"
+    L"F11, Ctrl+U — uloží disketu do priečinka a ten priečinok je odvtedy\r\n"
+    L"      jej: zapisuje sa doň sama a v titulku ju už nájdete pod jeho\r\n"
+    L"      menom, nie ako „neuložená“. Priečinok nemusí existovať, stačí ho\r\n"
+    L"      v dialógu pomenovať a vytvorí sa. Disketa, ktorá priečinok už\r\n"
+    L"      mala, sa takto presťahuje — starý si ponechá to, čo v ňom bolo.\r\n"
     L"F11, Ctrl+D — výpis diagnostiky na konzolu.\r\n"
     L"F11, Ctrl+N — nastavenia.\r\n"
     L"F11, Ctrl+H — toto okno.\r\n"
@@ -241,16 +244,21 @@ void MainWindow::RegisterCommands() {
   });
 
   OnCommand(ID_FILE_EXPORT, [this] {
+    // Save As, not "save a copy": the folder becomes the diskette's own from
+    // here on.  See VirtualDisk::SaveAs -- an unsaved diskette is what this is
+    // mostly for, and leaving it unsaved after saving it would be the sort of
+    // half-act this program keeps having to unpick.
+    //
     // The name may be one that does not exist yet -- saving a diskette
     // somewhere new is the normal case, and making the user go and create the
-    // folder first turned one act into two.  VirtualDisk::ExportTo creates it.
+    // folder first turned one act into two.  VirtualDisk::SaveAs creates it.
     // The diskette's own name is suggested, because saving it under the name
     // it already has is what is nearly always meant.
     const std::wstring folder = win::PickFolderToCreate(
         hwnd_, L"Kam sa má disketa uložiť",
         disk_.labels.name.empty() ? L"Disketa" : disk_.labels.name.c_str());
     // Cancelling is an answer, not an error.
-    if (!folder.empty()) emulator_.PostExportDisk(folder);
+    if (!folder.empty()) emulator_.PostSaveDiskAs(folder);
   });
 
   OnCommand(ID_DISK_INSERT, [this] {
@@ -593,13 +601,14 @@ bool MainWindow::ConfirmLosingDiskette() {
   switch (MessageBoxW(hwnd_, question.c_str(), L"Neuložená disketa",
                       MB_YESNOCANCEL | MB_ICONWARNING)) {
     case IDYES: {
-      // The export is the worker's job and takes a moment; the caller waits
-      // for it rather than swapping underneath it, so this answers "no, not
-      // now" and the user repeats the command once it is saved.
+      // The save is the worker's job and takes a moment; the caller waits for
+      // it rather than swapping underneath it, so this answers "no, not now"
+      // and the user repeats the command once it is saved.  After that the
+      // diskette has a folder, so the second attempt does not ask again.
       const std::wstring folder = win::PickFolderToCreate(
           hwnd_, L"Kam sa má disketa uložiť", L"Disketa");
       if (folder.empty()) return false;
-      emulator_.PostExportDisk(folder);
+      emulator_.PostSaveDiskAs(folder);
       return false;
     }
     case IDNO:
@@ -976,14 +985,33 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       return 0;
     }
 
-    case WM_EMU_EXPORT_DONE: {
-      bool ok = false;
-      const std::wstring detail = emulator_.TakeExportResult(ok);
-      MessageBoxW(hwnd_,
-                  ok ? (L"Disketa bola uložená do:\r\n" + detail).c_str()
-                     : (L"Disketu sa nepodarilo uložiť:\r\n" + detail).c_str(),
-                  L"Eureka A4",
-                  MB_OK | (ok ? MB_ICONINFORMATION : MB_ICONERROR));
+    case WM_EMU_SAVED: {
+      const SaveResult saved = emulator_.TakeSaveResult();
+      // The state first, so the title already names the folder by the time the
+      // box says the diskette went there.  No tone: nothing went in or out,
+      // and the box is modal, which a screen reader announces and reads.
+      if (saved.ok) {
+        SetDiskState(saved.state);
+        RefreshMenu();
+        // It has a home now, so this is the diskette the next start should
+        // open.  A diskette saved and then left is otherwise saved and lost.
+        RememberDisk(saved.state.home);
+      }
+      MessageBoxW(
+          hwnd_,
+          saved.ok
+              // Said outright, because this is the half of Save As that is
+              // easy to miss: the diskette does not merely have a copy in that
+              // folder, it *is* that folder from now on and writes itself
+              // there.  A message that stopped at "uložená do" would leave the
+              // user believing they still had an unsaved diskette.
+              ? (L"Disketa bola uložená do:\r\n\r\n" + saved.detail +
+                 L"\r\n\r\nOdteraz je to jej priečinok a zapisuje sa doň sama.")
+                    .c_str()
+              : (L"Disketu sa nepodarilo uložiť:\r\n\r\n" + saved.detail +
+                 L"\r\n\r\nZostáva taká, aká bola.")
+                    .c_str(),
+          L"Eureka A4", MB_OK | (saved.ok ? MB_ICONINFORMATION : MB_ICONERROR));
       return 0;
     }
 

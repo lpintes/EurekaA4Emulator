@@ -91,14 +91,18 @@ std::vector<uint8_t> ReadAll(const fs::path& path) {
   return std::vector<uint8_t>((std::istreambuf_iterator<char>(stream)), {});
 }
 
-// Exports the mounted image into a fresh folder and compares it with the
-// source, file by file.  Host names here are already valid 8.3 names, so the
-// diskette hands them back unchanged.
-bool ExportMatches(VirtualDisk& disk, const fs::path& source,
-                   const std::string& name, std::string& detail) {
+// Saves the mounted image into a fresh folder and compares it with the source,
+// file by file.  Host names here are already valid 8.3 names, so the diskette
+// hands them back unchanged.
+//
+// SaveAs, so the diskette's home moves to that fresh folder afterwards.  Every
+// caller does this last and looks at the folder, not at the diskette; a caller
+// that went on using it would be using a diskette that has moved house.
+bool SaveMatches(VirtualDisk& disk, const fs::path& source,
+                 const std::string& name, std::string& detail) {
   const fs::path target = MakeFolder(name + "-export");
   std::wstring error;
-  if (!disk.ExportTo(target, error)) {
+  if (!disk.SaveAs(target, error)) {
     detail = "export zlyhal: " + Narrow(error);
     return false;
   }
@@ -136,7 +140,7 @@ void FullDiskette() {
                 : Narrow(error));
   if (!mounted) return;
   std::string detail;
-  Check(ExportMatches(disk, folder, "plna", detail), "plna_disketa_export", detail);
+  Check(SaveMatches(disk, folder, "plna", detail), "plna_disketa_export", detail);
 }
 
 void TwoBlocksTooMany() {
@@ -237,7 +241,7 @@ void FileSpanningTwoExtents() {
         mounted ? "v adresari " + std::to_string(disk.StoredFiles()) : Narrow(error));
   if (!mounted) return;
   std::string detail;
-  Check(ExportMatches(disk, folder, "dva-extenty", detail),
+  Check(SaveMatches(disk, folder, "dva-extenty", detail),
         "subor_cez_dva_extenty_export", detail);
 }
 
@@ -252,7 +256,7 @@ void EmptyFile() {
         mounted ? "v adresari " + std::to_string(disk.StoredFiles()) : Narrow(error));
   if (!mounted) return;
   std::string detail;
-  Check(ExportMatches(disk, folder, "prazdny-subor", detail),
+  Check(SaveMatches(disk, folder, "prazdny-subor", detail),
         "prazdny_subor_export", detail);
 }
 
@@ -611,6 +615,81 @@ void StashKeepsTheLock() {
   Check(!stash.SetWriteProtected(0, true), "slot nula sa neda zamknut");
 }
 
+// Saving is Save As: the folder becomes the diskette's own, so what it writes
+// afterwards goes there by itself and a file it deletes leaves the folder.
+//
+// The second half is what makes the first half real.  Copying the image out
+// and leaving imported_ empty would have looked identical on the day -- every
+// file present, contents right -- and the diskette would have quietly stopped
+// honouring deletions from then on, because the write-back only trashes host
+// files it knows about.
+void SavingAdoptsTheFolder() {
+  const fs::path source = MakeFolder("ulozit-ako-zdroj");
+  MakeFile(source / L"PRVY.BIN", 900, 4);
+  MakeFile(source / L"DRUHY.BIN", 700, 5);
+
+  VirtualDisk disk;
+  std::wstring error;
+  Check(disk.Mount(source, error), "zdrojova disketa sa pripoji", Narrow(error));
+  Check(disk.has_home() && disk.home() == fs::weakly_canonical(source),
+        "pripojena disketa ma domov");
+
+  const fs::path target = MakeFolder("ulozit-ako-ciel");
+  Check(disk.SaveAs(target, error), "disketa sa ulozi inam", Narrow(error));
+  Check(disk.home() == fs::weakly_canonical(target),
+        "po ulozeni je domovom novy priecinok");
+  Check(fs::exists(target / "PRVY.BIN") && fs::exists(target / "DRUHY.BIN"),
+        "oba subory su v novom priecinku");
+  // Moving house leaves the old address as it was.  A "save" that emptied the
+  // folder it came from would be a move nobody asked for.
+  Check(fs::exists(source / "PRVY.BIN"), "stary priecinok si svoje nechal");
+
+  // Now delete one file the way the guest does -- erase its directory entry --
+  // and let the write-back run.  It has to reach the new home, and it has to
+  // take the host file with it.
+  uint8_t entry[512]{};
+  Check(disk.ReadPhysicalSector(0, 0, 1, entry), "adresar sa cita");
+  bool erased = false;
+  for (unsigned index = 0; index < 512 / 32; ++index) {
+    const std::string name(reinterpret_cast<char*>(entry + index * 32 + 1), 8);
+    if (name.compare(0, 4, "PRVY") != 0) continue;
+    entry[index * 32] = 0xe5;
+    erased = true;
+    break;
+  }
+  Check(erased, "polozka PRVY.BIN sa nasla");
+  Check(disk.WritePhysicalSector(0, 0, 1, entry), "adresar sa zapise");
+  Check(disk.Flush(error), "zapis do noveho domova prejde", Narrow(error));
+  Check(!fs::exists(target / "PRVY.BIN"),
+        "zmazany subor odisiel aj z hostitelskeho priecinka");
+  Check(fs::exists(target / L".eureka-trash" / L"PRVY.BIN"),
+        "zmazany subor je v kosi, nie prec");
+  Check(fs::exists(target / "DRUHY.BIN"), "zvysok zostal");
+}
+
+// An unsaved diskette that has never been formatted still saves, and what
+// comes back is a diskette with a home -- and a home is a filesystem, so it
+// carries a format afterwards whether it did before or not.
+void SavingAnUnsavedDisketteGivesItAHome() {
+  VirtualDisk disk;
+  disk.CreateEmpty(false);
+  Check(disk.present() && !disk.has_home(), "nova disketa domov nema");
+  Check(!disk.has_format(), "nenaformatovana nema format");
+  Check(disk.formatting_erases(), "na nej formatovanie naozaj maze");
+
+  const fs::path target = MakeFolder("prva-ulozena");
+  std::wstring error;
+  Check(disk.SaveAs(target, error), "neulozena disketa sa ulozi", Narrow(error));
+  Check(disk.has_home(), "po ulozeni uz domov ma");
+  Check(disk.has_format(), "po ulozeni je naformatovana");
+  Check(!disk.formatting_erases(),
+        "na diskete s domovom uz formatovanie nemaze");
+
+  // And it is no longer the stash's business: the folder holds it now.
+  DiskStash stash;
+  Check(!stash.Put(1, disk), "ulozena disketa sa uz neodklada");
+}
+
 // Lays bytes into the image the only way a guest can: through the controller.
 // offset and the data length have to be whole 512 byte sectors.
 bool PutImageBytes(VirtualDisk& disk, std::size_t offset,
@@ -709,7 +788,7 @@ void RamDisketteKeepsBinaryFilesWhole() {
 
   const fs::path target = MakeFolder("ram-export");
   std::wstring error;
-  Check(disk.ExportTo(target, error), "ram_disketa_sa_ulozi_do_priecinka",
+  Check(disk.SaveAs(target, error), "ram_disketa_sa_ulozi_do_priecinka",
         Narrow(error));
 
   const std::vector<uint8_t> exported = ReadAll(target / "HRALET.BAS");
@@ -799,7 +878,7 @@ void FileTypeClassificationIsPinned() {
 
   const fs::path target = MakeFolder("typy-export");
   std::wstring error;
-  if (!disk.ExportTo(target, error)) {
+  if (!disk.SaveAs(target, error)) {
     Check(false, "klasifikacia_typov_export", Narrow(error));
     return;
   }
@@ -864,6 +943,8 @@ int main() {
   StashDeclinesFolderDiskettes();
   StashKeepsEverySlotApart();
   StashKeepsTheLock();
+  SavingAdoptsTheFolder();
+  SavingAnUnsavedDisketteGivesItAHome();
   RamDisketteKeepsBinaryFilesWhole();
   FileTypeClassificationIsPinned();
   EmptyFolderAndMissingFolder();

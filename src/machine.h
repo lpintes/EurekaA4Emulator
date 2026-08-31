@@ -48,8 +48,11 @@ class EurekaMachine {
     ForgetFormattedTrack();
   }
   bool FlushDisk(std::wstring& error) { return disk_.Flush(error); }
-  bool ExportDisk(const std::filesystem::path& folder, std::wstring& error) {
-    return disk_.ExportTo(folder, error);
+  // Save As: writes the diskette out and keeps that folder as its home.  See
+  // VirtualDisk::SaveAs -- after this the diskette is saved, not merely
+  // copied, and the caller has to say so.
+  bool SaveDiskAs(const std::filesystem::path& folder, std::wstring& error) {
+    return disk_.SaveAs(folder, error);
   }
   // The write protect notch.  Reaching the guest through the controller's
   // status bit 6, so the firmware finds out the way it does on the hardware

@@ -1920,7 +1920,7 @@ Nekryté testom, a zámerne: `run-tests.bat` drží dvanásť procesov a nič
 z toho nie je GUI. Meranie je jednorazový skript typu sondy. Kto siahne
 na skupiny v `.rc`, nech si ho spraví znovu — postup je hore v odseku.
 
-### 6.28 Disketa nie je „v pamäti“, je **neuložená** — pomenované
+### 6.28 Disketa nie je „v pamäti“, je **neuložená** — pomenované, a Ctrl+U je Uložiť ako
 
 **Nahlásil majiteľ 31. 8. 2026** vetou, ktorá zrušila dvojročný slovník:
 *„takže vlastne každá disketa je v pamäti. To je ešte zamotanejšie.“*
@@ -1964,6 +1964,35 @@ prepínače v `Nová disketa`, tlačidlo v slotoch, otázky pri výmene aj pri
 ukončení, `--help` aj README. „Neuložená“ nie je len presnejšie, je to
 **podmienené** slovo: hovorí, že cesta preč z toho stavu existuje. Presne
 to, čo 6.25 žiadalo od popisky, ktorá raz prestrelila.
+
+**A to slovo si vynútilo tretiu zmenu: `Ctrl+U` je odteraz Uložiť ako.**
+Kým „uložiť do priečinka“ znamenalo len kópiu, titulok by hneď po uložení
+stále hlásil „neuložená“ — teda by klamal v okamihu, keď používateľ práve
+uložil. `VirtualDisk::SaveAs` preto priečinok **prevezme**: disketa doň
+odvtedy zapisuje sama, dostane meno do titulku a `RememberDisk` ju zapíše
+ako disketu na budúci štart. Jedno pravidlo pre obe diskety — disketa, čo
+priečinok už mala, sa presťahuje, starý si ponechá svoje — lebo dve pravidlá
+by od používateľa žiadali vedieť, v ktorom z nich práve je.
+
+**Toto miesto v kóde už raz v editorových pojmoch myslelo a nikto si toho
+nevšimol.** `main.cpp` pri ukončení ponúka `PickFolderToCreate`
+s komentárom *„A name that does not exist yet is the point here“* — to je
+doslova Uložiť ako nad nepomenovaným dokumentom. Bolo to jediné také miesto
+v programe; teraz je to posledná šanca, nie jediná.
+
+**Dve pasce v `SaveAs`, obe tiché.**
+
+- **`imported_` treba prestavať.** Ten zoznam viaže obraz na priečinok
+  a `ExportImage(writeBack=true)` podľa neho presúva zmazané súbory do
+  `.eureka-trash`. Keby `SaveAs` priečinok prevzal a zoznam nechal prázdny,
+  v deň uloženia by bolo všetko v poriadku — a disketa by odvtedy prestala
+  rešpektovať mazanie, lebo write-back zahadzuje len súbory, o ktorých vie.
+  `ExportImage` má preto parameter `adopted` a `SaveAs` ním `imported_`
+  nahradí. Drží to `SavingAdoptsTheFolder`.
+- **Formát.** Priečinok je filesystem, takže po prevzatí `formatted_.set()`.
+  Nenaformátovaná disketa uložená do priečinka je odvtedy naformátovaná —
+  je to jediná vec, ktorú ukladanie na médiu naozaj mení, a je napísaná
+  v hlavičke aj krytá testom (`SavingAnUnsavedDisketteGivesItAHome`).
 
 **Premenovanie zrazilo dve mnemoniky, a nahlásil to majiteľ.** `&Trvalá`
 a `&Dočasná v pamäti` niesli `T` a `D`; ako `&Uložená` a `&Neuložená` si
@@ -2071,7 +2100,7 @@ Zostáva to odskúšať v skutočnej relácii s NVDA; rozbor je na konci 6.18.
    voľba aj dialóg `Nová disketa` s nenaformátovaným médiom **hotové**
    28. 8. 2026; **zámok proti zápisu** a **disketa ako objekt** (zásobník
    slotov, 6.24) **hotové** 29. 8. 2026; **zámok diskety v slote** (6.26)
-   a **slovník „neuložená“** (6.28) **hotové** 31. 8. 2026.
+   a **slovník „neuložená“ s Uložiť ako** (6.28) **hotové** 31. 8. 2026.
    Ostáva **rozdeľovač kolekcie**
    (`disk_layout`), ktorý je na zvyšku nezávislý a dá sa písať aj testovať
    bez GUI a bez ROM. Že sa EurekaDOS po výmene preloguje sám, je odmerané

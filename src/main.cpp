@@ -323,6 +323,12 @@ int Run() {
   // started: a diskette can be swapped mid-run, so --ram-disk no longer means
   // there is still an unsaved diskette here -- and one that has a home needs
   // no offer, it is already on disk.
+  //
+  // This was the one place in the program that already thought in these terms:
+  // it offers a folder that does not exist yet, which is Save As over an
+  // unnamed document, while everything else called the same diskette "v
+  // pamäti" and left it that way.  Now Ctrl+U does the same thing during the
+  // run, and this is only the last chance rather than the only one.
   if (machine && machine->disk().present() && !machine->disk().has_home() &&
       machine->disk().StoredFiles() > 0) {
     const std::wstring question =
@@ -331,12 +337,12 @@ int Run() {
     if (MessageBoxW(nullptr, question.c_str(), L"Eureka A4",
                     MB_YESNO | MB_ICONQUESTION) == IDYES) {
       // A name that does not exist yet is the point here: this diskette never
-      // had a folder, so there is nothing to pick.  ExportDisk creates it.
+      // had a folder, so there is nothing to pick.  SaveDiskAs creates it.
       const std::wstring target = win::PickFolderToCreate(
           nullptr, L"Kam sa má disketa uložiť", L"Disketa");
       if (target.empty())
         Warn(L"Ukladanie zrušené, obsah diskety sa stratí.");
-      else if (!machine->ExportDisk(target, error))
+      else if (!machine->SaveDiskAs(target, error))
         MessageBoxW(nullptr, (L"Chyba pri ukladaní:\r\n\r\n" + error).c_str(),
                     L"Eureka A4", MB_OK | MB_ICONERROR);
       else
@@ -363,7 +369,7 @@ int Run() {
         (L"Disketa " + std::to_wstring(slot)).c_str());
     if (target.empty())
       Warn(L"Ukladanie zrušené, obsah diskety sa stratí.");
-    else if (!kept->ExportTo(target, error))
+    else if (!kept->SaveAs(target, error))
       MessageBoxW(nullptr, (L"Chyba pri ukladaní:\r\n\r\n" + error).c_str(),
                   L"Eureka A4", MB_OK | MB_ICONERROR);
     else

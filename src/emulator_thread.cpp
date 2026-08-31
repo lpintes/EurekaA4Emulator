@@ -371,9 +371,9 @@ void EmulatorThread::PostPowerOff() { PostType(Command::Type::kPowerOff); }
 
 void EmulatorThread::PostFocusLost() { PostType(Command::Type::kFocusLost); }
 
-void EmulatorThread::PostExportDisk(std::wstring folder) {
+void EmulatorThread::PostSaveDiskAs(std::wstring folder) {
   Command command;
-  command.type = Command::Type::kExportDisk;
+  command.type = Command::Type::kSaveDiskAs;
   command.path = std::move(folder);
   Post(std::move(command));
 }
@@ -469,10 +469,9 @@ std::wstring EmulatorThread::TakeDiskError() {
   return std::move(diskError_);
 }
 
-std::wstring EmulatorThread::TakeExportResult(bool& ok) {
+SaveResult EmulatorThread::TakeSaveResult() {
   std::lock_guard<std::mutex> lock(errorMutex_);
-  ok = exportOk_;
-  return std::move(exportResult_);
+  return std::move(saveResult_);
 }
 
 void EmulatorThread::Run() {
@@ -813,19 +812,25 @@ void EmulatorThread::Run() {
         host.chordShift = false;
         machine.HoldShift(false);
         break;
-      case Command::Type::kExportDisk: {
+      case Command::Type::kSaveDiskAs: {
         // Flushed first, so what lands in the folder is the image the guest
         // has actually finished writing rather than whatever was in it when
-        // the menu was opened.
-        std::wstring exportError;
-        const bool ok = machine.FlushDisk(exportError) &&
-                        machine.ExportDisk(command.path, exportError);
+        // the menu was opened.  For a diskette that already had a home this
+        // pays that one off before moving house, which is why the old folder
+        // is left complete rather than one write short.
+        std::wstring saveError;
+        SaveResult result;
+        result.ok = machine.FlushDisk(saveError) &&
+                    machine.SaveDiskAs(command.path, saveError);
+        result.detail = result.ok ? command.path : saveError;
+        // Read after the save, so this says the diskette has a home now.
+        result.state = DescribeDisk(machine.disk());
+        result.state.slot = currentSlot;
         {
           std::lock_guard<std::mutex> lock(errorMutex_);
-          exportOk_ = ok;
-          exportResult_ = ok ? command.path : exportError;
+          saveResult_ = std::move(result);
         }
-        if (notify) PostMessageW(notify, WM_EMU_EXPORT_DONE, 0, 0);
+        if (notify) PostMessageW(notify, WM_EMU_SAVED, 0, 0);
         break;
       }
       case Command::Type::kSetSlotWriteProtect: {
