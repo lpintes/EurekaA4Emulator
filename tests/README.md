@@ -24,12 +24,12 @@ diskette. Runs without the ROM.
 
 Two of its groups are worth knowing about before touching `VirtualDisk`:
 
-- the checks around a diskette in memory write the image the only way a guest
+- the checks around an unsaved diskette write the image the only way a guest
   can, through `WritePhysicalSector`, laying down the directory entry and the
-  data blocks by hand. That is not ceremony: a folder-backed diskette has
+  data blocks by hand. That is not ceremony: a diskette with a home folder has
   `imported_` full, so it knows every file's exact length and the export never
   has to work one out. The paths that do have to work it out are reachable only
-  from a diskette the host folder knows nothing about, and `Mount` cannot get
+  from a diskette no host folder knows anything about, and `Mount` cannot get
   there;
 
 - `klasifikacia_typov_je_pribita` pins, one type at a time, which extensions
@@ -47,7 +47,7 @@ Two of its groups are worth knowing about before touching `VirtualDisk`:
 
 `integration_test.cpp` boots the real ROM and has several modes:
 
-- `format` boots with an unformatted RAM diskette -- the only medium on which
+- `format` boots with an unformatted unsaved diskette -- the only medium on which
   the firmware's format routine has anything to do, since over a host folder it
   is a deliberate no-op (6.5) -- presses Shift+F8 and answers the two questions
   it asks. Then every one of the 160 tracks has to carry a format and the

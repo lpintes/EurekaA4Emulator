@@ -2,8 +2,8 @@
 
 bool DiskStash::Put(int slot, const VirtualDisk& disk) {
   if (!Valid(slot)) return false;
-  // An empty drive is not a diskette, and a folder-backed one keeps itself.
-  if (disk.media() != VirtualDisk::Media::kRam) return false;
+  // An empty drive is not a diskette, and one with a home keeps itself.
+  if (!disk.present() || disk.has_home()) return false;
   disks_[static_cast<std::size_t>(slot)] = std::make_unique<VirtualDisk>(disk);
   return true;
 }

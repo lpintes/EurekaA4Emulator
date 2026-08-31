@@ -17,30 +17,45 @@ class VirtualDisk {
   static constexpr unsigned kRecordsPerTrack = 40;
   static constexpr unsigned kRecordSize = 128;
 
-  // A machine may run with no diskette at all; the firmware has its own path
-  // for that (19828 seeks, polls INDEX, reports "neni disk" at 19848).
-  enum class Media { kNone, kFolder, kRam };
+  // There is one kind of diskette and it always lives in this process's
+  // memory: mounting a host folder reads it into the image below and Flush
+  // writes it back, so the guest never touches the folder.  What differs is
+  // whether a diskette has a *home* -- a folder it loads from and saves
+  // itself to -- or none, in which case it exists nowhere else.
+  //
+  // That distinction used to be an enum, Media::kFolder against Media::kRam,
+  // and the name was the bug: "lives in RAM" was read as "cannot be locked"
+  // when what it really means is "its lock cannot be written down" (6.26).
+  // Both are in RAM.  Only one has somewhere to be saved.
 
   // Logical tracks, cylinder * 2 + side.  Both numbering schemes below index
   // the formatted map with this.
   static constexpr unsigned kLogicalTracks = kTracks;
 
+  // Reads a host folder in and keeps it as this diskette's home.
   bool Mount(const std::filesystem::path& folder, std::wstring& error);
-  // formatted false gives a diskette that has never been through a format:
-  // every track reads back Record Not Found until the guest's own format
-  // routine lays it down.  Only worth doing for a diskette that lives in
-  // memory -- a host folder is a filesystem and always has one.
-  void CreateRamDisk(bool formatted = true);
-  // Takes the medium out.  Whatever was owed to the host folder has to have
+  // A diskette with no home.  formatted false gives one that has never been
+  // through a format: every track reads back Record Not Found until the
+  // guest's own format routine lays it down.  Only worth doing here -- a
+  // diskette with a home is a filesystem and always carries a format.
+  void CreateEmpty(bool formatted = true);
+  // Takes the medium out.  Whatever was owed to the home folder has to have
   // been flushed already: this drops the image on the floor.
   void Eject();
   bool Flush(std::wstring& error);
   bool ExportTo(const std::filesystem::path& folder, std::wstring& error);
 
-  // One track laid down by the guest's format routine (Write Track).  It
-  // means something only on a diskette in memory: behind a host folder the
-  // track image is discarded and the files are left alone (6.5), so there the
-  // call succeeds and changes nothing.
+  // Whether laying a track down really erases it.  Its own question and its
+  // own name on purpose: it happens to have the same answer as has_home(),
+  // but for an unrelated reason -- a home folder is a filesystem, not a
+  // magnetic surface, so the guest's format routine reports success and
+  // deletes nothing (6.5).  Sharing one predicate between two reasons is how
+  // 6.26 happened.
+  bool formatting_erases() const { return present_ && !has_home(); }
+
+  // One track laid down by the guest's format routine (Write Track).  See
+  // formatting_erases: on a diskette with a home the track image is discarded
+  // and the files are left alone, so the call succeeds and changes nothing.
   void FormatTrack(unsigned cylinder, unsigned side);
   bool TrackFormatted(unsigned cylinder, unsigned side) const;
   // False only for a diskette on which no track has been laid down at all.
@@ -68,10 +83,16 @@ class VirtualDisk {
   bool WritePhysicalSector(unsigned cylinder, unsigned side, unsigned sector,
                            const uint8_t* source);
 
-  const std::filesystem::path& folder() const { return folder_; }
+  // The folder this diskette loads from and saves itself back to, empty when
+  // it has none.  Also its name: the settings remember a lock by this path,
+  // which is the whole of what a diskette with no home cannot have.
+  const std::filesystem::path& home() const { return home_; }
+  bool has_home() const { return !home_.empty(); }
+  // True while the image owes something to the home folder.  Not "modified":
+  // a diskette with no home never pays this off, because there is nothing to
+  // pay it to.  Nothing outside Flush may read it as a user-visible state.
   bool dirty() const { return dirty_; }
-  bool present() const { return media_ != Media::kNone; }
-  Media media() const { return media_; }
+  bool present() const { return present_; }
   std::size_t imported_files() const { return imported_.size(); }
   std::size_t StoredFiles() const;
 
@@ -106,10 +127,12 @@ class VirtualDisk {
   static bool IsTextType(const std::string& cpmName);
   static std::wstring DecodeCpmName(const std::string& cpmName);
 
+  using ImportedFiles = std::unordered_map<std::string, ImportedFile>;
+
   bool BuildImage(std::wstring& error);
   bool ScanFolder(std::vector<SourceFile>& files, std::wstring& error);
   bool CheckCapacity(const std::vector<SourceFile>& files, std::wstring& error) const;
-  // writeBack distinguishes the two directions: updating the mounted folder in
+  // writeBack distinguishes the two directions: updating the home folder in
   // place (host paths and deletions honoured, unchanged files left alone) from
   // copying the whole image out to a folder that knows nothing about it.
   bool ExportImage(const std::filesystem::path& destination, bool writeBack,
@@ -117,14 +140,16 @@ class VirtualDisk {
 
   static bool ValidTrack(unsigned cylinder, unsigned side);
 
-  std::filesystem::path folder_;
+  std::filesystem::path home_;
   std::array<uint8_t, kSize> image_{};
   // Which logical tracks carry a format.  Full for anything that came from a
-  // host folder, and for a RAM diskette made formatted; empty for one that
-  // was not, and filled in track by track as the guest formats it.
+  // host folder, and for a homeless diskette made formatted; empty for one
+  // that was not, and filled in track by track as the guest formats it.
   std::bitset<kLogicalTracks> formatted_;
-  std::unordered_map<std::string, ImportedFile> imported_;
-  Media media_ = Media::kNone;
+  ImportedFiles imported_;
+  // Whether there is a diskette in at all.  The firmware has its own path for
+  // an empty drive (19828 seeks, polls INDEX, reports "neni disk" at 19848).
+  bool present_ = false;
   bool dirty_ = false;
   bool write_protected_ = false;
 };

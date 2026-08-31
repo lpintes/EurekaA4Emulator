@@ -195,13 +195,19 @@ void SameDiskIsOneRule() {
   Check(!Settings::SameDisk(L"", L""), "prazdna cesta nie je disketa");
 }
 
-// A diskette in memory exists only for this run, so a line in the file would
-// point at nothing.  Its lock lasts as long as the diskette, which is the
-// honest span for it.
+// An unsaved diskette has no path, and this list is keyed by path, so a line
+// in the file would point at nothing.  Its lock lasts as long as the diskette,
+// which is the honest span for it.
+//
+// What this does *not* mean is that such a diskette cannot be locked.  The
+// notch is a member of VirtualDisk and works on any medium; only remembering
+// it needs a name.  The slots dialog used to read this refusal as "cannot be
+// locked" and greyed its box, which is what 6.26 was -- see DiskStash's
+// StashKeepsTheLock in disk_test for the other half.
 void MemoryDisketteIsNeverRemembered() {
   Settings settings(FileNamed("zamok-pamat.txt"));
-  settings.SetDiskLocked(kSlotRam, true);
-  Check(!settings.disk_locked(kSlotRam), "disketa v pamati sa nezapamata");
+  settings.SetDiskLocked(kSlotUnsaved, true);
+  Check(!settings.disk_locked(kSlotUnsaved), "neulozena disketa sa nezapamata");
 }
 
 void CommentsAndBlanksAreIgnored() {
@@ -307,19 +313,19 @@ void MemorySlotsSurviveTheFile() {
   std::wstring error;
   {
     Settings settings(file);
-    settings.SetSlot(1, kSlotRam);
+    settings.SetSlot(1, kSlotUnsaved);
     settings.SetSlot(3, L"C:\\Diskety\\Príbehy");
     Check(settings.Save(error), "ulozenie so slotom v pamati", Narrow(error));
   }
   Settings loaded(file);
   loaded.Load();
-  Check(SlotIsRam(loaded.slot(1)), "slot s pamatou prezije");
-  Check(!SlotIsRam(loaded.slot(3)), "cesta sa nepomyli s pamatou");
-  Check(!SlotIsRam(L""), "prazdny slot nie je pamat");
+  Check(SlotIsUnsaved(loaded.slot(1)), "slot s pamatou prezije");
+  Check(!SlotIsUnsaved(loaded.slot(3)), "cesta sa nepomyli s pamatou");
+  Check(!SlotIsUnsaved(L""), "prazdny slot nie je pamat");
   // An older file may hold the marker this version no longer writes.  It has
   // to read as the memory slot and not as a folder called
   // "*pamat-nenaformatovana", which is what a plain path test would do.
-  Check(SlotIsRam(L"*pamat-nenaformatovana"),
+  Check(SlotIsUnsaved(L"*pamat-nenaformatovana"),
         "stara znacka z minulej verzie sa berie ako pamat");
 }
 
@@ -329,8 +335,8 @@ void SlotNamesAreReadable() {
   // Deliberately not "nová prázdna": the slot hands the same diskette back
   // with everything written on it, so a name promising an empty one would be
   // wrong from the first save on.
-  Check(SlotDisplayName(kSlotRam) == L"Disketa v pamäti",
-        "slot v pamati ma meno", Narrow(SlotDisplayName(kSlotRam)));
+  Check(SlotDisplayName(kSlotUnsaved) == L"Neuložená disketa",
+        "slot v pamati ma meno", Narrow(SlotDisplayName(kSlotUnsaved)));
   // The name is the leaf, not the whole path: it goes in a menu item that a
   // screen reader reads out, where a full path is noise.
   Check(SlotDisplayName(L"C:\\Diskety\\Slovník") == L"Slovník",

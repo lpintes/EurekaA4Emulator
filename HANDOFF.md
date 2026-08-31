@@ -687,8 +687,14 @@ Ak by sa to niekedy malo zmeniť, musí to byť vedomé a s potvrdením.
 **Doplnené 28. 8. 2026: teraz je médium, na ktorom formátovanie naozaj
 niečo robí** — nenaformátovaná disketa v pamäti (6.22). `VirtualDisk` má
 bitovú mapu naformátovaných stôp, Write Track ju zapĺňa a robí to **len
-pre `Media::kRam`**; nad priečinkom platí odsek vyššie bez zmeny. Držia
-to kontroly v `disk_test` aj režim `format` v `integration_test`.
+pre disketu bez priečinka**; nad priečinkom platí odsek vyššie bez zmeny.
+Držia to kontroly v `disk_test` aj režim `format` v `integration_test`.
+
+**Doplnené 31. 8. 2026 (6.28):** `Media::kRam` už neexistuje a podmienka
+sa volá `VirtualDisk::formatting_erases()`. Je to zámerne **vlastný
+predikát**, nie `!has_home()`, hoci má rovnakú odpoveď: dôvod je iný
+(priečinok je filesystem, nie magnetická plocha) a zdieľanie jedného slova
+dvoma otázkami je presne to, čo spôsobilo 6.26.
 
 Pri tom sa odmeralo, ako formátovanie z pohľadu firmvéru vyzerá, a dve
 veci z toho boli prekvapenie:
@@ -1832,7 +1838,7 @@ pri pamäťovom slote má vzťahovať, a sú to tri rôzne veci:
    nikdy nevkladalo, nemá žiadny objekt — worker ju vyrobí až pri prvom
    vložení. Zaškrtnúť zámok tu nemá čoho sa chytiť, pokiaľ sa nezvolí (2).
 
-Kým sa nerozhodne, platí aspoň toto: **cesta zamknúť disketu v pamäti
+Kým sa nerozhodne, platí aspoň toto: **cesta zamknúť neuloženú disketu
 existuje a je to `F11`, `Ctrl+Z`** — README to hovorí správne v kapitole
 Zámok proti zápisu. Dialóg je jediné miesto, kde to znie inak.
 
@@ -1874,6 +1880,87 @@ vybraný slot. Teraz krúžia tlačidlá medzi sebou a zámok stojí sám.
 Nekryté testom, a zámerne: `run-tests.bat` drží dvanásť procesov a nič
 z toho nie je GUI. Meranie je jednorazový skript typu sondy. Kto siahne
 na skupiny v `.rc`, nech si ho spraví znovu — postup je hore v odseku.
+
+### 6.28 Disketa nie je „v pamäti“, je **neuložená** — pomenované
+
+**Nahlásil majiteľ 31. 8. 2026** vetou, ktorá zrušila dvojročný slovník:
+*„takže vlastne každá disketa je v pamäti. To je ešte zamotanejšie.“*
+A hneď aj model, ktorý ho nahrádza: **disketa = dokument v editore.**
+Dokument môže, ale nemusí mať meno; či je chránený proti zápisu, je
+vlastnosť **jeho**, nie karty, na ktorej je otvorený.
+
+**Mal pravdu, a doslova.** `Mount` prečíta priečinok **raz** a poskladá
+z neho obraz 800 KiB (`BuildImage`); hosť potom celý čas píše len do toho
+obrazu a späť to ide až vo `Flush`, keď radič dopísal. Priečinková disketa
+teda s priečinkom **rovno neinteraguje** — je v pamäti presne tak ako tá
+druhá. Rozdiel bol vždy len v dvoch veciach: má kam zapisovať, a má meno,
+podľa ktorého sa dá zapamätať jej zámok. Slovo „RAM“ nepomenúvalo ani
+jednu z nich, a práve preto sa dalo prečítať ako „nedá sa zamknúť“ (6.26).
+
+**Kde analógia praská, a je to poctivé priznať.** Formátovanie: `FormatTrack`
+na diskete s priečinkom nespraví nič (6.5). To je jediné miesto, kde meno
+mení sémantiku samotného dokumentu, nie len to, kam sa ukladá — preto má
+**vlastný predikát s vlastným dôvodom**, `formatting_erases()`, a nie
+`!has_home()`. Druhá vec: `dirty_` nikdy neznamenalo „zmenené“, ale „dlhuje
+niečo svojmu priečinku“, a disketa bez priečinka ten dlh nikdy nesplatí.
+Otázka pri ukončení sa preto pýta na `StoredFiles() > 0`, teda „je neprázdna“.
+Hlavička to teraz hovorí a zakazuje čítať `dirty_` ako používateľský stav.
+
+**Čo sa premenovalo.** `Media` a `media()` zanikli. Zostalo `present()`
+a pribudlo **`has_home()`** — priečinok, z ktorého sa disketa načíta a do
+ktorého sa sama zapisuje. `folder_`/`folder()` → `home_`/`home()`,
+`CreateRamDisk` → `CreateEmpty`, `DiskState::inMemory` → `unsaved`,
+`DiskState::folder` → `home`, `SlotIsRam` → `SlotIsUnsaved`, `kSlotRam` →
+`kSlotUnsaved`, `NewDiskDialog::Kind` na `kNewFolder`/`kUnsaved`/
+`kUnformatted`, `IDC_NEW_RAM` → `IDC_NEW_UNSAVED`, `IDC_SLOT_NEWRAM` →
+`IDC_SLOT_NEWUNSAVED` (čísla zostali).
+
+**Značka v súbore s nastaveniami zostala `*pamat`** a musí zostať: je
+zapísaná v súboroch, ktoré už existujú, a jej zmena by pri najbližšom štarte
+vyprázdnila každý pamäťový slot — a ticho. Meno konštanty je pojem, hodnota
+je jeho pravopis na disku.
+
+**V reči pre používateľa: „v pamäti“ → „neuložená“.** Titulok, ponuka,
+prepínače v `Nová disketa`, tlačidlo v slotoch, otázky pri výmene aj pri
+ukončení, `--help` aj README. „Neuložená“ nie je len presnejšie, je to
+**podmienené** slovo: hovorí, že cesta preč z toho stavu existuje. Presne
+to, čo 6.25 žiadalo od popisky, ktorá raz prestrelila.
+
+**Premenovanie zrazilo dve mnemoniky, a nahlásil to majiteľ.** `&Trvalá`
+a `&Dočasná v pamäti` niesli `T` a `D`; ako `&Uložená` a `&Neuložená` si
+vzali `U` a `N` — lenže `U` už mal `&Uložiť do slotu:` a `N` mal
+`ne&naformátovaná`. V `IDD_NEWDISK` teda vznikli **dva** konflikty naraz
+a `Alt+U` pritom sadol rovno na výber slotu, teda na popisku, ktorá sa
+nemenila. Teraz je to `Ul&ožená` (O), `&Neuložená` (N),
+`nena&formátovaná` (F) a `Alt+U` zostáva slotu.
+
+**Poučenie je metodické, nie o písmenách: premenovanie tlačidla je zmena
+mnemoniky.** V `.rc` to vidieť nie je — ampersandy sú roztrúsené po
+reťazcoch, ktoré sa lámu cez viac riadkov — a windres na kolíziu
+neupozorní. Meria sa to tak ako `WS_GROUP` v 6.27, na **hotovom EXE**:
+`FindResourceW(RT_DIALOG)` → `CreateDialogIndirectParamW` (vyrobí ho
+skrytý, netreba obrazovku) → `EnumChildWindows` + `GetWindowTextW`,
+a písmená za `&` sa zoskupia. Odmerané po oprave: `IDD_SETTINGS` 0,
+`IDD_SLOTS` 0 (L, N, P, S, V, Z), `IDD_NEWDISK` 0 (F, N, O, P, R, U).
+Skript je jednorazový, v scratchpade; do `run-tests.bat` nejde z toho
+istého dôvodu ako meranie skupín — tých dvanásť procesov je bez GUI.
+
+**Čo sa nezmenilo:** prepínač `--ram-disk` (je v skriptoch používateľov),
+značka `*pamat` a číslovanie `IDC_*`.
+
+Overené: `build.bat` bez varovania, dvanásť `PASS` (`disk_test` má
+133 kontrol namiesto pôvodných 63), a všetky nové reťazce nájdené
+v hotovom EXE v UTF-16 vrátane diakritiky — `neuložená`,
+`Neuložená disketa`, `Sem &novú neuloženú`,
+`Odteraz je to jej priečinok a zapisuje sa doň sama.`
+Staré (`disketa v pamäti`, `Disketa v pamäti`, `&Dočasná v pamäti`,
+`Sem &novú v pamäti`, `&Trvalá — nový priečinok`) v ňom už nie sú.
+Kontrolovaná bola aj negatívna vzorka, aby test naozaj meral.
+
+**Čo z toho zostáva otvorené.** Nič z tejto témy, ale jedno pozorovanie
+platí ďalej a je zovšeobecnením 6.26: **keď sa niečo nedá uložiť,
+neznamená to, že sa to nedá nastaviť.** Oplatí sa hľadať ďalšie miesta,
+kde je perzistencia zamenená za schopnosť.
 
 ## 7. Nástroje
 
@@ -1944,7 +2031,8 @@ Zostáva to odskúšať v skutočnej relácii s NVDA; rozbor je na konci 6.18.
 5. **Správa diskiet** (6.22) — perzistencia, výmena za behu, rýchla
    voľba aj dialóg `Nová disketa` s nenaformátovaným médiom **hotové**
    28. 8. 2026; **zámok proti zápisu** a **disketa ako objekt** (zásobník
-   slotov, 6.24) **hotové** 29. 8. 2026. Ostáva **rozdeľovač kolekcie**
+   slotov, 6.24) **hotové** 29. 8. 2026; **slovník „neuložená“** (6.28)
+   **hotové** 31. 8. 2026. Ostáva **rozdeľovač kolekcie**
    (`disk_layout`), ktorý je na zvyšku nezávislý a dá sa písať aj testovať
    bez GUI a bez ROM. Že sa EurekaDOS po výmene preloguje sám, je odmerané
    (koniec 6.17), zatiaľ ale len ručne — a rovnako chýba test cez ROM na
@@ -1975,7 +2063,7 @@ integration_test ROM DISK_FOLDER dc    -> PASS (výstup po reči sadne na ticho)
 integration_test ROM DISK_FOLDER rtc   -> PASS (budík sa nastaví a zazvoní)
 integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
 integration_test ROM DISK_FOLDER format-> PASS (Shift+F8 naformátuje prázdnu)
-disk_test                              -> PASS (63 kontrol, bez ROM)
+disk_test                              -> PASS (133 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 settings_test                          -> PASS (36 kontrol, bez ROM)
 ```

@@ -34,13 +34,13 @@ class EurekaMachine {
 
   bool LoadRom(const std::filesystem::path& path, std::wstring& error);
   bool MountDisk(const std::filesystem::path& folder, std::wstring& error);
-  void CreateRamDisk(bool formatted = true) {
-    disk_.CreateRamDisk(formatted);
+  void CreateEmptyDisk(bool formatted = true) {
+    disk_.CreateEmpty(formatted);
     ForgetFormattedTrack();
   }
   void EjectDisk();
   // Puts a whole diskette in, image and all.  This is how one comes back out
-  // of the stash: a diskette that lives in memory exists nowhere else, so
+  // of the stash: an unsaved diskette exists nowhere else, so
   // taking it out of the drive has to mean putting it somewhere, not
   // destroying it.  Everything a mount resets is reset here too.
   void InsertDisk(const VirtualDisk& disk) {

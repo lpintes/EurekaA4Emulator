@@ -1,4 +1,4 @@
-// Capacity and import rules of the folder-backed diskette.
+// Capacity and import rules of the diskette that has a home folder.
 //
 // Everything this test needs it makes for itself in the system temp folder: a
 // real diskette folder is a moving target (files get added between two runs)
@@ -293,7 +293,7 @@ void SwapReplacesTheWholeImage() {
   Check(disk.Mount(second, error), "vymena_za_druhu_prejde", Narrow(error));
   Check(disk.StoredFiles() == 1, "po_vymene_je_v_adresari_len_novy_subor",
         "v adresari " + std::to_string(disk.StoredFiles()));
-  Check(disk.folder() == fs::weakly_canonical(second),
+  Check(disk.home() == fs::weakly_canonical(second),
         "po_vymene_ukazuje_disk_na_novy_priecinok");
 
   uint8_t after[512]{};
@@ -327,7 +327,7 @@ void EjectLeavesAnEmptyDrive() {
   disk.Eject();
   Check(!disk.present(), "po_vysunuti_nie_je_medium");
   Check(disk.StoredFiles() == 0, "po_vysunuti_je_adresar_prazdny");
-  Check(disk.folder().empty(), "po_vysunuti_nie_je_ziadny_priecinok");
+  Check(disk.home().empty(), "po_vysunuti_nie_je_ziadny_priecinok");
   uint8_t sector[512]{};
   // What the firmware sees: no medium means Record Not Found on every read,
   // which is how it reaches its own "vadny disk" (6.6).
@@ -347,7 +347,7 @@ void EjectLeavesAnEmptyDrive() {
 // track is what Write Track does, and that is the only way it becomes usable.
 void UnformattedDisketteAnswersNothing() {
   VirtualDisk disk;
-  disk.CreateRamDisk(false);
+  disk.CreateEmpty(false);
   Check(disk.present(), "nenaformatovana_disketa_je_vlozena");
 
   uint8_t sector[512]{};
@@ -382,11 +382,11 @@ void UnformattedDisketteAnswersNothing() {
   Check(disk.ReadRecord(0, 0, record), "po_formatovani_odpoveda_aj_bios_cesta");
 }
 
-// A RAM diskette made formatted behaves like any other, and formatting over
+// A homeless diskette made formatted behaves like any other, and formatting over
 // data really does destroy it -- that is what formatting is.
 void FormattedRamDiskAndReformatting() {
   VirtualDisk disk;
-  disk.CreateRamDisk();
+  disk.CreateEmpty();
   uint8_t sector[512]{};
   Check(disk.ReadPhysicalSector(0, 0, 1, sector),
         "naformatovana_ram_disketa_sa_cita_hned");
@@ -433,7 +433,7 @@ void FormattingAFolderDiskChangesNothing() {
 // and not in read_error_mask.
 void WriteProtectStopsWritesAndNothingElse() {
   VirtualDisk disk;
-  disk.CreateRamDisk();
+  disk.CreateEmpty();
   Check(!disk.write_protected(), "nova_disketa_nie_je_chranena");
 
   uint8_t sector[512];
@@ -466,7 +466,7 @@ void WriteProtectStopsWritesAndNothingElse() {
   disk.set_write_protected(true);
   disk.Eject();
   Check(!disk.write_protected(), "po_vysunuti_ochrana_nezostane");
-  disk.CreateRamDisk();
+  disk.CreateEmpty();
   Check(!disk.write_protected(), "nova_ram_disketa_ochranu_nezdedi");
 }
 
@@ -485,7 +485,7 @@ void StashKeepsDiskettesInMemory() {
   // On the heap here too: 800 KiB is more than a thread stack has to spare,
   // and this test used to crash before it printed a line.
   auto target = std::make_unique<VirtualDisk>();
-  target->CreateRamDisk();
+  target->CreateEmpty();
   uint8_t sector[512];
   std::fill_n(sector, sizeof(sector), 0x42);
   Check(target->WritePhysicalSector(1, 0, 1, sector), "na cielovu sa da pisat");
@@ -505,7 +505,7 @@ void StashKeepsDiskettesInMemory() {
   Check(stash.Take(2) == nullptr, "prazdny slot nevrati nic");
 }
 
-// A folder-backed diskette is declined on purpose: the folder is the diskette.
+// A diskette with a home is declined on purpose: the folder holds it.
 // Keeping a copy would be both wasteful and wrong -- a folder the user changed
 // meanwhile has to come back changed, which is what the same diskette would do.
 void StashDeclinesFolderDiskettes() {
@@ -531,9 +531,9 @@ void StashDeclinesFolderDiskettes() {
 void StashKeepsEverySlotApart() {
   DiskStash stash;
   auto first = std::make_unique<VirtualDisk>();
-  first->CreateRamDisk();
+  first->CreateEmpty();
   auto second = std::make_unique<VirtualDisk>();
-  second->CreateRamDisk();
+  second->CreateEmpty();
   uint8_t sector[512];
   std::fill_n(sector, sizeof(sector), 0x11);
   first->WritePhysicalSector(0, 0, 1, sector);
@@ -562,7 +562,7 @@ void StashKeepsEverySlotApart() {
   // stop existing, and one with files on it is worth a question.
   Check(!stash.HoldsAnythingWritten(), "prazdny zasobnik nema co stratit");
   auto empty = std::make_unique<VirtualDisk>();
-  empty->CreateRamDisk();
+  empty->CreateEmpty();
   stash.Put(3, *empty);
   Check(!stash.HoldsAnythingWritten(), "prazdna disketa nie je co stratit");
   stash.Put(4, *back1);
@@ -615,7 +615,7 @@ std::vector<uint8_t> DirectoryImage(const std::vector<DirEntry>& entries) {
   return image;
 }
 
-// A program written by the guest onto a diskette in memory and then saved to a
+// A program written by the guest onto an unsaved diskette and then saved to a
 // host folder.  Nothing in imported_ knows its length -- there was no host file
 // to import -- so the export has only the diskette to go by, and 01Ah inside a
 // tokenised BASIC program is data, not the end of it.  Measured on the real
@@ -623,7 +623,7 @@ std::vector<uint8_t> DirectoryImage(const std::vector<DirEntry>& entries) {
 // gone from there on, silently.
 void RamDisketteKeepsBinaryFilesWhole() {
   VirtualDisk disk;
-  disk.CreateRamDisk();
+  disk.CreateEmpty();
 
   // 77 records, the size of LET.BAS, in five blocks starting right after the
   // directory.  0C2h and the 16-bit program length are the real .BAS header.
@@ -737,7 +737,7 @@ void FileTypeClassificationIsPinned() {
   std::copy(tail, tail + 3, content.begin() + 4);
 
   VirtualDisk disk;
-  disk.CreateRamDisk();
+  disk.CreateEmpty();
   std::vector<DirEntry> entries;
   unsigned block = 4;
   for (const Type& type : roster) {

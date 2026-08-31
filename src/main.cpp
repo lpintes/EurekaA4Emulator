@@ -97,8 +97,8 @@ void PrintUsage() {
       L"priečinka; jeho zrušením sa Eureka spustí bez diskety.\r\n"
       L"Zapamätaná disketa a ďalšie nastavenia sú v priečinku config vedľa\r\n"
       L"EXE, ak taký priečinok vytvoríte, inak v %APPDATA%\\EurekaA4.\r\n"
-      L"--ram-disk dá prázdnu disketu, ktorá žije len v pamäti; pri ukončení\r\n"
-      L"sa emulátor spýta, či ju uložiť do priečinka.\r\n"
+      L"--ram-disk dá prázdnu neuloženú disketu, teda takú, ktorá zatiaľ nemá\r\n"
+      L"priečinok. Dá jej ho F11, Ctrl+U; pri ukončení sa emulátor spýta sám.\r\n"
       L"--no-disk spustí Eureku bez diskety a bez pýtania.\r\n"
       L"ROM sa hľadá v premennej A4ROM, vedľa EXE, o úroveň vyššie a\r\n"
       L"v aktuálnom priečinku.\r\n"
@@ -264,7 +264,7 @@ int Run() {
   }
 
   if (ramDisk) {
-    machine->CreateRamDisk();
+    machine->CreateEmptyDisk();
   } else if (!disk.empty()) {
     if (!machine->MountDisk(disk, error)) {
       CoUninitialize();
@@ -278,7 +278,7 @@ int Run() {
     // typed.  Saved here rather than at exit, and reported if it fails: this
     // is the moment a diskette was chosen, so a setting that did not stick can
     // still be acted on.  At exit the same box would only be in the way.
-    const std::wstring mounted = machine->disk().folder().wstring();
+    const std::wstring mounted = machine->disk().home().wstring();
     // The notch this diskette was left with.  Set before the window exists,
     // so a locked diskette is never writable even for the length of a boot.
     machine->SetDiskWriteProtected(settings.disk_locked(mounted));
@@ -321,12 +321,12 @@ int Run() {
 
   // Asked about what is actually in the drive now, not about how the run
   // started: a diskette can be swapped mid-run, so --ram-disk no longer means
-  // there is still a RAM diskette here -- and a folder-backed one needs no
-  // offer, it is already on disk.
-  if (machine && machine->disk().media() == VirtualDisk::Media::kRam &&
+  // there is still an unsaved diskette here -- and one that has a home needs
+  // no offer, it is already on disk.
+  if (machine && machine->disk().present() && !machine->disk().has_home() &&
       machine->disk().StoredFiles() > 0) {
     const std::wstring question =
-        L"Na diskete v pamäti " + FileCount(machine->disk().StoredFiles()) +
+        L"Na neuloženej diskete " + FileCount(machine->disk().StoredFiles()) +
         L".\r\n\r\nChcete ju uložiť do priečinka?";
     if (MessageBoxW(nullptr, question.c_str(), L"Eureka A4",
                     MB_YESNO | MB_ICONQUESTION) == IDYES) {
@@ -345,14 +345,14 @@ int Run() {
     }
   }
   // The same offer for the diskettes waiting in the quick-choice slots.  They
-  // live in memory and nowhere else, so the process ending is the moment they
-  // stop existing -- exactly the silent loss the drive's own diskette is
+  // have no folder and exist nowhere else, so the process ending is the moment
+  // they stop existing -- exactly the silent loss the drive's own diskette is
   // already protected from.
   for (int slot = 1; slot <= DiskStash::kSlots; ++slot) {
     auto kept = emulator.stash().Take(slot);
     if (!kept || kept->StoredFiles() == 0) continue;
     const std::wstring question =
-        L"V slote " + std::to_wstring(slot) + L" je disketa v pamäti, na "
+        L"V slote " + std::to_wstring(slot) + L" je neuložená disketa, na "
         L"ktorej " + FileCount(kept->StoredFiles()) +
         L".\r\n\r\nChcete ju uložiť do priečinka?";
     if (MessageBoxW(nullptr, question.c_str(), L"Eureka A4",

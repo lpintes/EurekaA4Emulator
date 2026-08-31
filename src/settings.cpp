@@ -75,13 +75,13 @@ fs::path RoamingFolder() {
 // *pamat-nenaformatovana, which this version no longer makes.  Treating it as
 // the memory slot is right and, more to the point, keeps it from being mounted
 // as a folder called "*pamat-nenaformatovana".
-bool SlotIsRam(const std::wstring& slot) {
+bool SlotIsUnsaved(const std::wstring& slot) {
   return !slot.empty() && slot.front() == L'*';
 }
 
 std::wstring SlotDisplayName(const std::wstring& slot) {
   if (slot.empty()) return L"(prázdny)";
-  if (SlotIsRam(slot)) return L"Disketa v pamäti";
+  if (SlotIsUnsaved(slot)) return L"Neuložená disketa";
   const fs::path path(slot);
   fs::path leaf = path.filename();
   // A trailing separator ("C:\disky\eureka\") leaves filename() empty.
@@ -238,10 +238,10 @@ bool Settings::disk_locked(const std::wstring& folder) const {
 }
 
 void Settings::SetDiskLocked(const std::wstring& folder, bool locked) {
-  // A diskette in memory cannot be remembered: it exists nowhere but in this
-  // process, so a line in the file would point at nothing.  Its lock lasts as
-  // long as the diskette does, which is the honest span for it.
-  if (folder.empty() || SlotIsRam(folder)) return;
+  // An unsaved diskette cannot be remembered: this list is keyed by path and
+  // it has none, so a line in the file would point at nothing.  Its lock lasts
+  // as long as the diskette does, which is the honest span for it.
+  if (folder.empty() || SlotIsUnsaved(folder)) return;
   for (auto it = lockedDisks_.begin(); it != lockedDisks_.end(); ++it) {
     if (!SameDisk(*it, folder)) continue;
     if (!locked) lockedDisks_.erase(it);

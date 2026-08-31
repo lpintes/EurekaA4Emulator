@@ -385,26 +385,26 @@ DiskState DescribeDisk(const VirtualDisk& disk) {
   DiskState state;
   state.present = disk.present();
   state.writeProtected = disk.write_protected();
-  state.inMemory = disk.media() == VirtualDisk::Media::kRam;
+  state.unsaved = disk.present() && !disk.has_home();
   state.files = disk.StoredFiles();
-  switch (disk.media()) {
-    case VirtualDisk::Media::kFolder: {
-      state.folder = disk.folder().wstring();
-      state.slotValue = state.folder;
-      state.labels = {SlotDisplayName(state.folder), state.folder};
-      break;
-    }
-    case VirtualDisk::Media::kRam:
-      // A diskette in memory is a diskette in memory, formatted or not.
-      // Whether it carries a format is a passing state of the medium, not
-      // what the medium is, and a title that tracked it would be telling the
-      // user about something they are in the middle of changing.
-      state.slotValue = kSlotRam;
-      state.labels = {L"v pamäti", L"disketa v pamäti"};
-      break;
-    default:
-      state.labels = {L"žiadna", L"žiadna, mechanika je prázdna"};
-      break;
+  if (!disk.present()) {
+    state.labels = {L"žiadna", L"žiadna, mechanika je prázdna"};
+  } else if (disk.has_home()) {
+    state.home = disk.home().wstring();
+    state.slotValue = state.home;
+    state.labels = {SlotDisplayName(state.home), state.home};
+  } else {
+    // "Neuložená" and not "v pamäti", which is what this said for two years
+    // and is not a difference at all: a mounted folder is read into an image
+    // in memory too.  What sets this diskette apart is that it has nowhere to
+    // be saved *yet* -- Ctrl+U gives it a folder and this name goes away,
+    // which is exactly the promise the word has to make.
+    //
+    // Formatted or not is deliberately not in here.  It is a passing state of
+    // the medium, not what the medium is, and a title that tracked it would be
+    // telling the user about something they are in the middle of changing.
+    state.slotValue = kSlotUnsaved;
+    state.labels = {L"neuložená", L"neuložená disketa"};
   }
   return state;
 }
@@ -443,9 +443,9 @@ void EmulatorThread::PostAssignSlot(int slot) {
 
 void EmulatorThread::PostEjectDisk() { PostType(Command::Type::kEjectDisk); }
 
-void EmulatorThread::PostCreateRamDisk(bool formatted, int slot) {
+void EmulatorThread::PostCreateEmptyDisk(bool formatted, int slot) {
   Command command;
-  command.type = Command::Type::kCreateRamDisk;
+  command.type = Command::Type::kCreateEmptyDisk;
   command.flag = formatted;
   command.slot = slot;
   Post(std::move(command));
@@ -642,7 +642,7 @@ void EmulatorThread::Run() {
   auto pendingSince = Clock::now();
 
   // The diskettes that are not in the drive, and which slot the one in the
-  // drive belongs to.  A diskette living in memory exists nowhere but here,
+  // drive belongs to.  An unsaved diskette exists nowhere but here,
   // so taking it out has to put it somewhere -- see disk_stash.h for what
   // the machine's own bulk copy does to a target that comes back blank.
   DiskStash& stash = stash_;
@@ -660,15 +660,15 @@ void EmulatorThread::Run() {
     result.ok = machine.FlushDisk(changeError);
     if (result.ok) {
       // Out of the drive and onto the shelf, before anything replaces it.
-      // Declined for a folder-backed diskette, which needs no copy.
+      // Declined for a diskette with a home, which needs no copy.
       stash.Put(currentSlot, machine.disk());
       switch (command.type) {
         case Command::Type::kEjectDisk:
           machine.EjectDisk();
           currentSlot = 0;
           break;
-        case Command::Type::kCreateRamDisk:
-          machine.CreateRamDisk(command.flag);
+        case Command::Type::kCreateEmptyDisk:
+          machine.CreateEmptyDisk(command.flag);
           currentSlot = command.slot;
           break;
         case Command::Type::kInsertSlot: {
@@ -676,8 +676,8 @@ void EmulatorThread::Run() {
           // point of a slot being a place rather than a recipe.
           if (auto disk = stash.Take(command.slot)) {
             machine.InsertDisk(*disk);
-          } else if (SlotIsRam(command.path)) {
-            machine.CreateRamDisk(true);
+          } else if (SlotIsUnsaved(command.path)) {
+            machine.CreateEmptyDisk(true);
           } else {
             result.ok = machine.MountDisk(command.path, changeError);
             if (result.ok) machine.SetDiskWriteProtected(command.flag);
@@ -702,7 +702,7 @@ void EmulatorThread::Run() {
     // mount leaves it empty, which the labels then say.
     result.state = DescribeDisk(machine.disk());
     // Which slot the diskette now in the drive belongs to.  The window needs
-    // it to know whether anything else points at a diskette in memory: one
+    // it to know whether anything else points at an unsaved diskette: one
     // with no slot has only this drive holding it.
     result.state.slot = currentSlot;
     {
@@ -827,7 +827,7 @@ void EmulatorThread::Run() {
         result.swapped = false;
         result.state = DescribeDisk(machine.disk());
     // Which slot the diskette now in the drive belongs to.  The window needs
-    // it to know whether anything else points at a diskette in memory: one
+    // it to know whether anything else points at an unsaved diskette: one
     // with no slot has only this drive holding it.
     result.state.slot = currentSlot;
         {
@@ -839,7 +839,7 @@ void EmulatorThread::Run() {
       }
       case Command::Type::kMountDisk:
       case Command::Type::kEjectDisk:
-      case Command::Type::kCreateRamDisk:
+      case Command::Type::kCreateEmptyDisk:
       case Command::Type::kInsertSlot:
         // Done straight away when the drive is already quiet, which it nearly
         // always is; otherwise it waits in the main loop below.  A second

@@ -71,7 +71,7 @@
 // existing folder" radio, which duplicated ID_DISK_INSERT; the number is left
 // unused rather than reassigned, so a stale .res cannot land on it.
 #define IDC_NEW_EMPTYFOLDER  1031
-#define IDC_NEW_RAM          1032
+#define IDC_NEW_UNSAVED      1032
 #define IDC_NEW_UNFORMATTED  1033
 #define IDC_NEW_PATH         1034
 #define IDC_NEW_BROWSE       1035
@@ -83,7 +83,7 @@
 #define IDC_SLOT_CURRENT     1022
 #define IDC_SLOT_CLEAR       1023
 #define IDC_SLOT_LOCK        1024
-#define IDC_SLOT_NEWRAM      1025
+#define IDC_SLOT_NEWUNSAVED  1025
 
 // Labels and group boxes need no id of their own.
 #ifndef IDC_STATIC

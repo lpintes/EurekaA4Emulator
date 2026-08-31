@@ -484,7 +484,7 @@ bool Type(EurekaMachine& machine, const std::string& text);
 // is a no-op on purpose -- the diskette is the user's own folder and the
 // emulated machine formatting is no reason to delete their files (6.5).  So
 // the routine was known to run to the end and say "formatovani dokonceno",
-// but nothing it did was ever observable.  A RAM diskette created unformatted
+// but nothing it did was ever observable.  An unsaved diskette created unformatted
 // is the first medium where it has to work for real: every track answers
 // Record Not Found until Write Track has been over it.
 //
@@ -495,7 +495,7 @@ bool CheckFormatsBlankDiskette(EurekaMachine& machine) {
   // Booted with the blank already in the drive, rather than re-entering the
   // shared snapshot: that one was booted with a real diskette, and the
   // firmware carries what it learned about it in RAM.
-  machine.CreateRamDisk(false);
+  machine.CreateEmptyDisk(false);
   machine.Reset();
   for (int step = 0; step < 8'000'000; ++step)
     if (!machine.Step()) break;
@@ -665,7 +665,7 @@ void Say(const char* label, const std::vector<uint8_t>& spoken) {
 // it falls inside that dialogue is the firmware's business, and pinning it
 // would make this a test of the probe's key timing rather than of the notch.
 bool CheckProtectedDiskRefusesFormat(EurekaMachine& machine) {
-  machine.CreateRamDisk(false);
+  machine.CreateEmptyDisk(false);
   machine.SetDiskWriteProtected(true);
   machine.Reset();
   for (int step = 0; step < 8'000'000; ++step)

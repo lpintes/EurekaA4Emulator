@@ -133,10 +133,10 @@ Disketa je nepovinná:
 
 - `--no-disk` spustí Eureku bez diskety a bez pýtania. Diskové funkcie
   ohlásia chybu disku, všetko ostatné funguje.
-- `--ram-disk` vloží prázdnu naformátovanú disketu, ktorá existuje len
-  v pamäti. Ak na nej pri ukončení nejaké súbory sú, emulátor sa spýta,
-  či ich uložiť do priečinka; ak odmietnete alebo výber zrušíte, obsah
-  zanikne.
+- `--ram-disk` vloží prázdnu naformátovanú disketu, ktorá zatiaľ **nemá
+  priečinok**. Priečinok jej dáte `F11`, `Ctrl+U`, a ak na nej pri
+  ukončení nejaké súbory sú, emulátor sa spýta sám; ak odmietnete alebo
+  výber zrušíte, obsah zanikne.
 
 ## Výmena diskety za behu
 
@@ -168,9 +168,9 @@ to dá kedykoľvek spýtať cez `NVDA+T`.
 **Zmena diskety sa spravidla na nič nepýta.** Vymieňať je bežná práca —
 napríklad práve preto, aby ste mali odkiaľ kopírovať — a otázka pred
 každou výmenou by zavadzala. Disketa z priečinka sa vždy vráti taká, aká
-je, a disketa v pamäti, ktorá patrí niektorému slotu, počká v ňom.
+je, a neuložená disketa, ktorá patrí niektorému slotu, počká v ňom.
 
-Jediná výnimka je disketa v pamäti, na ktorej **niečo je a nepatrí
+Jediná výnimka je neuložená disketa, na ktorej **niečo je a nepatrí
 žiadnemu slotu**: tá by výmenou zanikla, tak sa na ňu emulátor spýta.
 Podrobnosti sú v kapitole Sloty s disketami.
 
@@ -184,15 +184,14 @@ je teda nutné ho najprv niekde založiť a potom sa poň vracať.
 ## Nová disketa
 
 Ponuka **Disketa → Vložiť novú disketu…** (`F11`, `Ctrl+M`) vyrobí
-disketu a hneď ju vloží. Druhy sú tri a líšia sa tým, **či sa disketa
-uchová sama**:
+disketu a hneď ju vloží. Druhy sú tri a líšia sa tým, **či už disketa má
+priečinok**:
 
-- **trvalá** — vytvorí sa nový priečinok a disketa v ňom zostane aj po
+- **uložená** — vytvorí sa nový priečinok a disketa v ňom zostane aj po
   ukončení,
-- **dočasná v pamäti** — naformátovaná a pripravená na písanie; prežije,
-  len keď ju uložíte do priečinka — `F11`, `Ctrl+U` kedykoľvek, a pri
-  ukončení sa emulátor spýta sám,
-- **dočasná v pamäti, nenaformátovaná** — Eureka ju ohlási ako **vadný
+- **neuložená** — naformátovaná a pripravená na písanie; priečinok jej
+  dáte `F11`, `Ctrl+U` kedykoľvek, a pri ukončení sa emulátor spýta sám,
+- **neuložená a nenaformátovaná** — Eureka ju ohlási ako **vadný
   disk**, presne ako skutočná nová disketa z krabice.
 
 Disketu, ktorá **už niekde je**, sem nedávajte — na to je `F11`, `Ctrl+I`.
@@ -203,8 +202,8 @@ ktorý sa volá „Nová disketa".
 Tá posledná nie je len pre zábavu: je to jediné médium, na ktorom
 formátovanie **naozaj niečo robí**. Disketa z priečinka je hostiteľský
 priečinok a formátovanie na nej zámerne nemaže vaše súbory, takže
-`Shift+F8` na nej prejde a nezanechá stopu. Na nenaformátovanej diskete
-v pamäti prebehne celé a disketa začne fungovať.
+`Shift+F8` na nej prejde a nezanechá stopu. Na nenaformátovanej
+neuloženej diskete prebehne celé a disketa začne fungovať.
 
 Formátovanie sa pýta **dvakrát**: „mám formátovat disk, ano nebo ne?"
 a potom „disk je už naformátován, přeformátovat, ano nebo ne?" — tú
@@ -220,9 +219,10 @@ emulátor posiela stroju polohu klávesu a preklad si robí ROM sama.
 Platí to pre celé písanie, nielen pre túto otázku.
 
 Titulok okna hovorí, čo je v mechanike, takže `NVDA+T` odpovie
-kedykoľvek. Disketa v pamäti je v ňom vždy „v pamäti" — či je
+kedykoľvek. Disketa bez priečinka je v ňom vždy „neuložená" — či je
 naformátovaná, alebo nie, je vec, ktorú práve meníte, nie to, čo tá
-disketa je.
+disketa je. Len čo jej priečinok dáte (`F11`, `Ctrl+U`), nesie titulok
+jeho meno.
 
 V dialógu sa dá novej diskete rovno priradiť **slot**. Zoznam pri každom
 slote ukáže, čo v ňom práve je, a keď doň priraďujete cez niečo, čo tam
@@ -243,15 +243,15 @@ slot a máte štyri tlačidlá:
 - **Priradiť priečinok…** — slot bude ukazovať na priečinok, ktorý si
   vyberiete,
 - **Sem vloženú disketu** — do slotu pôjde tá, ktorá je práve v mechanike,
-- **Sem novú v pamäti** — slot bude dočasná disketa v pamäti; vyrobí sa
+- **Sem novú neuloženú** — slot bude neuložená disketa; vyrobí sa
   prázdna, keď ho prvý raz stlačíte,
 - **Vyprázdniť slot**.
 
 Zmeny sa zapíšu až tlačidlom OK. Slot sa dá priradiť aj rovno pri
 vytváraní novej diskety.
 
-Slot totiž unesie práve dve veci: **priečinok**, alebo **disketu
-v pamäti**. Tlačidlá sú preto dve na napĺňanie a nie jeden spoločný dialóg
+Slot totiž unesie práve dve veci: **priečinok**, alebo **neuloženú
+disketu**. Tlačidlá sú preto dve na napĺňanie a nie jeden spoločný dialóg
 s dialógom `Nová disketa` — ten ponúka aj nenaformátovanú disketu, ktorú
 slot niesť nesmie, a nový priečinok, ktorý si slot priradí sám.
 
@@ -261,11 +261,11 @@ je v ponuke, ktorou sa chodí po sluchu, o jedno meno viac.
 
 **Slot je miesto, nie recept.** Disketa, ktorú z neho vyberiete, sa doň
 vráti aj s tým, čo na ňu Eureka medzitým zapísala — vložením ju máte
-naspäť takú, aká bola. To platí aj pre **disketu v pamäti**: taká nikde
-inde neexistuje, takže ju drží práve ten slot, kým emulátor beží. Prvé
-stlačenie slotu označeného „Disketa v pamäti" ju vyrobí prázdnu, ďalšie ju
-vracajú takú, aká je. Taký slot založíte tlačidlom *Sem novú v pamäti*,
-alebo pri vytváraní diskety cez `F11`, `Ctrl+M`.
+naspäť takú, aká bola. To platí aj pre **neuloženú disketu**: taká nikde
+inde neexistuje, takže ju drží práve ten slot, kým emulátor beží. Vyrobí sa
+prázdna pri prvom stlačení takého slotu, ďalšie stlačenia ju vracajú takú,
+aká je. Taký slot založíte tlačidlom *Sem novú neuloženú*, alebo pri
+vytváraní diskety cez `F11`, `Ctrl+M`.
 
 Disketa z priečinka sa v slote nedrží a nemusí: jej obsah je v tom
 priečinku. Pri vytiahnutí sa doň zapíše, pri vrátení sa z neho načíta —
@@ -281,7 +281,7 @@ Sloty sú **stabilné**: menia sa len vtedy, keď ich zmeníte vy. Zámerne
 sa nenapĺňajú automaticky z histórie — slot, ktorý sa mení pod prstom, by
 bol horší než žiadny.
 
-**Disketa v pamäti nezanikne ticho.** Ak je v mechanike, má na sebe súbory
+**Neuložená disketa nezanikne ticho.** Ak je v mechanike, má na sebe súbory
 a nepatrí žiadnemu slotu, emulátor sa pred každou výmenou spýta: uložiť ju
 do priečinka, zahodiť, alebo nechať v mechanike a nerobiť nič. Platí to
 pre všetky cesty — vloženie z priečinka, novú disketu, slot aj
@@ -323,11 +323,9 @@ sa dajú aj prečítať a upraviť ručne.
 V dialógu **Spravovať sloty…** je pri vybranom slote začiarkávacie
 políčko *Zamknúť túto disketu proti zápisu* — je to ten istý zámok, len
 prístupný pri slote, a v zozname slotov to je napísané aj v riadku. Pre
-slot s disketou v pamäti políčko nie je aktívne: zoznam zámkov je vedený
-podľa cesty a disketa v pamäti žiadnu nemá, takže by sa taký zámok pri
-uložení nastavení ticho zabudol. Zamknúť sa dá aj disketa v pamäti, ale
-cez `F11`, `Ctrl+Z`, a ten zámok trvá len dovtedy, kým tá disketa — teda
-do konca behu, lebo nikde inde neexistuje.
+neuložený slot políčko nie je aktívne: zoznam zámkov je vedený podľa cesty
+a neuložená disketa žiadnu nemá, takže by sa taký zámok pri uložení
+nastavení ticho zabudol.
 
 ## Čo si emulátor pamätá
 
@@ -336,7 +334,7 @@ k tomu **zoznam diskiet zamknutých proti zápisu**. Posledná
 disketa sa vloží pri ďalšom štarte, takže sa program
 nepýta na priečinok pri každom spustení; zapíše sa vždy, keď disketu
 vložíte — pri štarte, pri výmene za behu aj zo slotu. Pamätá sa
-len disketa z priečinka — disketa v pamäti nemá čo obnovovať.
+len disketa s priečinkom — neuložená nemá čo obnovovať.
 
 Keď priečinok medzitým zmizne (typicky odpojený USB disk), Eureka
 naštartuje s prázdnou mechanikou a spýta sa, či si ho má pamätať aj
@@ -454,7 +452,7 @@ Externý modem, telefónna linka a fyzický sériový kábel zatiaľ nemajú mos
 zariadenia Windows; ich vstupy zostávajú v bezpečnom pokojovom stave. Formátovanie
 hostiteľského priečinka prebehne a stroj ho ohlási ako dokončené, ale obsah
 stopy sa zahadzuje: disk je váš priečinok a formát v ňom súbory nemaže. Na
-diskete v pamäti sa formátovanie naopak prejaví celé — viď Nová disketa. Exotické viacsektorové
+neuloženej diskete sa formátovanie naopak prejaví celé — viď Nová disketa. Exotické viacsektorové
 príkazy WD1772 sú modelované len v rozsahu, ktorý používa dodaná ROM. Táto verzia preto nie je náhradou meracieho
 emulátora na overovanie presného časovania externých periférií.
 

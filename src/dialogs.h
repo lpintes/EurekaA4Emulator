@@ -42,14 +42,14 @@ using SlotList = std::array<std::wstring, Settings::kSlots>;
 // Putting an existing diskette in is Ctrl+I and always was.
 class NewDiskDialog : public win::Dialog {
  public:
-  enum class Kind { kEmptyFolder, kRam, kUnformattedRam };
+  enum class Kind { kNewFolder, kUnsaved, kUnformatted };
 
   // slots is what the nine hold now, so the picker can name them and so the
   // user can see they are about to overwrite one.
   explicit NewDiskDialog(SlotList slots) : slots_(std::move(slots)) {}
 
   Kind kind() const { return kind_; }
-  // The chosen folder, for kEmptyFolder.  Empty otherwise.
+  // The chosen folder, for kNewFolder.  Empty otherwise.
   const std::wstring& folder() const { return folder_; }
   // 0 when the diskette is not to be put in a slot, otherwise 1..kSlots.
   int slot() const { return slot_; }
@@ -61,12 +61,12 @@ class NewDiskDialog : public win::Dialog {
 
  private:
   // The path field and Prehľadávať are only meaningful for the permanent
-  // kind; greying them out for the RAM ones says so where a screen reader
+  // kind; greying them out for the unsaved ones says so where a screen reader
   // reads it, rather than leaving a control that does nothing.
   void RefreshEnabled();
   Kind SelectedKind() const;
 
-  Kind kind_ = Kind::kEmptyFolder;
+  Kind kind_ = Kind::kNewFolder;
   std::wstring folder_;
   int slot_ = 0;
   SlotList slots_;
@@ -79,10 +79,9 @@ class SlotsDialog : public win::Dialog {
  public:
   using Slots = SlotList;
   using Locks = std::array<bool, Settings::kSlots>;
-
   // currentDisk is what a slot would have to hold to bring back the diskette
-  // in the drive right now -- a folder, or a marker for one in memory.  Empty
-  // when the drive is empty; that is what "Sem vloženú disketu" assigns.
+  // in the drive right now -- a folder, or the marker for an unsaved one.
+  // Empty when the drive is empty; that is what "Sem vloženú disketu" assigns.
   // settings is read, never written: the dialog works on a copy and hands it
   // back only on OK.  It is here because the lock belongs to the folder, so
   // pointing a slot at a folder that is already locked has to arrive ticked
@@ -97,7 +96,7 @@ class SlotsDialog : public win::Dialog {
   const Slots& slots() const { return slots_; }
   const Locks& locks() const { return locks_; }
   // Which slot the diskette now in the drive was put into, 0 for none.  For a
-  // diskette living in memory that is not bookkeeping: it is the difference
+  // an unsaved diskette that is not bookkeeping: it is the difference
   // between the slot holding it and the slot making a new empty one.
   int assigned_current() const { return assignedCurrent_; }
 

@@ -109,8 +109,8 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
     error = L"Vybraný diskový priečinok neexistuje alebo nie je prístupný.";
     return false;
   }
-  folder_ = absolute;
-  media_ = Media::kFolder;
+  home_ = absolute;
+  present_ = true;
   // The notch rides with the diskette, so a newly mounted one is unprotected
   // until the host says otherwise.
   write_protected_ = false;
@@ -120,8 +120,8 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
   if (BuildImage(error)) return true;
   // A refused diskette leaves nothing behind: the half-built file list would
   // otherwise still be reported as if it were mounted.
-  media_ = Media::kNone;
-  folder_.clear();
+  present_ = false;
+  home_.clear();
   imported_.clear();
   formatted_.reset();
   return false;
@@ -135,25 +135,25 @@ void VirtualDisk::Eject() {
   image_.fill(0);
   formatted_.reset();
   imported_.clear();
-  folder_.clear();
-  media_ = Media::kNone;
+  home_.clear();
+  present_ = false;
   dirty_ = false;
   write_protected_ = false;
 }
 
-// A scratch diskette that exists only for this session: 0E5h everywhere is
-// exactly what a freshly formatted CP/M disk looks like, so the firmware sees
-// an empty directory without any host folder behind it.
+// A diskette with no home: 0E5h everywhere is exactly what a freshly formatted
+// CP/M disk looks like, so the firmware sees an empty directory without any
+// host folder behind it.
 //
 // Unformatted, it is 0E5h too, but no track answers: the drive is what a blank
 // out of the box was, and the machine says "vadny disk" until Shift+F8 has
 // been through it.
-void VirtualDisk::CreateRamDisk(bool formatted) {
+void VirtualDisk::CreateEmpty(bool formatted) {
   image_.fill(0xe5);
   if (formatted) formatted_.set(); else formatted_.reset();
   imported_.clear();
-  folder_.clear();
-  media_ = Media::kRam;
+  home_.clear();
+  present_ = true;
   dirty_ = false;
   write_protected_ = false;
 }
@@ -167,9 +167,9 @@ bool VirtualDisk::ValidTrack(unsigned cylinder, unsigned side) {
 // that already had data, what wipes the track it just went over.  That is not
 // carelessness, it is what formatting is.
 void VirtualDisk::FormatTrack(unsigned cylinder, unsigned side) {
-  // A host folder is a filesystem, not a magnetic surface: the format still
+  // A home folder is a filesystem, not a magnetic surface: the format still
   // reports success, but nothing is laid down and no file is erased (6.5).
-  if (media_ != Media::kRam || !ValidTrack(cylinder, side)) return;
+  if (!formatting_erases() || !ValidTrack(cylinder, side)) return;
   const unsigned track = cylinder * 2 + side;
   formatted_.set(track);
   const std::size_t offset = track * kRecordsPerTrack * kRecordSize;
@@ -183,7 +183,7 @@ bool VirtualDisk::TrackFormatted(unsigned cylinder, unsigned side) const {
 }
 
 std::size_t VirtualDisk::StoredFiles() const {
-  if (media_ == Media::kNone) return 0;
+  if (!present_) return 0;
   std::map<std::string, bool> names;
   for (unsigned index = 0; index < kDirectoryEntries; ++index) {
     const uint8_t* entry = image_.data() + index * 32;
@@ -231,9 +231,9 @@ uint64_t VirtualDisk::Hash(const uint8_t* data, std::size_t size) {
 // the machine gives its user no way to notice.
 bool VirtualDisk::ScanFolder(std::vector<SourceFile>& files, std::wstring& error) {
   std::error_code ec;
-  fs::directory_iterator entry(folder_, ec);
+  fs::directory_iterator entry(home_, ec);
   if (ec) {
-    error = L"Priečinok " + folder_.wstring() + L" sa nedá prečítať.";
+    error = L"Priečinok " + home_.wstring() + L" sa nedá prečítať.";
     return false;
   }
   const fs::directory_iterator end;
@@ -263,7 +263,7 @@ bool VirtualDisk::ScanFolder(std::vector<SourceFile>& files, std::wstring& error
     }
     entry.increment(ec);
     if (ec) {
-      error = L"Prehľadávanie priečinka " + folder_.wstring() + L" sa prerušilo, "
+      error = L"Prehľadávanie priečinka " + home_.wstring() + L" sa prerušilo, "
               L"disketu som nezostavil.";
       return false;
     }
@@ -535,16 +535,16 @@ bool VirtualDisk::ExportImage(const fs::path& destination, bool writeBack,
 }
 
 bool VirtualDisk::Flush(std::wstring& error) {
-  // A RAM diskette has no host folder to write back to; main() offers to
+  // A diskette with no home has nowhere to write back to; main() offers to
   // export it once, when the machine is switched off.
-  if (media_ != Media::kFolder || !dirty_) return true;
-  if (!ExportImage(folder_, true, error)) return false;
+  if (!has_home() || !dirty_) return true;
+  if (!ExportImage(home_, true, error)) return false;
   dirty_ = false;
   return true;
 }
 
 bool VirtualDisk::ExportTo(const fs::path& target, std::wstring& error) {
-  if (media_ == Media::kNone) return true;
+  if (!present_) return true;
   std::error_code ec;
   fs::create_directories(target, ec);
   if (!fs::is_directory(target, ec)) {

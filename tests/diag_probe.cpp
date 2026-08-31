@@ -211,9 +211,9 @@ int wmain(int argc, wchar_t** argv) {
         // the difference the owner's bulk-copy report turns on.
         const VirtualDisk& disk = machine->disk();
         std::printf("%-10ls -> [%s, suborov=%u, %s]\n", token.c_str(),
-                    disk.media() == VirtualDisk::Media::kFolder ? "priecinok"
-                    : disk.media() == VirtualDisk::Media::kRam  ? "v pamati"
-                                                                : "prazdna mechanika",
+                    !disk.present()      ? "prazdna mechanika"
+                    : disk.has_home() ? "priecinok"
+                                      : "neulozena",
                     static_cast<unsigned>(disk.StoredFiles()),
                     disk.write_protected() ? "zamknuta" : "odomknuta");
         continue;
@@ -243,7 +243,7 @@ int wmain(int argc, wchar_t** argv) {
         // The quick choice, stash and all -- the emulator's own path, not a
         // shortcut through it.  Slot 1 is the folder this run started with,
         // locked as the owner's scenario has it; slot 2 is a diskette living
-        // in memory, and putting it back has to hand back the same one.
+        // unsaved, and putting it back has to hand back the same one.
         const int slot = token == L"slot1" ? 1 : 2;
         std::wstring swapError;
         const bool settled = settleForSwap();
@@ -253,16 +253,14 @@ int wmain(int argc, wchar_t** argv) {
         if (auto kept = probeStash.Take(slot)) {
           machine->InsertDisk(*kept);
         } else if (slot == 2) {
-          machine->CreateRamDisk(true);
+          machine->CreateEmptyDisk(true);
         } else {
           ok = machine->MountDisk(argv[2], swapError);
           if (ok) machine->SetDiskWriteProtected(true);
         }
         currentSlot = slot;
         std::printf("%-10ls -> [vlozeny slot %d: %s%s]\n", token.c_str(), slot,
-                    ok ? (machine->disk().media() == VirtualDisk::Media::kRam
-                              ? "v pamati"
-                              : "priecinok")
+                    ok ? (machine->disk().has_home() ? "priecinok" : "neulozena")
                        : "ZLYHALO",
                     settled ? "" : ", DISK SA NEUSTALIL");
         continue;
@@ -277,7 +275,7 @@ int wmain(int argc, wchar_t** argv) {
         const bool settled = settleForSwap();
         machine->FlushDisk(swapError);
         if (token == L"ram") {
-          machine->CreateRamDisk(true);
+          machine->CreateEmptyDisk(true);
         } else {
           ok = machine->MountDisk(argv[2], swapError);
           // The source diskette in the owner's scenario is locked, and the

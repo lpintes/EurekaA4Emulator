@@ -219,16 +219,18 @@ END
 // existing diskette in is Ctrl+I; this dialog makes new ones.
 //
 // The radios name what the user is choosing between, which is whether the
-// diskette keeps itself.  "Nový prázdny priečinok" named the mechanism
-// instead, and a folder is not a thing beside a diskette -- it is what a
-// permanent diskette is made of.
+// diskette already has a folder.  "Nový prázdny priečinok" named the mechanism
+// instead, and a folder is not a thing beside a diskette -- it is what a saved
+// diskette is made of.
 //
-// The memory one says "prežije, len keď ju uložíte do priečinka" and not
-// "zanikne s emulátorom", which is what it said first.  A diskette in memory
-// does not have to be lost at all: Ctrl+U saves it whenever, and main.cpp
-// offers on the way out.  Stating the loss flat is a warning about something
-// the program in fact prevents, and a label that overstates once is a label
-// nobody believes the next time.
+// "Uložená" and "neuložená" and not "trvalá" and "dočasná v pamäti", which is
+// what they said before 6.28.  Every diskette lives in memory -- mounting a
+// folder reads it into an image -- so "v pamäti" named nothing; and "dočasná"
+// called the outcome settled when Ctrl+U is exactly what unsettles it.  The
+// second radio therefore says where the folder comes from rather than
+// promising a loss: an earlier wording, "zanikne s emulátorom", stated flat a
+// loss the program in fact prevents, and a label that overstates once is a
+// label nobody believes the next time.
 
 IDD_NEWDISK DIALOGEX 0, 0, 292, 164
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
@@ -236,13 +238,18 @@ CAPTION "Nová disketa"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     GROUPBOX        "Aká disketa", IDC_STATIC, 7, 7, 278, 64
-    CONTROL         "&Trvalá — nový priečinok, prežije aj ukončenie emulátora",
+    /* Mnemoniky O, N, F a nie U, N, N.  "Uložená" a "Uložiť do slotu" nižšie
+       si obe pýtali Alt+U a obe "neuložené" prepínače Alt+N -- po premenovaní
+       v 6.28, ktoré ich dovtedy malo na T, D a N.  Alt+U zostáva výberu slotu,
+       lebo ten sa nemenil; prepínače dostali písmená, ktoré sú v tomto
+       dialógu voľné.  Overuje sa to na hotovom EXE, nie tu -- viď 6.28. */
+    CONTROL         "Ul&ožená — nový priečinok, prežije aj ukončenie emulátora",
                     IDC_NEW_EMPTYFOLDER, "Button",
                     BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, 16, 20, 260, 12
-    CONTROL         "&Dočasná v pamäti — prežije, len keď ju uložíte do "
-                    "priečinka",
-                    IDC_NEW_RAM, "Button", BS_AUTORADIOBUTTON, 16, 34, 260, 12
-    CONTROL         "Dočasná v pamäti, ne&naformátovaná — Eureka ju ohlási "
+    CONTROL         "&Neuložená — priečinok jej dáte až Ctrl+U, dovtedy žije "
+                    "len tu",
+                    IDC_NEW_UNSAVED, "Button", BS_AUTORADIOBUTTON, 16, 34, 260, 12
+    CONTROL         "Neuložená a nena&formátovaná — Eureka ju ohlási "
                     "ako vadný disk", IDC_NEW_UNFORMATTED, "Button",
                     BS_AUTORADIOBUTTON, 16, 48, 260, 12
 
@@ -306,7 +313,7 @@ BEGIN
     PUSHBUTTON      "&Priradiť priečinok…", IDC_SLOT_ASSIGN, 7, 115, 138, 14,
                     WS_GROUP
     PUSHBUTTON      "Sem &vloženú disketu", IDC_SLOT_CURRENT, 155, 115, 138, 14
-    PUSHBUTTON      "Sem &novú v pamäti", IDC_SLOT_NEWRAM, 7, 133, 138, 14
+    PUSHBUTTON      "Sem &novú neuloženú", IDC_SLOT_NEWUNSAVED, 7, 133, 138, 14
     /* "Vyprázdniť s&lot" and not "&Vyprázdniť": V and the v of "Sem vloženú"
        are the same mnemonic to Windows, so Alt+V cycled between two buttons
        instead of pressing one.  It was that way before this row existed. */

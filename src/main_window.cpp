@@ -88,8 +88,8 @@ constexpr wchar_t kShortcutHelp[] =
     L"F11, Ctrl+I — vloží disketu z iného priečinka. Vymieňať sa dá za\r\n"
     L"      behu: EurekaDOS si nový disk prihlási sám, tak ako skutočný\r\n"
     L"      stroj.\r\n"
-    L"F11, Ctrl+M — vloží novú disketu: trvalú v novom priečinku, alebo\r\n"
-    L"      dočasnú v pamäti. Tá sa dá vyrobiť aj nenaformátovaná — Eureka ju\r\n"
+    L"F11, Ctrl+M — vloží novú disketu: uloženú v novom priečinku, alebo\r\n"
+    L"      neuloženú. Neuložená sa dá vyrobiť aj nenaformátovaná — Eureka ju\r\n"
     L"      ohlási ako vadný disk, kým ju Shift+F8 nenaformátuje.\r\n"
     L"F11, Ctrl+1 až Ctrl+9 — vloží disketu zo slotu. Čo je v ktorom slote,\r\n"
     L"      je napísané priamo v ponuke Disketa; priraďuje sa tam v položke\r\n"
@@ -297,19 +297,19 @@ void MainWindow::RegisterCommands() {
     // even though the worker has not made the diskette yet.
     std::wstring slotValue;
     switch (dialog.kind()) {
-      case NewDiskDialog::Kind::kRam:
+      case NewDiskDialog::Kind::kUnsaved:
         // The slot goes with it, so that taking this diskette out later puts
         // it back where the user will look for it rather than destroying it.
-        emulator_.PostCreateRamDisk(true, dialog.slot());
-        slotValue = kSlotRam;
+        emulator_.PostCreateEmptyDisk(true, dialog.slot());
+        slotValue = kSlotUnsaved;
         break;
-      case NewDiskDialog::Kind::kUnformattedRam:
-        emulator_.PostCreateRamDisk(false, dialog.slot());
+      case NewDiskDialog::Kind::kUnformatted:
+        emulator_.PostCreateEmptyDisk(false, dialog.slot());
         // No slot for this one: unformatted lasts until the first Shift+F8,
         // so a slot would go on offering a state the diskette left behind
         // long ago.  The dialog greys the picker out to say so.
         break;
-      case NewDiskDialog::Kind::kEmptyFolder: {
+      case NewDiskDialog::Kind::kNewFolder: {
         // Created here rather than on the worker: making a folder is the
         // host's business, and a failure has to be reported where there is a
         // window to report it in.
@@ -339,8 +339,8 @@ void MainWindow::RegisterCommands() {
               [this, number] { InsertSlot(number); });
 
   OnCommand(ID_DISK_SLOTS, [this] {
-    // The slot value and not the folder: a diskette in memory has no folder
-    // but can still be put in a slot, which then makes a fresh empty one.
+    // The slot value and not the folder: an unsaved diskette has no folder but
+    // can still be put in a slot, which then makes a fresh empty one.
     SlotsDialog dialog(CurrentSlots(), CurrentLocks(), disk_.slotValue,
                        settings_);
     if (dialog.ShowModal(hwnd_, IDD_SLOTS) != IDOK) return;
@@ -355,11 +355,11 @@ void MainWindow::RegisterCommands() {
     }
     SaveSettings();
 
-    // "Sem vloženú disketu" on a diskette living in memory does more than
+    // "Sem vloženú disketu" on an unsaved diskette does more than
     // write a marker into the settings: it gives that diskette a second
     // reference, so taking it out puts it in that slot instead of destroying
     // it.  Without this the dialog would promise a home it does not provide.
-    if (disk_.inMemory && dialog.assigned_current() > 0)
+    if (disk_.unsaved && dialog.assigned_current() > 0)
       emulator_.PostAssignSlot(dialog.assigned_current());
   });
 
@@ -386,14 +386,14 @@ void MainWindow::RegisterCommands() {
   });
 }
 
-// Changing the diskette asks nothing.  A RAM diskette does get dropped by a
+// Changing the diskette asks nothing.  An unsaved diskette does get dropped by a
 // swap, and this used to offer to save it first -- but a question in front of
 // every change of medium is in the way of ordinary work, and swapping is
 // ordinary work: putting another diskette in to copy from is the obvious
 // reason to have a scratch one at all.  The offer belongs where the last
 // chance really is, and that is at exit, where main.cpp makes it.
 //
-// What keeps this from being a silent loss is that the title says "v pamäti"
+// What keeps this from being a silent loss is that the title says "neuložená"
 // the whole time, so what would be dropped is on screen -- and on NVDA+T --
 // before anybody reaches for Ctrl+I.
 
@@ -406,7 +406,7 @@ void MainWindow::InsertSlot(int number) {
   // it owns the machine -- so all this decides is what to do the first time,
   // when the slot has nothing put away yet.  For a memory slot that is a
   // fresh empty diskette; for a folder slot it is the folder.
-  if (SlotIsRam(slot)) {
+  if (SlotIsUnsaved(slot)) {
     emulator_.PostInsertSlot(number, slot, false);
     return;
   }
@@ -501,18 +501,19 @@ void MainWindow::SaveSlot(int number, std::wstring value) {
 
 // The lock outlives the diskette being taken out, because that is what a
 // notch does: a diskette put back in comes back protected.  Kept by folder --
-// a diskette in memory has no folder and its lock lasts as long as it does,
-// which SetDiskLocked declines to write down.
+// an unsaved diskette has none, so its lock lasts as long as it does, which
+// SetDiskLocked declines to write down.  That is a limit on remembering it,
+// not on having it: the notch itself is set either way (6.26).
 void MainWindow::RememberLock(const DiskState& disk) {
-  if (disk.folder.empty()) return;
-  if (settings_.disk_locked(disk.folder) == disk.writeProtected) return;
-  settings_.SetDiskLocked(disk.folder, disk.writeProtected);
+  if (disk.home.empty()) return;
+  if (settings_.disk_locked(disk.home) == disk.writeProtected) return;
+  settings_.SetDiskLocked(disk.home, disk.writeProtected);
   SaveSettings();
 }
 
 // Asked before anything pushes the diskette out of the drive.
 //
-// A diskette in memory exists nowhere but in this process.  If a quick-choice
+// An unsaved diskette exists nowhere but in this process.  If a quick-choice
 // slot points at it, taking it out is safe -- it goes to that slot and comes
 // back from it.  If nothing points at it, the drive is the only thing holding
 // it, and swapping would destroy it.  That has to be the user's decision, not
@@ -522,18 +523,18 @@ void MainWindow::RememberLock(const DiskState& disk) {
 // Returns false when the user backed out, in which case the caller does
 // nothing at all.
 bool MainWindow::ConfirmLosingDiskette() {
-  if (!disk_.inMemory || disk_.files == 0 || disk_.slot != 0) return true;
+  if (!disk_.unsaved || disk_.files == 0 || disk_.slot != 0) return true;
 
   const std::wstring question =
-      L"V mechanike je disketa v pamäti, na ktorej je " +
+      L"V mechanike je neuložená disketa, na ktorej je " +
       std::to_wstring(disk_.files) +
       (disk_.files == 1 ? L" súbor" : disk_.files < 5 ? L" súbory" : L" súborov") +
       L", a nepatrí žiadnemu slotu.\r\n\r\n"
-      L"Disketa v pamäti nikde inde neexistuje, takže vybratím zanikne.\r\n\r\n"
+      L"Nemá priečinok, takže nikde inde neexistuje a vybratím zanikne.\r\n\r\n"
       L"Áno — najprv ju uložím do priečinka.\r\n"
       L"Nie — zahodiť ju.\r\n"
       L"Zrušiť — nechať ju v mechanike.";
-  switch (MessageBoxW(hwnd_, question.c_str(), L"Disketa v pamäti",
+  switch (MessageBoxW(hwnd_, question.c_str(), L"Neuložená disketa",
                       MB_YESNOCANCEL | MB_ICONWARNING)) {
     case IDYES: {
       // The export is the worker's job and takes a moment; the caller waits
@@ -553,9 +554,9 @@ bool MainWindow::ConfirmLosingDiskette() {
 }
 
 void MainWindow::RememberDisk(const std::wstring& folder) {
-  // A RAM diskette and an empty drive are both "nothing to put back": neither
-  // is cleared here, so unplugging a diskette for one session does not lose
-  // the folder the next start would have opened.
+  // An unsaved diskette and an empty drive are both "nothing to put back":
+  // neither is cleared here, so unplugging a diskette for one session does not
+  // lose the folder the next start would have opened.
   if (folder.empty() || settings_.last_disk() == folder) return;
   settings_.SetLastDisk(folder);
   std::wstring error;
@@ -912,7 +913,7 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         if (change.state.writeProtected) ToneLocked(); else ToneUnlocked();
       } else if (change.state.present) {
         ToneInserted();
-        RememberDisk(change.state.folder);
+        RememberDisk(change.state.home);
       } else {
         ToneEjected();
       }

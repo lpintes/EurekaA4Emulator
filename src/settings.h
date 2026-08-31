@@ -51,7 +51,7 @@ class Settings {
   const std::filesystem::path& file() const { return file_; }
 
   // The diskette to put back in at the next start.  Empty means none.  Only a
-  // folder-backed diskette is remembered: a RAM one has nothing to restore.
+  // diskette with a home is remembered: an unsaved one has nothing to restore.
   const std::wstring& last_disk() const { return lastDisk_; }
   void SetLastDisk(std::wstring path);
 
@@ -70,7 +70,7 @@ class Settings {
   //
   // Paths are compared case-insensitively with separators and any trailing
   // slash folded away, so the same folder typed two ways is one diskette.  A
-  // diskette in memory is never in here: it exists only for this run.
+  // unsaved diskette is never in here: it exists only for this run.
   bool disk_locked(const std::wstring& folder) const;
   void SetDiskLocked(const std::wstring& folder, bool locked);
 
@@ -96,24 +96,31 @@ class Settings {
 // mistaken for each other, and the settings file stays readable:
 // "slot3=*pamat" says what it does.
 //
+// The token in the file stays "*pamat" whatever this constant is called: it is
+// written into settings files that already exist, so changing it would empty
+// every memory slot on the next start, and quietly.  The name here is the
+// concept -- a diskette with no home folder, which is what "unsaved" means
+// throughout this program -- and the token is only its spelling on disk.
+//
 // The marker says what the medium is and nothing more.  It used to be called
 // "nová prázdna v pamäti", from the days when every insert made a fresh empty
 // diskette; DiskStash keeps the diskette now, so the second insert hands back
-// what was written on it and the name was a lie from the first save on.  Only
-// the first insert of an unused slot makes one, and across runs the diskette
-// is gone -- neither is a reason to call a written diskette empty.
+// what was written on it and the name was a lie from the first save on.
+//
+// Only the first insert of an unused slot makes one, and across runs the
+// diskette is gone -- neither is a reason to call a written diskette empty.
 //
 // There is deliberately no marker for an unformatted diskette.  Unformatted is
 // a state that lasts until the first Shift+F8, so a slot promising one would
 // go on saying "nenaformátovaná" about a diskette that has long been
 // formatted -- a label describing something that is no longer true.  That
 // choice belongs in the New diskette dialog, where it is made once.
-inline constexpr wchar_t kSlotRam[] = L"*pamat";
+inline constexpr wchar_t kSlotUnsaved[] = L"*pamat";
 
 // True for the memory marker.  Anything else beginning with '*' is a marker
 // from a newer version and is treated the same rather than being mounted as a
 // folder, which is what a bare path test would have done with it.
-bool SlotIsRam(const std::wstring& slot);
+bool SlotIsUnsaved(const std::wstring& slot);
 
 // What the menu and the dialogs call a slot.  In one place, so a slot cannot
 // read one way in the menu and another way in the dialog that fills it.

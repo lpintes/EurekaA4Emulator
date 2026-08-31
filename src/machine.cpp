@@ -949,7 +949,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     // The track the guest is laying down.  Behind a host folder this changes
     // nothing -- the track image is discarded, because erasing the user's
     // files because the emulated machine formatted is not this model's call
-    // to make (6.5) -- but on a diskette that lives in memory it is the whole
+    // to make (6.5) -- but on a diskette with no home it is the whole
     // point: an unformatted one has no track answering until this runs.
     disk_.FormatTrack(fdcTrack_, outputLatch_ & 1);
     // The operation reports success either way.

@@ -11,16 +11,15 @@
 // makes the ROM say "soubor nelze najít" and cancel the job, having written
 // nothing (measured 29. 8. 2026).
 //
-// Only diskettes that live in memory are held here.  One backed by a host
-// folder needs no copy: the folder *is* the diskette, it is written back
-// before it leaves the drive, and reading it again is both cheaper and truer
-// -- a folder the user changed meanwhile comes back changed, which is what
-// the same diskette would do.
+// Only diskettes with no home are held here.  One that has a home folder needs
+// no copy: it is written back before it leaves the drive, and reading it again
+// is both cheaper and truer -- a folder the user changed meanwhile comes back
+// changed, which is what the same diskette would do.
 //
 // Slots are numbered the way the menu numbers them, 1..kSlots.  There is
 // deliberately no shelf for a diskette belonging to no slot: a shelf holds one
 // diskette, so the second one put on it would destroy the first -- the same
-// silent loss in a smaller box.  A diskette in memory with nothing pointing at
+// silent loss in a smaller box.  An unsaved diskette with nothing pointing at
 // it is a decision for the user, not a place for this class to invent; the
 // window asks before anything pushes it out of the drive.
 
@@ -34,7 +33,7 @@ class DiskStash {
   // The quick-choice slots, numbered as the menu numbers them.
   static constexpr int kSlots = 9;
 
-  // Puts a diskette away.  A folder-backed one is declined and says so by
+  // Puts a diskette away.  One with a home is declined and says so by
   // returning false: nothing is lost, because the folder holds it.
   bool Put(int slot, const VirtualDisk& disk);
   // Takes it back out, leaving the slot empty.  Null when the slot never had

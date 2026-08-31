@@ -148,7 +148,7 @@ nestratí potichu. Skutočný diskový priečinok na to nepoužívaj, mení sa p
 rukami.
 
 Drží aj **zásobník diskiet** (`DiskStash`): že slot vráti tú istú disketu aj
-s jej obsahom, že sa sloty navzájom nemiešajú, že priečinková disketa sa
+s jej obsahom, že sa sloty navzájom nemiešajú, že disketa s priečinkom sa
 neodkladá a že slot 0 neexistuje.
 
 Drží aj **klasifikáciu typov súborov pri exporte**, a to je jediné, čo ju
@@ -261,19 +261,32 @@ lebo NVDA považuje doplnky za odvodené dielo (`nvda-addon/COPYING.txt`).
   v `%APPDATA%\EurekaA4`. O emulátore nevie nič a nič nehlási — chýbajúci
   súbor znamená defaulty, zlyhaný zápis vráti dôvod volajúcemu, ktorý ho
   ohlási v okamihu úkonu. Viď HANDOFF 6.22.
+- **Slovník diskety je zmluva a je jednoslovný.** Disketa buď má **domov**
+  (`VirtualDisk::has_home()`, priečinok, z ktorého sa načíta a do ktorého sa
+  sama zapisuje), alebo nemá; pre používateľa je tá druhá **„neuložená“**,
+  nie „v pamäti“ — v pamäti sú obe, `Mount` priečinok len raz prečíta do
+  obrazu. Slovo „RAM“ nepomenúvalo ani jednu z dvoch vecí, na ktorých
+  záleží, a dalo sa preto prečítať ako „nedá sa zamknúť“ (6.26, 6.28).
+  Jediná výnimka je `FormatTrack`: má rovnakú odpoveď, ale iný dôvod, takže
+  má vlastný predikát `formatting_erases()`. **Nezlučuj ich.**
+  Značka v `nastavenia.txt` zostáva `*pamat` — je v existujúcich súboroch
+  a jej zmena by ticho vyprázdnila každý neuložený slot.
 - `src/disk_stash.*` je **zásobník diskiet**: sloty 1 až 9, v ktorých
   diskety **sú**, kým nie sú v mechanike. Disketa je objekt, nie recept na
   jej výrobu — slot, ktorý pri každom vložení vyrobil novú prázdnu, zabil
   Eurekine hromadné kopírovanie a tichou stratou dát (HANDOFF 6.24).
-  Odkladajú sa len diskety v pamäti; tú z priečinka drží priečinok.
+  Odkladajú sa len neuložené diskety; tú s priečinkom drží priečinok.
   **Slot 0 zámerne neexistuje** a nie je tu ani polička na disketu bez
   slotu: polička drží jednu, takže druhá odložená by prvú ticho prepísala.
-  Disketa v pamäti bez slotu je rozhodnutie používateľa, a pýta sa naň
+  Neuložená disketa bez slotu je rozhodnutie používateľa, a pýta sa naň
   `MainWindow::ConfirmLosingDiskette` pred **každou** cestou, ktorá by ju
   z mechaniky vytlačila.
 - `src/emulator_thread.*` vlastní `EurekaMachine` aj `AudioPlayer` a beží
   na vlastnom vlákne. Vlastní aj zásobník; okno mu posiela číslo slotu
-  a späť dostáva v `DiskState`, ktorému slotu disketa v mechanike patrí. Okno sa stroja **nedotýka**, všetko mu posiela cez
+  a späť dostáva v `DiskState`, ktorému slotu disketa v mechanike patrí,
+  plus dve atomické masky `stash_holds()` a `stash_locked()` — bez nich sa
+  dialóg slotov nemá ako spýtať, či v slote vôbec nejaká disketa je.
+  Okno sa stroja **nedotýka**, všetko mu posiela cez
   jednu frontu príkazov — preto tam nie je ani jeden zámok nad strojom.
   Klávesy idú tou istou frontou ako príkazy, aby si prepnutie režimu
   nepredbehlo kláves napísaný po ňom.

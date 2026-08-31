@@ -21,10 +21,10 @@ bool SettingsDialog::OnOk() {
 
 namespace {
 
-// "3: Slovník — C:\Diskety\Slovnik", or "3: (prázdny)".  The number leads
-// because it is the shortcut: a screen reader reading the line has already
-// said which key puts that diskette in.  The path is appended only when there
-// is one -- a slot holding a diskette in memory has no path to show.
+// "3: Slovník — zamknutá — C:\Diskety\Slovnik", or "3: (prázdny)".  The number
+// leads because it is the shortcut: a screen reader reading the line has
+// already said which key puts that diskette in.  The path is appended only
+// when there is one -- an unsaved diskette has no path to show.
 std::wstring SlotLine(int number, const std::wstring& slot, bool locked) {
   std::wstring line =
       std::to_wstring(number) + L": " + SlotDisplayName(slot);
@@ -33,13 +33,13 @@ std::wstring SlotLine(int number, const std::wstring& slot, bool locked) {
   // that showed up only after moving the focus elsewhere would be a property
   // of the slot that cannot be found by reading it.
   if (locked) line += L" — zamknutá";
-  if (!slot.empty() && !SlotIsRam(slot)) line += L" — " + slot;
+  if (!slot.empty() && !SlotIsUnsaved(slot)) line += L" — " + slot;
   return line;
 }
 
 // Whether this slot's lock can be *remembered* -- which is not the same as
 // whether the diskette can be locked, and the difference is worth the name.
-// A diskette in memory locks perfectly well: the notch is a member of
+// An unsaved diskette locks perfectly well: the notch is a member of
 // VirtualDisk, InsertDisk copies the whole object, and a locked one measured
 // through a slot and back comes out locked (HANDOFF 6.26).  What it has no
 // room for is the settings file, whose lock list is keyed by path -- so
@@ -48,7 +48,7 @@ std::wstring SlotLine(int number, const std::wstring& slot, bool locked) {
 // The greying therefore says less than it seems to say, and 6.26 has the open
 // question about what it ought to offer instead.
 bool SlotLockIsRemembered(const std::wstring& slot) {
-  return !slot.empty() && !SlotIsRam(slot);
+  return !slot.empty() && !SlotIsUnsaved(slot);
 }
 
 }  // namespace
@@ -76,26 +76,26 @@ bool NewDiskDialog::OnInit() {
 }
 
 NewDiskDialog::Kind NewDiskDialog::SelectedKind() const {
-  if (IsChecked(IDC_NEW_RAM)) return Kind::kRam;
-  if (IsChecked(IDC_NEW_UNFORMATTED)) return Kind::kUnformattedRam;
-  return Kind::kEmptyFolder;
+  if (IsChecked(IDC_NEW_UNSAVED)) return Kind::kUnsaved;
+  if (IsChecked(IDC_NEW_UNFORMATTED)) return Kind::kUnformatted;
+  return Kind::kNewFolder;
 }
 
 void NewDiskDialog::RefreshEnabled() {
   const Kind kind = SelectedKind();
-  const bool needsFolder = kind == Kind::kEmptyFolder;
+  const bool needsFolder = kind == Kind::kNewFolder;
   SetEnabled(IDC_NEW_PATH, needsFolder);
   SetEnabled(IDC_NEW_BROWSE, needsFolder);
   // An unformatted diskette cannot go in a slot: unformatted lasts until the
   // first Shift+F8, so the slot would keep offering a state this diskette has
   // long left behind.  Greying it says that where a screen reader reads it.
-  SetEnabled(IDC_NEW_SLOT, kind != Kind::kUnformattedRam);
-  if (kind == Kind::kUnformattedRam)
+  SetEnabled(IDC_NEW_SLOT, kind != Kind::kUnformatted);
+  if (kind == Kind::kUnformatted)
     SendMessageW(Item(IDC_NEW_SLOT), CB_SETCURSEL, 0, 0);
 }
 
 bool NewDiskDialog::OnCommand(int id, int notification) {
-  if (id == IDC_NEW_EMPTYFOLDER || id == IDC_NEW_RAM ||
+  if (id == IDC_NEW_EMPTYFOLDER || id == IDC_NEW_UNSAVED ||
       id == IDC_NEW_UNFORMATTED) {
     RefreshEnabled();
     return true;
@@ -130,7 +130,7 @@ bool NewDiskDialog::OnOk() {
       return false;
     }
   }
-  if (kind_ != Kind::kEmptyFolder) return true;
+  if (kind_ != Kind::kNewFolder) return true;
 
   folder_ = GetText(IDC_NEW_PATH);
   if (folder_.empty()) {
@@ -180,13 +180,12 @@ void SlotsDialog::FillList(int select) {
   SendMessageW(list, LB_RESETCONTENT, 0, 0);
   for (int index = 0; index < Settings::kSlots; ++index) {
     const auto slot = static_cast<std::size_t>(index);
-    SendMessageW(
-        list, LB_ADDSTRING, 0,
-        reinterpret_cast<LPARAM>(
-            SlotLine(index + 1, slots_[slot], locks_[slot]).c_str()));
+    SendMessageW(list, LB_ADDSTRING, 0,
+                 reinterpret_cast<LPARAM>(
+                     SlotLine(index + 1, slots_[slot], locks_[slot]).c_str()));
   }
   SendMessageW(list, LB_SETCURSEL, static_cast<WPARAM>(select), 0);
-  // Nothing to put in a slot when no folder-backed diskette is in the drive,
+  // Nothing to put in a slot when the drive is empty,
   // and a button that answers with silence is worse than one that is greyed.
   SetEnabled(IDC_SLOT_CURRENT, !currentDisk_.empty());
   RefreshLock(select);
@@ -245,16 +244,16 @@ bool SlotsDialog::OnCommand(int id, int notification) {
         assignedCurrent_ = index + 1;
       }
       return true;
-    case IDC_SLOT_NEWRAM:
+    case IDC_SLOT_NEWUNSAVED:
       // The marker, not a diskette: nothing is made here and nothing could be
-      // -- a diskette in memory is the worker's to create, and it does so on
+      // -- an unsaved diskette is the worker's to create, and it does so on
       // the first insert of a slot that has nothing put away yet.  Until then
       // this slot is a promise of an empty one, which is what the list line
       // "Disketa v pamäti" says.
       //
       // The only other road to this value was "Sem vloženú disketu", so a
       // memory slot could not be set up unless one was already in the drive.
-      SetSlotAndRefresh(index, kSlotRam);
+      SetSlotAndRefresh(index, kSlotUnsaved);
       return true;
     case IDC_SLOT_CLEAR:
       SetSlotAndRefresh(index, L"");
