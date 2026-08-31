@@ -2167,14 +2167,21 @@ integration_test ROM DISK_FOLDER dc    -> PASS (výstup po reči sadne na ticho)
 integration_test ROM DISK_FOLDER rtc   -> PASS (budík sa nastaví a zazvoní)
 integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
 integration_test ROM DISK_FOLDER format-> PASS (Shift+F8 naformátuje prázdnu)
+integration_test ROM DISK_FOLDER wp    -> PASS (zámok číta, zápis odmietne)
 disk_test                              -> PASS (144 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
-settings_test                          -> PASS (36 kontrol, bez ROM)
+settings_test                          -> PASS (51 kontrol, bez ROM)
 ```
 
-Všetkých jedenásť naraz spustí `run-tests.bat`: paralelne, s jedným súhrnom
-na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
+Všetkých **dvanásť** naraz spustí `run-tests.bat`: paralelne, s jedným
+súhrnom na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
 diskety si pripraví sám, takže ručne netreba nič.
+
+Ten počet je jediné miesto, kde sa tento zoznam dá overiť zvonka, a preto tu
+stojí číslom: keď režim pribudne do `MODES` v `Makefile` a sem nie, rozdiel
+nevidno inak než spočítaním riadkov `PASS`. Presne to sa aj stalo — `wp`
+tu chýbal a text hovoril „jedenásť“, kým `run-tests.bat` už dávno púšťal
+dvanásť procesov.
 
 Pozor: `com` potrebuje `READ.COM` v priečinku disku a bez neho zlyhá.
 Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`, a `run-tests.bat`
