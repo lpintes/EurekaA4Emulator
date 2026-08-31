@@ -2002,6 +2002,13 @@ a `Alt+U` pritom sadol rovno na výber slotu, teda na popisku, ktorá sa
 nemenila. Teraz je to `Ul&ožená` (O), `&Neuložená` (N),
 `nena&formátovaná` (F) a `Alt+U` zostáva slotu.
 
+**A ešte jedna vec, ktorú nahlásil majiteľ v ten istý deň: popiska zoznamu.**
+Stálo v nej `Sloty — vkladá ich F11 a číslo s Ctrl:` a je to návod na klávesy
+v mieste, ktoré má povedať, čo ten zoznam je. Tie skratky sú v ponuke Disketa,
+v Pomocníkovi aj v README; tu sa len čítali nahlas pri každom otvorení dialógu.
+Teraz je to `Sloty:`. Nebolo to z tejto zmeny — stálo to tam predtým — ale
+pravidlo je odteraz v `CLAUDE.md` a platí pre celé GUI.
+
 **Poučenie je metodické, nie o písmenách: premenovanie tlačidla je zmena
 mnemoniky.** V `.rc` to vidieť nie je — ampersandy sú roztrúsené po
 reťazcoch, ktoré sa lámu cez viac riadkov — a windres na kolíziu

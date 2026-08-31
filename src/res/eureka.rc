@@ -300,8 +300,12 @@ STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSM
 CAPTION "Sloty s disketami"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
-    LTEXT           "&Sloty — vkladá ich F11 a číslo s Ctrl:", IDC_STATIC,
-                    7, 7, 286, 9
+    /* Len "Sloty:".  Stálo tu "Sloty — vkladá ich F11 a číslo s Ctrl:", čo je
+       návod na klávesy v popiske zoznamu: číta sa nahlas pri každom vstupe do
+       dialógu, hoci tie skratky sú v ponuke Disketa, v Pomocníkovi aj
+       v README.  Popiska má povedať, čo ten zoznam je, nie ako sa ovláda
+       niečo iné. */
+    LTEXT           "&Sloty:", IDC_STATIC, 7, 7, 286, 9
     LISTBOX         IDC_SLOT_LIST, 7, 19, 286, 90,
                     LBS_NOTIFY | WS_VSCROLL | WS_GROUP | WS_TABSTOP
     /* WS_GROUP on the first button and on the check box below, for the same

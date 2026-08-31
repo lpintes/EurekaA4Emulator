@@ -463,6 +463,18 @@ stroja, a to z dvoch dôvodov: vlákno stroja nesmie otvárať okná a
 `MessageBox` si spustí vlastnú správovú slučku, takže by na ten čas
 zastavil emuláciu aj zvuk.
 
+**Do textov pre používateľa nepatria implementačné detaily.** Ani návody na
+klávesy v popiskách, ani vysvetlenie, prečo je niečo zošedené, ani kedy sa čo
+vnútri vyrobí. Každé slovo v popiske, v riadku zoznamu a na tlačidle sa číta
+**nahlas pri každom prechode**, takže text navyše nie je pomoc, je to šum — a
+keď opisuje náš mechanizmus, býva navyše nepravdivý z pohľadu používateľa.
+Zamietnuté 31. 8. 2026: `Neuložená disketa (vznikne pri vložení)` (pravda
+o kóde, lož o svete — disketa vzniká pri vytvorení) a popiska
+`Sloty — vkladá ich F11 a číslo s Ctrl:` (skratky sú v ponuke, v Pomocníkovi aj
+v README). Popiska hovorí, **čo tá vec je**; dôvod patrí do README alebo do
+komentára v zdrojáku. Zošedený prvok stojí sám. Je to tá istá chyba ako 6.25,
+len z druhej strany.
+
 Druhá polovica toho pravidla: **dialóg je na to, čo sa pokazilo alebo si
 žiada rozhodnutie, nie na pravidlá, ktorými disk beží.** Podpriečinky sa
 ignorujú a nehlási sa to nijako — hlásili sa a používateľ to zamietol ako
