@@ -434,6 +434,14 @@ void EmulatorThread::PostInsertSlot(int slot, std::wstring value,
   Post(std::move(command));
 }
 
+void EmulatorThread::PostSetSlotWriteProtect(int slot, bool writeProtected) {
+  Command command;
+  command.type = Command::Type::kSetSlotWriteProtect;
+  command.slot = slot;
+  command.flag = writeProtected;
+  Post(std::move(command));
+}
+
 void EmulatorThread::PostAssignSlot(int slot) {
   Command command;
   command.type = Command::Type::kAssignSlot;
@@ -651,6 +659,26 @@ void EmulatorThread::Run() {
   // when the user puts one in from the quick choice.
   int currentSlot = 0;
 
+  // What the window is allowed to know about the shelf.  Published from here
+  // and nowhere else, because everything that can change it goes through this
+  // thread: a diskette put away or taken back, and a notch moved on one that
+  // is sitting there.  The window needs it for the slots dialog, which has to
+  // tell "this slot's diskette is locked" from "this slot has no diskette to
+  // lock yet" -- and answering the second with the first is 6.26.
+  const auto publishStash = [&] {
+    unsigned holds = 0;
+    unsigned locked = 0;
+    for (int slot = 1; slot <= DiskStash::kSlots; ++slot) {
+      if (!stash.holds(slot)) continue;
+      holds |= 1u << slot;
+      if (stash.WriteProtected(slot)) locked |= 1u << slot;
+    }
+    stashHolds_.store(holds, std::memory_order_relaxed);
+    stashLocked_.store(locked, std::memory_order_relaxed);
+    stashHasFiles_.store(stash.HoldsAnythingWritten(),
+                         std::memory_order_relaxed);
+  };
+
   const auto changeDisk = [&](const Command& command) {
     DiskChange result;
     // What the old diskette still owes its folder goes back first: after this
@@ -695,8 +723,7 @@ void EmulatorThread::Run() {
           break;
       }
     }
-    stashHasFiles_.store(stash.HoldsAnythingWritten(),
-                         std::memory_order_relaxed);
+    publishStash();
     if (!result.ok) result.error = changeError;
     // Read after the change, so this is what is in the drive now.  A refused
     // mount leaves it empty, which the labels then say.
@@ -799,6 +826,28 @@ void EmulatorThread::Run() {
           exportResult_ = ok ? command.path : exportError;
         }
         if (notify) PostMessageW(notify, WM_EMU_EXPORT_DONE, 0, 0);
+        break;
+      }
+      case Command::Type::kSetSlotWriteProtect: {
+        // The diskette this slot owns, wherever it is.  In the drive it is the
+        // machine's and the window has to hear about it -- the title carries
+        // the lock; on the shelf nothing visible changes, so nothing is
+        // posted, only the published masks move.
+        if (command.slot == currentSlot) {
+          machine.SetDiskWriteProtected(command.flag);
+          DiskChange result;
+          result.swapped = false;
+          result.state = DescribeDisk(machine.disk());
+          result.state.slot = currentSlot;
+          {
+            std::lock_guard<std::mutex> lock(errorMutex_);
+            diskChange_ = std::move(result);
+          }
+          if (notify) PostMessageW(notify, WM_EMU_DISK_CHANGED, 0, 0);
+        } else {
+          stash.SetWriteProtected(command.slot, command.flag);
+        }
+        publishStash();
         break;
       }
       case Command::Type::kAssignSlot: {

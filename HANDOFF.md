@@ -1654,9 +1654,11 @@ disketu bez slotu neexistuje a na disketu v pamäti bez slotu sa pýta
 (rozvrstvenie GUI) a drží ho `disk_test`. Otvorené z tejto témy zostáva
 toto:
 
-**Druhý dôsledok toho istého pravidla, doplnený 30. 8. 2026: 6.26.** Ak je
-disketa objekt, musí sa dať zamknúť bez ohľadu na médium. Model to tak robí
-a je to odmerané; dialóg slotov to popiera zošedeným políčkom.
+**Druhý dôsledok toho istého pravidla, doplnený 30. 8. 2026: 6.26,
+uzavretý 31. 8. 2026 spolu s 6.28.** Ak je disketa objekt, musí sa dať
+zamknúť bez ohľadu na médium. Dialóg slotov to popieral zošedeným
+políčkom; teraz to políčko platí pre disketu v ktoromkoľvek slote a šedé
+je len tam, kde ešte žiadna disketa nie je.
 
 **Čo zostalo nedokončené:** režim `kopia` v `integration_test`, ktorý mal
 ten scenár prehrať sám. Zápasil som so synchronizáciou reči — hlášky
@@ -1780,7 +1782,7 @@ priečinok`, `Sloty s disketami`, `Vložiť disketu z priečinka`), staré
 (`Z &existujúceho priečinka`, `Rýchla voľba`) v ňom už nie sú.
 Kontrolovaná bola aj negatívna vzorka, aby test naozaj meral.
 
-### 6.26 Zámok diskety v pamäti — model to vie, dialóg to popiera (otvorené)
+### 6.26 Zámok diskety v pamäti — model to vie, dialóg to popiera — opravené
 
 **Nahlásil majiteľ 30. 8. 2026** vetou, ktorá je pravidlo, nie pripomienka:
 *„Ak disketa je objekt, MUSÍ sa dať zamknúť. A je jedno či je/nie je
@@ -1825,26 +1827,63 @@ to už je tretíkrát v jednom dni: **keď sa niečo nedá uložiť, neznamená 
 že sa to nedá nastaviť.** Stojí za to hľadať ďalšie miesta, kde je
 perzistencia zamenená za schopnosť.
 
-**Prečo to nie je opravené hneď.** Chýba rozhodnutie, na čo sa to políčko
-pri pamäťovom slote má vzťahovať, a sú to tri rôzne veci:
+**Rozhodnuté a spravené 31. 8. 2026 (majiteľ zadal „všetko" spolu
+s 6.28).** Z troch možností, ktoré tu stáli — disketa v slote, slot ako
+predpis, disketa, čo ešte neexistuje — platí **prvá**: políčko sa vzťahuje
+na **disketu, ktorá je v tom slote**. Dôvod nie je vkus. Pri priečinkovom
+slote to už tak bolo: zoznam `zamok1=` je vedený **podľa cesty**, nie podľa
+čísla slotu, takže cesta je len *meno diskety*. Pri neuloženej diskete je
+tým menom sám objekt v zásobníku. Je to tá istá vec bez mena, ktoré by sa
+dalo zapísať do súboru — nie druhý druh zámku.
 
-1. **Na disketu, ktorá je v tom slote odložená.** Zásobník vlastní worker,
-   takže by to bol nový príkaz do fronty, nie zmena v kópii nastavení —
-   dialóg dnes celý pracuje na kópii a odovzdáva ju až na OK.
-2. **Na slot ako predpis** („čokoľvek sem príde, príde zamknuté“). Dá sa
-   uložiť aj pre pamäť, ale je to nová vlastnosť slotu a stojí za zváženie,
-   či nie je v spore s tým, že slot je miesto, nie recept (6.24).
-3. **Na disketu, ktorá ešte neexistuje.** Pamäťový slot, do ktorého sa
-   nikdy nevkladalo, nemá žiadny objekt — worker ju vyrobí až pri prvom
-   vložení. Zaškrtnúť zámok tu nemá čoho sa chytiť, pokiaľ sa nezvolí (2).
+Tretia možnosť ostáva v platnosti: slot, do ktorého sa nikdy nevkladalo,
+žiadny objekt nemá a nastaviť vlastnosť neexistujúcej veci sa nedá. Políčko
+tam preto zostáva zošedené — bez textu, ktorý by to v zozname vysvetľoval.
+Po reštarte je v tomto stave **každý** neuložený slot, lebo zásobník reštart
+neprežije; ani editor nevie zapamätať nepomenovaný dokument.
 
-Kým sa nerozhodne, platí aspoň toto: **cesta zamknúť neuloženú disketu
-existuje a je to `F11`, `Ctrl+Z`** — README to hovorí správne v kapitole
-Zámok proti zápisu. Dialóg je jediné miesto, kde to znie inak.
+Druhá možnosť (slot ako predpis) je zamietnutá: bola by to nová vlastnosť
+slotu a spor s 6.24.
 
-Testom nekryté: že zámok prežije cestu cez zásobník, drží zatiaľ len tá
-sonda vyššie, nie `disk_test`. Kto to bude opravovať, nech to pribije
-testom prv, než siahne na dialóg.
+**Ako je to spravené.**
+
+- `DiskStash::SetWriteProtected` a `WriteProtected` — zámok sa dá hýbať aj
+  na diskete, ktorá leží na poličke.
+- `EmulatorThread::PostSetSlotWriteProtect` → `kSetSlotWriteProtect`.
+  Worker rozhodne, kde tá disketa je: keď je slot ten, čo je práve
+  v mechanike, ide zámok na `machine`, a okno o tom dostane
+  `WM_EMU_DISK_CHANGED` (titulok, tón); inak na zásobník a nehlási sa nič,
+  lebo sa nič viditeľné nezmenilo.
+- Worker publikuje dve atomické bitové masky, `stash_holds()`
+  a `stash_locked()`. Bez nich sa okno nemá ako spýtať — zásobník je jeho.
+- `SlotsDialog` dostáva navyše `Present` a `currentLocked`. **Prestal si
+  odpoveď odvodzovať z reťazca slotu**, a to je jadro opravy: z `*pamat`
+  sa dá odvodiť „zámok sa nezapamätá", ale nie „disketa neexistuje", a stará
+  `SlotLockIsRemembered` odpovedala prvým na druhé.
+- `SlotLockIsRemembered` → `SlotLockPersists`, a používa sa už len na to,
+  ako sa riadok pomenuje: `— zamknutá` proti `— zamknutá dočasne`.
+
+**Druhá vec, ktorá z toho vypadla.** Keď políčko ukazuje **skutočný** zámok
+diskety v mechanike (a musí, inak by hovorilo o niečom inom než riadok nad
+ním), musí ho vedieť aj zmeniť — inak by dialóg ukázal pravdu a po OK ju
+nechal tak. Okno preto posiela `PostSetSlotWriteProtect` aj pre slot, ktorý
+je práve v mechanike. So strážou: keď ten slot v tom istom sedení dialógu
+prepíšeš inam, políčko je už o inej diskete, a worker porovnáva len čísla
+slotov — zámok by sadol na tú, čo v mechanike zostala. Je to ten istý druh
+tichého rozporu ako `assignedCurrent_` v 6.25.
+
+**Pasca, ktorá pri tom vyšla najavo.** Pôvodná slučka v `IDC_SLOT_LOCK`
+zaškrtávala každý slot, pre ktorý `Settings::SameDisk` povedala „tá istá
+disketa". Dva neuložené sloty majú oba hodnotu `*pamat`, takže `SameDisk`
+ich vyhlási za jednu disketu — a sú to dve rôzne diskety na dvoch rôznych
+poličkách. Značka nie je meno, je to **neprítomnosť mena**. Slučka preto
+beží len nad slotmi, ktoré menujú priečinok.
+
+**Testom kryté.** `disk_test` má `StashKeepsTheLock`: zámok prežije
+`Put`/`Take`, sloty sa nemiešajú, zámok sa dá nastaviť aj zrušiť na
+poličke, a prázdny slot ani slot 0 sa zamknúť nedajú. `settings_test`
+naďalej drží, že sa taký zámok **nezapamätá** — a komentár tam teraz
+hovorí, že to nie je to isté ako „nedá sa nastaviť".
 
 ### 6.27 Šípky nekrúžili po prepínačoch v Nastaveniach — opravené
 
@@ -1951,7 +1990,7 @@ značka `*pamat` a číslovanie `IDC_*`.
 Overené: `build.bat` bez varovania, dvanásť `PASS` (`disk_test` má
 133 kontrol namiesto pôvodných 63), a všetky nové reťazce nájdené
 v hotovom EXE v UTF-16 vrátane diakritiky — `neuložená`,
-`Neuložená disketa`, `Sem &novú neuloženú`,
+`Neuložená disketa`, `Sem &novú neuloženú`, `— zamknutá dočasne`,
 `Odteraz je to jej priečinok a zapisuje sa doň sama.`
 Staré (`disketa v pamäti`, `Disketa v pamäti`, `&Dočasná v pamäti`,
 `Sem &novú v pamäti`, `&Trvalá — nový priečinok`) v ňom už nie sú.
@@ -2031,8 +2070,9 @@ Zostáva to odskúšať v skutočnej relácii s NVDA; rozbor je na konci 6.18.
 5. **Správa diskiet** (6.22) — perzistencia, výmena za behu, rýchla
    voľba aj dialóg `Nová disketa` s nenaformátovaným médiom **hotové**
    28. 8. 2026; **zámok proti zápisu** a **disketa ako objekt** (zásobník
-   slotov, 6.24) **hotové** 29. 8. 2026; **slovník „neuložená“** (6.28)
-   **hotové** 31. 8. 2026. Ostáva **rozdeľovač kolekcie**
+   slotov, 6.24) **hotové** 29. 8. 2026; **zámok diskety v slote** (6.26)
+   a **slovník „neuložená“** (6.28) **hotové** 31. 8. 2026.
+   Ostáva **rozdeľovač kolekcie**
    (`disk_layout`), ktorý je na zvyšku nezávislý a dá sa písať aj testovať
    bez GUI a bez ROM. Že sa EurekaDOS po výmene preloguje sám, je odmerané
    (koniec 6.17), zatiaľ ale len ručne — a rovnako chýba test cez ROM na

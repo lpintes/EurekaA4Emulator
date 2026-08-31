@@ -569,6 +569,48 @@ void StashKeepsEverySlotApart() {
   Check(stash.HoldsAnythingWritten(), "disketa so suborom uz je");
 }
 
+// The notch travels with the diskette onto the shelf and back, and one slot's
+// does not become another's.
+//
+// Pinned before the slots dialog was allowed to offer it (6.26).  Until then
+// the only evidence that an unsaved diskette keeps its lock through a slot was
+// a probe run by hand, and the dialog said the opposite -- the box was greyed,
+// which read as "this diskette cannot be locked" when the truth is only that
+// the lock cannot be written into nastavenia.txt.
+void StashKeepsTheLock() {
+  DiskStash stash;
+  auto locked = std::make_unique<VirtualDisk>();
+  locked->CreateEmpty();
+  locked->set_write_protected(true);
+  auto open = std::make_unique<VirtualDisk>();
+  open->CreateEmpty();
+
+  Check(stash.Put(1, *locked), "zamknuta disketa sa odlozi");
+  Check(stash.Put(2, *open), "odomknuta disketa sa odlozi");
+  Check(stash.WriteProtected(1), "slot 1 vie o zamku");
+  Check(!stash.WriteProtected(2), "slot 2 zamok nema");
+
+  // The lock can be moved while the diskette is on the shelf: that is what the
+  // slots dialog does, and it is the whole of the repair.
+  Check(stash.SetWriteProtected(2, true), "zamok sa da nastavit na police");
+  Check(stash.WriteProtected(2), "nastaveny zamok na polici plati");
+  Check(stash.SetWriteProtected(1, false), "zamok sa da na polici zrusit");
+  Check(!stash.WriteProtected(1), "zruseny zamok na polici plati");
+  Check(stash.WriteProtected(2), "slot 2 zostal zamknuty");
+
+  auto back1 = stash.Take(1);
+  auto back2 = stash.Take(2);
+  Check(back1 && !back1->write_protected(), "slot 1 vratil odomknutu");
+  Check(back2 && back2->write_protected(), "slot 2 vratil zamknutu");
+
+  // An unsaved slot that has never been inserted holds nothing, so there is no
+  // notch to move.  That is the one honest reason for the dialog to grey the
+  // box: not "this kind cannot be locked" but "there is no diskette yet".
+  Check(!stash.SetWriteProtected(3, true), "prazdny slot sa neda zamknut");
+  Check(!stash.WriteProtected(3), "prazdny slot nie je zamknuty");
+  Check(!stash.SetWriteProtected(0, true), "slot nula sa neda zamknut");
+}
+
 // Lays bytes into the image the only way a guest can: through the controller.
 // offset and the data length have to be whole 512 byte sectors.
 bool PutImageBytes(VirtualDisk& disk, std::size_t offset,
@@ -821,6 +863,7 @@ int main() {
   StashKeepsDiskettesInMemory();
   StashDeclinesFolderDiskettes();
   StashKeepsEverySlotApart();
+  StashKeepsTheLock();
   RamDisketteKeepsBinaryFilesWhole();
   FileTypeClassificationIsPinned();
   EmptyFolderAndMissingFolder();

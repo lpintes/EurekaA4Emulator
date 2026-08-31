@@ -22,7 +22,7 @@ in the technical manual -- 396 free blocks of 2 KiB and 256 directory entries
 -- so a change in the disk model has to break this test before it breaks a
 diskette. Runs without the ROM.
 
-Two of its groups are worth knowing about before touching `VirtualDisk`:
+Three of its groups are worth knowing about before touching `VirtualDisk`:
 
 - the checks around an unsaved diskette write the image the only way a guest
   can, through `WritePhysicalSector`, laying down the directory entry and the
@@ -31,6 +31,15 @@ Two of its groups are worth knowing about before touching `VirtualDisk`:
   has to work one out. The paths that do have to work it out are reachable only
   from a diskette no host folder knows anything about, and `Mount` cannot get
   there;
+
+- `StashKeepsTheLock` pins that the write-protect notch travels onto the shelf
+  and back, that one slot's notch is not another's, and that it can be moved
+  while the diskette is *on* the shelf. It was written before the slots dialog
+  was allowed to offer that (6.26), where the box had been greyed for unsaved
+  slots -- which read as "this diskette cannot be locked" when the truth is
+  only that the lock cannot be written into `nastavenia.txt`. The last three
+  checks pin the one honest reason to grey it: a slot that holds no diskette
+  yet has no notch to move;
 
 - `klasifikacia_typov_je_pribita` pins, one type at a time, which extensions
   the export may cut at the 01Ah end-of-file marker. `IsTextType` is an

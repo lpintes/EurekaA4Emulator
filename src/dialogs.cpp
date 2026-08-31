@@ -21,6 +21,20 @@ bool SettingsDialog::OnOk() {
 
 namespace {
 
+// Whether this slot's lock outlives the emulator.  It is written into
+// nastavenia.txt against the folder's path, so a diskette with no path cannot
+// have one written down -- Settings::SetDiskLocked drops it.
+//
+// This used to be called SlotCanLock and then SlotLockIsRemembered, and its
+// answer was used for whether the box could be *ticked at all*.  It cannot be:
+// the notch is a member of VirtualDisk and works on every diskette, saved or
+// not.  Not being able to remember something is not the same as not being able
+// to do it (6.26) -- whether there is a diskette to do it to is
+// SlotHasDiskette, which is a different question again.
+bool SlotLockPersists(const std::wstring& slot) {
+  return !slot.empty() && !SlotIsUnsaved(slot);
+}
+
 // "3: Slovník — zamknutá — C:\Diskety\Slovnik", or "3: (prázdny)".  The number
 // leads because it is the shortcut: a screen reader reading the line has
 // already said which key puts that diskette in.  The path is appended only
@@ -32,23 +46,15 @@ std::wstring SlotLine(int number, const std::wstring& slot, bool locked) {
   // is what a screen reader reads when arrowing through the slots, and a lock
   // that showed up only after moving the focus elsewhere would be a property
   // of the slot that cannot be found by reading it.
-  if (locked) line += L" — zamknutá";
+  //
+  // "dočasne" for a diskette that has no folder to remember it by: the lock is
+  // as real as any other and lasts exactly as long as the diskette does, which
+  // is until the emulator closes.  Saying only "zamknutá" there would promise
+  // it back at the next start.
+  if (locked) line += SlotLockPersists(slot) ? L" — zamknutá"
+                                             : L" — zamknutá dočasne";
   if (!slot.empty() && !SlotIsUnsaved(slot)) line += L" — " + slot;
   return line;
-}
-
-// Whether this slot's lock can be *remembered* -- which is not the same as
-// whether the diskette can be locked, and the difference is worth the name.
-// An unsaved diskette locks perfectly well: the notch is a member of
-// VirtualDisk, InsertDisk copies the whole object, and a locked one measured
-// through a slot and back comes out locked (HANDOFF 6.26).  What it has no
-// room for is the settings file, whose lock list is keyed by path -- so
-// Settings::SetDiskLocked drops it and the box would forget itself on save.
-//
-// The greying therefore says less than it seems to say, and 6.26 has the open
-// question about what it ought to offer instead.
-bool SlotLockIsRemembered(const std::wstring& slot) {
-  return !slot.empty() && !SlotIsUnsaved(slot);
 }
 
 }  // namespace
@@ -195,7 +201,11 @@ void SlotsDialog::RefreshLock(int index) {
   if (index < 0 || index >= Settings::kSlots) return;
   const auto slot = static_cast<std::size_t>(index);
   SetChecked(IDC_SLOT_LOCK, locks_[slot]);
-  SetEnabled(IDC_SLOT_LOCK, SlotLockIsRemembered(slots_[slot]));
+  // Whether there is a diskette to lock, and nothing else.  It used to ask
+  // whether the lock could be written down, so an unsaved slot came up greyed
+  // and the dialog said "this diskette cannot be locked" about a diskette that
+  // locks perfectly well -- see SlotLockPersists (6.26).
+  SetEnabled(IDC_SLOT_LOCK, present_[slot]);
 }
 
 int SlotsDialog::Selected() const {
@@ -215,12 +225,17 @@ void SlotsDialog::SetSlotAndRefresh(int index, std::wstring path) {
   // "Sem vloženú disketu" sets it again right after calling this.
   if (assignedCurrent_ == index + 1) assignedCurrent_ = 0;
   slots_[slot] = std::move(path);
-  // Pointed somewhere else, the box has to follow the new folder rather than
+  // A slot pointed at a folder names a diskette that exists on disk; one
+  // pointed at the marker names one that does not exist yet, because the
+  // worker makes it on the first insert.  "Sem vloženú disketu" is the
+  // exception and sets both of these again right after calling this: that
+  // diskette is in the drive, so it is very much there.
+  present_[slot] = SlotLockPersists(slots_[slot]);
+  // Pointed somewhere else, the box has to follow the new diskette rather than
   // stay ticked from the old one -- otherwise OK would lock a diskette nobody
-  // asked about.  The lock itself lives in the settings, by folder, so a
-  // folder that is already locked arrives ticked.
-  locks_[slot] = SlotLockIsRemembered(slots_[slot]) &&
-                 settings_->disk_locked(slots_[slot]);
+  // asked about.  For a folder the lock lives in the settings, so one that is
+  // already locked arrives ticked; a slot with no diskette has no lock to show.
+  locks_[slot] = present_[slot] && settings_->disk_locked(slots_[slot]);
   FillList(index);
   SetFocus(Item(IDC_SLOT_LIST));
 }
@@ -242,6 +257,14 @@ bool SlotsDialog::OnCommand(int id, int notification) {
       if (!currentDisk_.empty()) {
         SetSlotAndRefresh(index, currentDisk_);
         assignedCurrent_ = index + 1;
+        // This diskette exists -- it is in the drive -- so its lock can be set
+        // here whether or not it has a folder, and it arrives showing the
+        // notch it actually has rather than what the settings could recall.
+        const auto slot = static_cast<std::size_t>(index);
+        present_[slot] = true;
+        locks_[slot] = currentLocked_;
+        FillList(index);
+        SetFocus(Item(IDC_SLOT_LIST));
       }
       return true;
     case IDC_SLOT_NEWUNSAVED:
@@ -260,15 +283,23 @@ bool SlotsDialog::OnCommand(int id, int notification) {
       return true;
     case IDC_SLOT_LOCK: {
       const bool locked = IsChecked(IDC_SLOT_LOCK);
+      const auto chosen = static_cast<std::size_t>(index);
+      locks_[chosen] = locked;
       // Every slot holding this same folder, not just the selected one: the
       // lock belongs to the diskette, so two slots pointing at it are one
       // diskette with one lock.  Ticking one and leaving the other unticked
       // would be a dialog disagreeing with itself, and the settings would
       // then take whichever slot happened to be written last.
-      for (std::size_t other = 0; other < locks_.size(); ++other)
-        if (Settings::SameDisk(slots_[other],
-                               slots_[static_cast<std::size_t>(index)]))
-          locks_[other] = locked;
+      //
+      // Only for slots that name a folder.  Two unsaved slots both read
+      // "*pamat" and SameDisk would call them one diskette, but they are two
+      // different diskettes on two different shelves -- the marker is not a
+      // name, it is the absence of one.
+      if (SlotLockPersists(slots_[chosen]))
+        for (std::size_t other = 0; other < locks_.size(); ++other)
+          if (other != chosen && SlotLockPersists(slots_[other]) &&
+              Settings::SameDisk(slots_[other], slots_[chosen]))
+            locks_[other] = locked;
       // The list line carries the lock too, so it has to be rebuilt -- but the
       // focus stays on the box the user has just ticked.
       FillList(index);

@@ -306,10 +306,18 @@ ako na stroji.
 Nízky tón znamená zamknuté, vysoký odomknuté, a kým zámok platí, stojí
 v titulku okna — `NVDA+T` naň odpovie kedykoľvek.
 
-**Zámok patrí diskete a drží, kým ho nezrušíte.** Prežije vysunutie,
-výmenu za inú disketu aj ukončenie emulátora: keď tú istú disketu vložíte
-znova — z ponuky, zo slotu aj pri štarte — príde zamknutá. Je to
-prelepená dierka, nie prepínač na mechanike.
+**Zámok patrí diskete a drží, kým ho nezrušíte.** Prežije vysunutie aj
+výmenu za inú disketu: keď tú istú disketu vložíte znova — z ponuky, zo
+slotu aj pri štarte — príde zamknutá. Je to prelepená dierka, nie
+prepínač na mechanike.
+
+**Zamknúť sa dá každá disketa, aj neuložená.** Zámok je vlastnosť tej
+diskety, nie priečinka pod ňou. Čo priečinok rozhoduje, je **ako dlho si
+ho emulátor pamätá**: zámok diskety s priečinkom sa zapíše do nastavení
+a platí aj po ďalšom spustení, zámok neuloženej diskety trvá presne tak
+dlho ako tá disketa — teda do konca behu, alebo dovtedy, kým jej dáte
+priečinok cez `F11`, `Ctrl+U`. „Nedá sa **zapamätať**" nie je to isté ako
+nedá sa **nastaviť**.
 
 Nie je to detail. Eurekine **hromadné kopírovanie** žiada, aby zdrojová
 disketa bola chránená proti zápisu (inak povie „zdrojový disk není
@@ -322,10 +330,14 @@ sa dajú aj prečítať a upraviť ručne.
 
 V dialógu **Spravovať sloty…** je pri vybranom slote začiarkávacie
 políčko *Zamknúť túto disketu proti zápisu* — je to ten istý zámok, len
-prístupný pri slote, a v zozname slotov to je napísané aj v riadku. Pre
-neuložený slot políčko nie je aktívne: zoznam zámkov je vedený podľa cesty
-a neuložená disketa žiadnu nemá, takže by sa taký zámok pri uložení
-nastavení ticho zabudol.
+prístupný pri slote, a v zozname slotov to je napísané aj v riadku:
+`— zamknutá` pri diskete s priečinkom, `— zamknutá dočasne` pri
+neuloženej, ktorej zámok koniec behu neprežije.
+
+Políčko je neprístupné **len vtedy, keď v tom slote žiadna disketa
+nie je** — teda pri prázdnom slote a pri neuloženom slote, ktorý ste ešte
+nikdy nepoužili. Po reštarte emulátora je v tomto stave každý neuložený
+slot, lebo neuložená disketa reštart neprežije.
 
 ## Čo si emulátor pamätá
 

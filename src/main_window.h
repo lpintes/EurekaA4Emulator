@@ -62,7 +62,13 @@ class MainWindow : public win::Window {
   void RememberDisk(const std::wstring& folder);
   // The nine slots as the dialogs want them.
   SlotList CurrentSlots() const;
+  // What each slot's diskette is, as the slots dialog needs it: whether there
+  // is one at all, and whether it is locked.  A folder slot is answered from
+  // the settings, an unsaved one from the worker's shelf -- and the drive
+  // overrides both for the slot whose diskette is in it, because that is where
+  // that diskette is right now.
   SlotsDialog::Locks CurrentLocks() const;
+  SlotsDialog::Present CurrentPresent() const;
   void RememberLock(const DiskState& disk);
   // False when the user backed out of losing a diskette that lives only in
   // memory; the caller then does nothing.  See the definition.

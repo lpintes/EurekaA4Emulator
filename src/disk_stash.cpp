@@ -17,6 +17,17 @@ bool DiskStash::holds(int slot) const {
   return Valid(slot) && disks_[static_cast<std::size_t>(slot)] != nullptr;
 }
 
+bool DiskStash::SetWriteProtected(int slot, bool protect) {
+  if (!holds(slot)) return false;
+  disks_[static_cast<std::size_t>(slot)]->set_write_protected(protect);
+  return true;
+}
+
+bool DiskStash::WriteProtected(int slot) const {
+  return holds(slot) &&
+         disks_[static_cast<std::size_t>(slot)]->write_protected();
+}
+
 bool DiskStash::HoldsAnythingWritten() const {
   for (const auto& disk : disks_)
     if (disk && disk->StoredFiles() > 0) return true;

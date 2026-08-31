@@ -100,10 +100,13 @@ constexpr wchar_t kShortcutHelp[] =
     L"      ako inokedy, ale zápis aj formátovanie odmietne slovami „disk je\r\n"
     L"      chráněn proti zápisu“. Nízky tón znamená zamknuté, vysoký\r\n"
     L"      odomknuté, a kým zámok platí, stojí v titulku okna.\r\n"
-    L"      Zámok drží tá disketa, nie mechanika: vydrží vysunutie, výmenu\r\n"
-    L"      aj ukončenie emulátora a zruší ho až toto isté Ctrl+Z. Preto\r\n"
-    L"      funguje hromadné kopírovanie, pri ktorom Eureka žiada chránený\r\n"
-    L"      zdroj a strieda zdrojovú disketu s cieľovou.\r\n"
+    L"      Zámok drží tá disketa, nie mechanika: vydrží vysunutie aj výmenu\r\n"
+    L"      a zruší ho až toto isté Ctrl+Z. Preto funguje hromadné\r\n"
+    L"      kopírovanie, pri ktorom Eureka žiada chránený zdroj a strieda\r\n"
+    L"      zdrojovú disketu s cieľovou. Zamknúť sa dá každá disketa vrátane\r\n"
+    L"      neuloženej; ukončenie emulátora prežije len zámok diskety, ktorá\r\n"
+    L"      má priečinok — zapisuje sa k jeho ceste. Zámok diskety, čo leží\r\n"
+    L"      v slote, sa nastavuje v Spravovať sloty.\r\n"
     L"F11, Ctrl+U — uloží disketu do priečinka. Priečinok nemusí existovať,\r\n"
     L"      stačí ho v dialógu pomenovať a vytvorí sa.\r\n"
     L"F11, Ctrl+D — výpis diagnostiky na konzolu.\r\n"
@@ -341,17 +344,40 @@ void MainWindow::RegisterCommands() {
   OnCommand(ID_DISK_SLOTS, [this] {
     // The slot value and not the folder: an unsaved diskette has no folder but
     // can still be put in a slot, which then makes a fresh empty one.
-    SlotsDialog dialog(CurrentSlots(), CurrentLocks(), disk_.slotValue,
-                       settings_);
+    const SlotsDialog::Locks before = CurrentLocks();
+    const SlotList beforeSlots = CurrentSlots();
+    SlotsDialog dialog(beforeSlots, before, CurrentPresent(), disk_.slotValue,
+                       disk_.writeProtected, settings_);
     if (dialog.ShowModal(hwnd_, IDD_SLOTS) != IDOK) return;
     for (int number = 1; number <= Settings::kSlots; ++number) {
       const auto index = static_cast<std::size_t>(number - 1);
-      settings_.SetSlot(number, dialog.slots()[index]);
+      const std::wstring& value = dialog.slots()[index];
+      const bool locked = dialog.locks()[index];
+      settings_.SetSlot(number, value);
       // The lock belongs to the folder, not to the slot, so this is the same
       // list the menu's own Ctrl+Z writes to.  Two slots pointing at one
       // folder are therefore one diskette with one lock, which is what they
-      // are on the shelf as well.
-      settings_.SetDiskLocked(dialog.slots()[index], dialog.locks()[index]);
+      // are on the shelf as well.  For an unsaved diskette this writes
+      // nothing, by SetDiskLocked's own rule -- there is no path to key it by.
+      settings_.SetDiskLocked(value, locked);
+      // Which is exactly why a real diskette needs telling as well.  The notch
+      // is a member of the diskette and the worker holds it, so a lock the
+      // user ticked here has to travel to the shelf or to the drive; without
+      // that it would be ticked in a dialog and nowhere else, which is the
+      // silent half-act 6.26 was about.
+      //
+      // Two diskettes the worker can reach: an unsaved slot's, which is on the
+      // shelf, and the one in the drive.  The drive needs the extra guard --
+      // repointing that slot somewhere else during this dialog means the box
+      // is now about a different diskette, and the worker, which only compares
+      // slot numbers, would put the lock on the one still in the drive.
+      //
+      // Only when it changed.  Posting the unchanged ones would sound the lock
+      // tone for slots nobody touched.
+      const bool inDrive = (disk_.slot == number && value == beforeSlots[index]) ||
+                           dialog.assigned_current() == number;
+      if (locked != before[index] && (inDrive || SlotIsUnsaved(value)))
+        emulator_.PostSetSlotWriteProtect(number, locked);
     }
     SaveSettings();
 
@@ -479,10 +505,40 @@ SlotList MainWindow::CurrentSlots() const {
 
 SlotsDialog::Locks MainWindow::CurrentLocks() const {
   SlotsDialog::Locks locks{};
-  for (int number = 1; number <= Settings::kSlots; ++number)
-    locks[static_cast<std::size_t>(number - 1)] =
-        settings_.disk_locked(settings_.slot(number));
+  for (int number = 1; number <= Settings::kSlots; ++number) {
+    const auto index = static_cast<std::size_t>(number - 1);
+    const std::wstring& slot = settings_.slot(number);
+    // The drive first: the diskette belonging to this slot is in it, so its
+    // notch is what the machine says and not what was written down before it
+    // went in.  Ctrl+Z during the session changes one and not the other.
+    if (disk_.slot == number)
+      locks[index] = disk_.writeProtected;
+    else if (SlotIsUnsaved(slot))
+      locks[index] = (emulator_.stash_locked() & (1u << number)) != 0;
+    else
+      locks[index] = settings_.disk_locked(slot);
+  }
   return locks;
+}
+
+SlotsDialog::Present MainWindow::CurrentPresent() const {
+  SlotsDialog::Present present{};
+  for (int number = 1; number <= Settings::kSlots; ++number) {
+    const auto index = static_cast<std::size_t>(number - 1);
+    const std::wstring& slot = settings_.slot(number);
+    // A folder slot always has a diskette: the folder is one.  An unsaved slot
+    // has one only if it exists -- on the shelf, or in the drive -- because
+    // nothing makes it until the slot is first inserted.  That is the honest
+    // reason its lock can be greyed, and the only one (6.26).
+    if (slot.empty())
+      present[index] = false;
+    else if (!SlotIsUnsaved(slot))
+      present[index] = true;
+    else
+      present[index] = disk_.slot == number ||
+                       (emulator_.stash_holds() & (1u << number)) != 0;
+  }
+  return present;
 }
 
 // Reported and not swallowed: the user has just arranged their slots, and

@@ -79,18 +79,30 @@ class SlotsDialog : public win::Dialog {
  public:
   using Slots = SlotList;
   using Locks = std::array<bool, Settings::kSlots>;
+  // Whether each slot has a diskette at all.  Passed in rather than worked out
+  // from the slot's text, and that is the whole repair of 6.26: a folder slot
+  // names a diskette that exists on disk, but an unsaved slot names one only
+  // if the worker is holding it or it is in the drive.  Deriving it from the
+  // string made "cannot be remembered" and "does not exist" one answer.
+  using Present = std::array<bool, Settings::kSlots>;
+
   // currentDisk is what a slot would have to hold to bring back the diskette
   // in the drive right now -- a folder, or the marker for an unsaved one.
   // Empty when the drive is empty; that is what "Sem vloženú disketu" assigns.
+  // currentLocked is that diskette's notch, so pointing a slot at it arrives
+  // with the truth rather than with what the settings could remember.
   // settings is read, never written: the dialog works on a copy and hands it
   // back only on OK.  It is here because the lock belongs to the folder, so
   // pointing a slot at a folder that is already locked has to arrive ticked
   // -- otherwise OK would quietly take that lock off.
-  SlotsDialog(Slots slots, Locks locks, std::wstring currentDisk,
+  SlotsDialog(Slots slots, Locks locks, Present present,
+              std::wstring currentDisk, bool currentLocked,
               const Settings& settings)
       : slots_(std::move(slots)),
         locks_(locks),
+        present_(present),
         currentDisk_(std::move(currentDisk)),
+        currentLocked_(currentLocked),
         settings_(&settings) {}
 
   const Slots& slots() const { return slots_; }
@@ -118,8 +130,10 @@ class SlotsDialog : public win::Dialog {
 
   Slots slots_;
   Locks locks_{};
+  Present present_{};
   int assignedCurrent_ = 0;
   std::wstring currentDisk_;
+  bool currentLocked_ = false;
   const Settings* settings_ = nullptr;
 };
 

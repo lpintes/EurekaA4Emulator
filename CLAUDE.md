@@ -149,7 +149,9 @@ rukami.
 
 Drží aj **zásobník diskiet** (`DiskStash`): že slot vráti tú istú disketu aj
 s jej obsahom, že sa sloty navzájom nemiešajú, že disketa s priečinkom sa
-neodkladá a že slot 0 neexistuje.
+neodkladá a že slot 0 neexistuje. A od 6.26 aj **zámok**: že cestuje na
+poličku a späť, že sa dá hýbať aj kým disketa leží v slote, a že prázdny slot
+sa zamknúť nedá — to posledné je jediný poctivý dôvod zošediť to políčko.
 
 Drží aj **klasifikáciu typov súborov pri exporte**, a to je jediné, čo ju
 drží. `VirtualDisk::IsTextType` je allowlist a jeho dve chyby stoja rôzne:

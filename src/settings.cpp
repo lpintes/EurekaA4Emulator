@@ -241,6 +241,11 @@ void Settings::SetDiskLocked(const std::wstring& folder, bool locked) {
   // An unsaved diskette cannot be remembered: this list is keyed by path and
   // it has none, so a line in the file would point at nothing.  Its lock lasts
   // as long as the diskette does, which is the honest span for it.
+  //
+  // Declining to *write it down* is not declining to set it.  Those are two
+  // questions and the slots dialog used to answer the first with the second,
+  // which is what 6.26 was: the lock is a member of VirtualDisk and works on
+  // any diskette.  Only its memory needs a name.
   if (folder.empty() || SlotIsUnsaved(folder)) return;
   for (auto it = lockedDisks_.begin(); it != lockedDisks_.end(); ++it) {
     if (!SameDisk(*it, folder)) continue;

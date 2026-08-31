@@ -194,6 +194,17 @@ class EmulatorThread {
   // changes hands -- and a lock the user has just asked for should not sit in
   // a queue behind a running write.
   void PostSetWriteProtect(bool writeProtected);
+  // Moves the notch on the diskette belonging to a slot, wherever it is: on
+  // the shelf, or in the drive if that slot's diskette is the one in it.  The
+  // worker has to decide which, because it owns both.
+  //
+  // This is the other half of "a diskette is a thing": the lock is a member of
+  // the diskette, so a diskette that is not in the drive can be locked as
+  // readily as one that is.  What a diskette with no home cannot do is have
+  // that lock written down -- Settings::SetDiskLocked keys the list by path --
+  // and the slots dialog used to answer the first question with the second
+  // (6.26).
+  void PostSetSlotWriteProtect(int slot, bool writeProtected);
   // A blank diskette with no home folder.  Unformatted, no track
   // answers until the guest's own format routine has been over it.
   // slot is where the new diskette belongs (0 for none), so that taking it
@@ -205,6 +216,22 @@ class EmulatorThread {
   // it.  Read from the window thread; written by the worker.
   bool stash_has_files() const {
     return stashHasFiles_.load(std::memory_order_relaxed);
+  }
+
+  // What the shelf holds, as two bitmasks with slot n in bit n.  The slots
+  // dialog needs both: whether a slot has a diskette at all decides whether
+  // its lock can be *set*, and what that diskette's notch is decides how the
+  // box arrives.  Published rather than asked for, because the stash is the
+  // worker's and the dialog runs on the window thread.
+  //
+  // A slot whose diskette is in the drive right now is not in here -- Take
+  // emptied it -- so the caller has to fold in the drive's own state.  That is
+  // DiskState::slot, which it already has.
+  unsigned stash_holds() const {
+    return stashHolds_.load(std::memory_order_relaxed);
+  }
+  unsigned stash_locked() const {
+    return stashLocked_.load(std::memory_order_relaxed);
   }
 
   // Read from the window thread; written by the worker.
@@ -224,7 +251,7 @@ class EmulatorThread {
       kKey, kReset, kSetMode, kToggleMode, kSetDiagnostics,
       kDumpDiagnostics, kPowerOff, kFocusLost, kExportDisk,
       kMountDisk, kEjectDisk, kCreateEmptyDisk, kInsertSlot, kAssignSlot,
-      kSetWriteProtect, kQuit,
+      kSetWriteProtect, kSetSlotWriteProtect, kQuit,
     } type = Type::kQuit;
     HostKeyEvent key{};
     InputMode mode = InputMode::kPc;
@@ -260,6 +287,8 @@ class EmulatorThread {
   std::atomic<bool> diagnostics_{false};
   std::atomic<bool> running_{false};
   std::atomic<bool> stashHasFiles_{false};
+  std::atomic<unsigned> stashHolds_{0};
+  std::atomic<unsigned> stashLocked_{0};
 };
 
 #endif

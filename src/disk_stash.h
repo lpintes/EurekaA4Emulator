@@ -44,6 +44,17 @@ class DiskStash {
   // worker thread.  Measured -- it overflowed (0xC00000FD).
   std::unique_ptr<VirtualDisk> Take(int slot);
   bool holds(int slot) const;
+  // Moves the notch on a diskette that is on the shelf.  False when the slot
+  // holds none, which is the caller's cue that there is nothing to lock: an
+  // unsaved slot that has never been inserted has no diskette yet, and a
+  // property cannot be set on a thing that does not exist.
+  //
+  // Here and not only on the way in, because the lock belongs to the diskette
+  // and the diskette is here.  Locking it on the way back into the drive would
+  // be a lock belonging to the drive again, which is the mistake VirtualDisk's
+  // notch comment warns about.
+  bool SetWriteProtected(int slot, bool protect);
+  bool WriteProtected(int slot) const;
   // Whether any slot holds a diskette that still has files on it.  Asked at
   // exit, where those diskettes are about to stop existing.
   bool HoldsAnythingWritten() const;
