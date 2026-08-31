@@ -180,7 +180,16 @@ BEGIN
                     IDC_MODE_PC, "Button", BS_AUTORADIOBUTTON,
                     16, 38, 200, 12
 
-    GROUPBOX        "Diagnostika", IDC_STATIC, 7, 65, 218, 40
+    // WS_GROUP here and not for decoration: a radio group runs from the
+    // control that carries WS_GROUP up to the *next* one that carries it, and
+    // without this the group ran on into the group box.  Arrow keys then died
+    // on it -- Down from "Externá" stayed put and Up from "Braillovská" did
+    // nothing at all, because the wrap landed on a control that cannot take
+    // focus.  Measured on the built EXE through IsDialogMessage.  The same
+    // three radios in IDD_NEWDISK cycle only because an LTEXT follows them and
+    // windres gives LTEXT WS_GROUP by default; nothing here follows that rule.
+    GROUPBOX        "Diagnostika", IDC_STATIC, 7, 65, 218, 40,
+                    BS_GROUPBOX | WS_GROUP
     CONTROL         "&Zapnutá — záznam na konzolu, výpis v ponuke Nástroje",
                     IDC_DIAGNOSTICS, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
                     16, 79, 200, 12
@@ -288,7 +297,14 @@ BEGIN
                     7, 7, 286, 9
     LISTBOX         IDC_SLOT_LIST, 7, 19, 286, 90,
                     LBS_NOTIFY | WS_VSCROLL | WS_GROUP | WS_TABSTOP
-    PUSHBUTTON      "&Priradiť priečinok…", IDC_SLOT_ASSIGN, 7, 115, 138, 14
+    /* WS_GROUP on the first button and on the check box below, for the same
+       reason as in IDD_SETTINGS: without them the list box, all four buttons
+       and the check box were one arrow group, so an arrow key on a button
+       walked through the other buttons, then through the lock, and finally
+       into the list -- where it also changed the selected slot.  Now the
+       buttons cycle among themselves and the lock stands alone. */
+    PUSHBUTTON      "&Priradiť priečinok…", IDC_SLOT_ASSIGN, 7, 115, 138, 14,
+                    WS_GROUP
     PUSHBUTTON      "Sem &vloženú disketu", IDC_SLOT_CURRENT, 155, 115, 138, 14
     PUSHBUTTON      "Sem &novú v pamäti", IDC_SLOT_NEWRAM, 7, 133, 138, 14
     /* "Vyprázdniť s&lot" and not "&Vyprázdniť": V and the v of "Sem vloženú"
@@ -296,7 +312,7 @@ BEGIN
        instead of pressing one.  It was that way before this row existed. */
     PUSHBUTTON      "Vyprázdniť s&lot", IDC_SLOT_CLEAR, 155, 133, 138, 14
     AUTOCHECKBOX    "&Zamknúť túto disketu proti zápisu", IDC_SLOT_LOCK,
-                    7, 155, 286, 10
+                    7, 155, 286, 10, BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP
     DEFPUSHBUTTON   "OK", IDOK, 186, 169, 50, 14, WS_GROUP
     PUSHBUTTON      "Zrušiť", IDCANCEL, 243, 169, 50, 14
 END

@@ -1840,6 +1840,41 @@ Testom nekryté: že zámok prežije cestu cez zásobník, drží zatiaľ len t�
 sonda vyššie, nie `disk_test`. Kto to bude opravovať, nech to pribije
 testom prv, než siahne na dialóg.
 
+### 6.27 Šípky nekrúžili po prepínačoch v Nastaveniach — opravené
+
+**Nahlásil majiteľ 31. 8. 2026:** v `Nastavenia` sa šípkami nedalo prejsť
+medzi `Braillovská` a `Externá`, hoci v `Nová disketa` to ide.
+
+Príčina nie je v kóde, je v `eureka.rc`. Skupina, po ktorej šípky krúžia,
+začína prvkom s `WS_GROUP` a končí až **ďalším** prvkom s `WS_GROUP` — čo
+je medzi tým, patrí dnu, aj keď to fokus prijať nevie. Za prepínačmi
+v `IDD_SETTINGS` stál `GROUPBOX "Diagnostika"` bez `WS_GROUP`, takže bol
+tretím členom skupiny, a krúženie o neho zakoplo.
+
+Odmerané na hotovom EXE — dialógová šablóna sa vytiahne z resource,
+`CreateDialogIndirectParamW` ju vyrobí skrytú a `IsDialogMessageW` dostane
+ručne poskladaný `WM_KEYDOWN`. Nie je na to potrebná obrazovka ani myš.
+Pred opravou: šípka dole z `Braillovskej` prišla na `Externú` a **tam
+zostala stáť pri každom ďalšom stlačení**, šípka hore neurobila nič.
+Po oprave sa fokus točí medzi oboma a `BM_GETCHECK` potvrdzuje, že sa
+mení aj samotný výber, nie iba fokus.
+
+`IDD_NEWDISK` bol v poriadku len náhodou: za jeho tromi prepínačmi
+nasleduje `LTEXT` a **windres dáva `LTEXT` `WS_GROUP` implicitne**.
+To je zdroj mýlky — rovnaká štruktúra v dvoch dialógoch, iné správanie,
+a rozdiel nie je v `.rc` vidieť. Preto je `WS_GROUP` v `IDD_SETTINGS`
+napísané výslovne aj s dôvodom.
+
+Pri tej príležitosti aj `IDD_SLOTS`: zoznam, štyri tlačidlá a políčko
+zámku boli **jedna skupina**, takže šípka z tlačidla prešla cez ostatné
+tlačidlá, potom cez zámok a nakoniec do zoznamu, kde ešte aj prepla
+vybraný slot. Teraz krúžia tlačidlá medzi sebou a zámok stojí sám.
+`Tab` sa nemenilo — `WS_GROUP` naň nemá vplyv.
+
+Nekryté testom, a zámerne: `run-tests.bat` drží dvanásť procesov a nič
+z toho nie je GUI. Meranie je jednorazový skript typu sondy. Kto siahne
+na skupiny v `.rc`, nech si ho spraví znovu — postup je hore v odseku.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

@@ -285,6 +285,16 @@ lebo NVDA považuje doplnky za odvodené dielo (`nvda-addon/COPYING.txt`).
   ktoré tak vyzerajú. Rolu „dialóg“ pre NVDA, poradie Tab, Esc, Enter
   a mnemoniky dáva správca dialógov; vlastné `WS_POPUP` okno nedá nič
   z toho. Overiť sa to dá triedou okna — musí byť `#32770`.
+- **`WS_GROUP` je to, po čom krúžia šípky, a mýli sa ľahko.** Skupina
+  začína prvkom, ktorý ho má, a končí až **ďalším** takým prvkom; čo je
+  medzi, patrí do nej, aj keď to fokus prijať nevie. Prepínače
+  v `IDD_SETTINGS` preto nekrúžili — skupina pokračovala do `GROUPBOX`
+  pod nimi (HANDOFF 6.27). Rovnaká štruktúra v `IDD_NEWDISK` fungovala
+  len preto, že **windres dáva `LTEXT` `WS_GROUP` implicitne**, takže
+  rozdiel nebol v `.rc` vidieť. Skupinu ukončuj výslovne a overuj
+  meraním, nie čítaním: šablónu z hotového EXE vyrobí
+  `CreateDialogIndirectParamW` skrytú a `IsDialogMessageW` prijme ručne
+  poskladaný `WM_KEYDOWN`, takže na to netreba obrazovku.
 - Súradnice sa nepočítajú nikde. Rozloženie dialógov je v dialógových
   jednotkách v `.rc` a škáluje sa s fontom. Ak by niektorý dialóg pýtal
   layout engine, je príliš zložitý na dialóg.
