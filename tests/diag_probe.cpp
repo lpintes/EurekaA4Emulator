@@ -12,6 +12,7 @@
 //
 // A sequence TOKEN is either "kXX" (one key code in hex, e.g. kD7 for
 // Shift+F8), "+wp"/"-wp" to set or clear the diskette's write protect notch,
+// "nova" for an unformatted diskette, "vysun" for an empty drive,
 // or a literal string typed on the emulated PC keyboard.  Between
 // tokens the machine is run until it has been quiet for half a second, which
 // is what "ready for the next key" looks like now that the CPU is never parked
@@ -262,6 +263,23 @@ int wmain(int argc, wchar_t** argv) {
         std::printf("%-10ls -> [vlozeny slot %d: %s%s]\n", token.c_str(), slot,
                     ok ? (machine->disk().has_home() ? "priecinok" : "neulozena")
                        : "ZLYHALO",
+                    settled ? "" : ", DISK SA NEUSTALIL");
+        continue;
+      }
+      if (token == L"nova" || token == L"vysun") {
+        // The two media the quick choice cannot produce and the firmware
+        // answers differently: an empty drive and a diskette that never was
+        // formatted.  Both look the same to a read -- nothing comes back --
+        // and the ROM still tells them apart, so a probe that could not
+        // produce them could not measure the difference either.
+        const bool settled = settleForSwap();
+        std::wstring swapError;
+        machine->FlushDisk(swapError);
+        if (token == L"nova") machine->CreateEmptyDisk(false);
+        else machine->EjectDisk();
+        std::printf("%-10ls -> [%s%s]\n", token.c_str(),
+                    token == L"nova" ? "vlozena nenaformatovana disketa"
+                                     : "mechanika vysunuta",
                     settled ? "" : ", DISK SA NEUSTALIL");
         continue;
       }
