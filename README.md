@@ -204,8 +204,11 @@ priečinok**:
   ukončení,
 - **neuložená** — naformátovaná a pripravená na písanie; priečinok jej
   dáte `F11`, `Ctrl+U` kedykoľvek, a pri ukončení sa emulátor spýta sám,
-- **neuložená a nenaformátovaná** — Eureka ju ohlási ako **vadný
-  disk**, presne ako skutočná nová disketa z krabice.
+- **neuložená a nenaformátovaná** — Eureka sa pri diskových funkciách
+  (`Shift+F6`) spýta **„disk není naformátován, chceš jej naformátovat?"**,
+  presne ako pri skutočnej novej diskete z krabice. Adresár (`F8`) na nej
+  povie „vadný disk": tá cesta rovno číta a nenaformátovanú disketu
+  prečítať nevie.
 
 Disketu, ktorá **už niekde je**, sem nedávajte — na to je `F11`, `Ctrl+I`.
 Tento dialóg mal kedysi štvrtú voľbu „z existujúceho priečinka" a robila
@@ -219,9 +222,10 @@ priečinok a formátovanie na nej zámerne nemaže vaše súbory, takže
 neuloženej diskete prebehne celé a disketa začne fungovať.
 
 Formátovanie sa pýta **dvakrát**: „mám formátovat disk, ano nebo ne?"
-a potom „disk je už naformátován, přeformátovat, ano nebo ne?" — tú
-druhú otázku dostanete vždy, aj na úplne prázdnej diskete. Odpovedá sa
-klávesom **`y`**, nie `a`: otázka je česká, ale kláves anglický.
+a potom „disk je už naformátován, přeformátovat, ano nebo ne?". Tú druhú
+otázku dostanete na diskete, ktorá formát má; na nenaformátovanej ju
+Eureka preskočí a formátuje rovno. Odpovedá sa klávesom **`y`**, nie `a`:
+otázka je česká, ale kláves anglický.
 
 **Pozor na to, ktorý kláves `y` naozaj je.** Eureka má vlastnú tabuľku
 klávesnice a tá je **česká QWERTZ**, takže `y` leží na klávese, ktorý má

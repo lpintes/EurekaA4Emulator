@@ -43,8 +43,10 @@ dokladá. To je celý zmysel: meno sa dá grepnúť a spor o to, čo bit robí,
 rozhodne Robotron.
 
 Keď pridávaš konštantu, **nevymýšľaj meno, kým si nepozrel `IOPORT.LIB`,
-`IOREG.LIB` a `KB.H`**. Kde prameň nesiaha (príkazy WD177x, adresy v ROM),
-patrí k menu odkaz na miesto, ktoré ho potvrdzuje.
+`IOREG.LIB`, `SYSEQU.LIB` a `KB.H`**. Kde prameň nesiaha (príkazy WD177x,
+adresy v ROM), patrí k menu odkaz na miesto, ktoré ho potvrdzuje.
+`SYSEQU.LIB` pribudol 1. 9. 2026 s `fdc_verify`; nemá s ostatnými dvoma ani
+jednu kolíziu, takže kontrolu iba rozširuje.
 
 Hlavička na dvoch miestach zámerne drží **dve mená pre tú istú hodnotu** —
 stavové bity WD177x znamenajú po príkaze typu I niečo iné než po prenose dát.
@@ -53,7 +55,7 @@ Nezlučuj ich. A `IOPORT.LIB` si s textom prílohy H protirečí v číslovaní
 (HANDOFF 6.29).
 
 **Po zásahu do hlavičky spusti `python tools/check_io_names.py`.** Prehodená
-maska prejde prekladom aj všetkými dvanástimi testami — sú to nezávislé veci.
+maska prejde prekladom aj všetkými trinástimi testami — sú to nezávislé veci.
 Tento skript porovná každú konštantu s tým, čo o nej hovorí manuál, a je
 jediné, čo taký preklep chytí.
 
@@ -210,14 +212,14 @@ Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spú�
 
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých dvanásť naraz — tri
-samostatné testy a deväť režimov `integration_test`. Sú to nezávislé
+`run-tests.bat` zostaví testy a pustí všetkých trinásť naraz — tri
+samostatné testy a desať režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `eurekatech\TECHMAN1\READ.COM`, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`.
 
-Výstup drží pohromade `--output-sync=target`; bez neho sa riadky dvanástich
+Výstup drží pohromade `--output-sync=target`; bez neho sa riadky trinástich
 procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
 
 **Pasca, do ktorej som už spadol:** režimy sa v `Makefile` generujú ako
@@ -226,7 +228,7 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť dvanásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
+byť trinásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
 
 ## Diagnostická sonda
 
@@ -256,6 +258,9 @@ Tokeny sekvencie:
 - `ram`, `folder`, `mount:CESTA`, `slot1`, `slot2` — výmena diskety tak,
   ako ju robí okno: počká na `DiskSwappable`, flushne a až potom vymení.
   `slot1`/`slot2` idú cez `DiskStash`, teda vrátia **tú istú** disketu.
+- `nova`, `vysun` — nenaformátovaná disketa a prázdna mechanika. Sú to dve
+  médiá, ktoré rýchla voľba vyrobiť nevie a firmvér o nich hovorí inak než
+  o pokazenej diskete; bez nich sa ten rozdiel nedá zmerať (HANDOFF 6.30).
 - `stav` — vypíše, čo je naozaj na diskete v mechanike (médium, počet
   súborov, zámok). Reč hovorí, čo si stroj myslí; toto hovorí, čo je na
   médiu, a práve ten rozdiel odhalil 6.24.
@@ -549,7 +554,7 @@ toto je jedno z miest, ktoré by ho zaseklo.
 Kým toto neplatí, nehlás hotovo — a nehlás ani „malo by to fungovať“:
 
 1. `build.bat` prejde bez jediného varovania.
-2. `run-tests.bat` dá **dvanásť** riadkov `PASS`. Že sa to preložilo, nie je
+2. `run-tests.bat` dá **trinásť** riadkov `PASS`. Že sa to preložilo, nie je
    výsledok merania.
 3. Dokumentácia dobehla **v tom istom kroku**, nie „potom“. README, keď sa
    zmenilo správanie; HANDOFF, keď v ňom niečo prestalo platiť — ten odsek sa

@@ -69,8 +69,22 @@ Four of its groups are worth knowing about before touching `VirtualDisk`:
   it asks. Then every one of the 160 tracks has to carry a format and the
   diskette has to be readable through the controller and the BIOS stub alike.
   Two things this measured, both in 6.5: the answer is `y` and not `a`, and the
-  ROM asks "disk je uz naformatovan, preformatovat?" even about a blank one --
-  it never reads the medium at all;
+  ROM asks "disk je uz naformatovan, preformatovat?" as a second confirmation.
+  That second question used to arrive even about a blank diskette, and 6.5
+  recorded it as unconditional; it is not. The ROM asks fdc_ctl_disk_test
+  first and skips it when the medium has no format at all -- what made it look
+  unconditional was the model answering that test with "formatted" whatever was
+  in the drive (6.30). Measured: on an unformatted diskette the format now runs
+  straight through on one `y`;
+
+- `hlaseni` asks the machine about three drives it cannot read and checks that
+  it says three different things: "disk neni zalozen" for an empty drive
+  (F8, the directory), "v jednotce neni disk" for the same drive through the
+  disk functions (Shift+F6), and "disk neni naformatovan, chces jej
+  naformatovat?" for a diskette that never was formatted. Every case also
+  checks that "vadny disk" did *not* come out, which is the whole point: that
+  sentence means a damaged diskette, and it used to be the answer to all
+  three. See 6.30 for where each sentence is composed in the ROM;
 
 - `com` starts `READ.COM` through Shift+F7 and verifies its prompt;
 - `bas` opens Eureka BASIC, loads `BEEP.BAS`, issues `RUN`, and verifies that
@@ -201,7 +215,10 @@ in the ROM.
 
 Mode `seq` drives the machine with a scripted sequence. A token is either
 `kXX` (one key code in hex) or a literal string typed as text; `~` stands for
-Enter.  Text goes in on the emulated PC keyboard, on the keys the ROM's own
+Enter.  There are also tokens that change the medium -- `nova` puts in a
+diskette that never was formatted and `vysun` empties the drive, the two the
+quick choice cannot produce and the two the firmware talks about differently
+(6.30).  Text goes in on the emulated PC keyboard, on the keys the ROM's own
 tables put those characters on, so a character that is on none of them is
 refused out loud instead of being typed as something near it.  Between tokens
 the machine is run until it has been quiet for half a second, so the script

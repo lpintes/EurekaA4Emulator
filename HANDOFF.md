@@ -704,6 +704,11 @@ veci z toho boli prekvapenie:
   Tá druhá otázka príde **vždy**, aj na diskete, na ktorej nie je jediná
   naformátovaná stopa. Nie je to zistenie o médiu, je to druhé
   potvrdenie deštruktívneho úkonu — vyzerá to ako tvrdenie a nie je.
+  **Táto odrážka už neplatí (1. 9. 2026, viď 6.30).** Je to tvrdenie
+  o médiu a ROM ho robí vedome: `13CC3` volá `fdc_ctl_disk_test` a `AND 04h`
+  na `13CC6` tú otázku **preskočí**, keď je disketa nenaformátovaná. Vyzerala
+  ako bezpodmienečná preto, že vtedajší model na tú kontrolu vždy odpovedal
+  „naformátovaná“.
 - **Odpovedá sa `y`, nie `a`.** Otázka je česká, kláves anglický;
   v manuáli tomu zodpovedá `GETYN.H`. `a` sa berie ako nie a stroj
   povie „příkaz zrušen“. Zistené meraním, keď test odpovedal po česky.
@@ -742,6 +747,20 @@ stroji by prázdna mechanika dala tiež RNF, takže hlásenie sedí.
 Skúšané a zavrhnuté: nechať bez diskety bežať pôvodný ovládač v ROM
 namiesto obídenia BIOS-u (`InterceptBios`, prípady 13 a 14). Hláška
 vyšla rovnaká, len o ~20 000 inštrukcií drahšie.
+
+**Toto už neplatí (1. 9. 2026, viď 6.30).** Odsek vyššie hovorí, že
+„vadný disk" sedí a že presnejšia hláška vychádza z kontroly, ktorou tieto
+cesty neprechádzajú. Obe vety boli nesprávne, a rovnakým spôsobom: cesty ňou
+prechádzajú, len jej model neodpovedal. `fdc_ctl_disk_test` vydá **Seek
+s verify** (14h na `1980A`) a číta ho troma spôsobmi; model vracal po každom
+Type I ten istý stav bez ohľadu na príkaz, takže verify vždy uspel a všetko
+skončilo na čítaní, ktoré firmvér ohlásil ako „vadný disk". Prázdna
+mechanika teraz povie **„disk není založen"** (adresár) a **„v jednotce
+není disk"** (diskové funkcie), nenaformátovaná disketa **„disk není
+naformátován. Chceš jej naformátovat?"**. Ten posledný odsek o pôvodnom
+ovládači platí ďalej, ale jeho záver sa obrátil: s opraveným modelom
+firmvér **„disk není založen" povie sám**, takže obídenie BIOS-u ho
+reprodukuje, nenahrádza.
 
 ### 6.7 Zápis späť je viazaný na kľud disku, nie na hodiny
 
@@ -2123,6 +2142,84 @@ kontrolu a vráti nenulový návratový kód.
 
 Overené aj: `build.bat` bez jediného varovania a dvanásť `PASS`.
 
+**Doplnené 1. 9. 2026:** kontrola číta aj `SYSEQU.LIB` (kvôli `fdc_verify`,
+6.30). So `IOPORT.LIB` a `IOREG.LIB` nemá ani jednu kolíziu, overené
+porovnaním; teraz **108 overených, nula nezhôd**, 21 bez protajšku.
+Odskúšané mutáciou aj na novom symbole: `kFdcVerify` `0x04` → `0x08` zhodí
+kontrolu.
+
+### 6.30 Mechanika mala na tri stavy jednu vetu — „vadný disk“
+
+Majiteľ ohlásil z pamäti skutočného stroja, že nenaformátovaná disketa sa
+ohlási otázkou, či ju naformátovať, prázdna mechanika slovami „disk není
+založen“, a že **„vadný disk“ znel len na naozaj nečitateľnej diskete**.
+Emulátor hovoril „vadný disk“ na všetko troje. Mal pravdu a ROM to dokladá
+do posledného bitu.
+
+**Kde v ROM tie tri vety vznikajú.**
+
+- **„vadný disk“ je BDOS.** Na `1BB3D` volá BIOS READ (`C127`) alebo WRITE
+  (`C12A`) a vetví sa na návratovom kóde: `0` je v poriadku, `2` → „disk je
+  chráněn proti zápisu“, `3` → „disk není založen“, `4` → „slabá baterie“,
+  a `JP DEB6h` na `1BB56` posiela **všetko ostatné** na „vadný disk“. Sú to
+  presne kódy, ktoré `DEVICES.10` uvádza pri `fdc_ctl_read_track`
+  (0 OK, 1 Disk faulty, 2 Write Protected, 3 No disk inserted, 4 Low battery).
+- **„disk není naformátován. Chceš jej naformátovat?“ je `fdc_ctl_disk_test`.**
+  Rutina na `197FB` (`DEVICE.H`: `FDC_CTL_DISK_TEST`, teda `BC=0900h` cez
+  `C142`) vydá **jediný verify v celom firmvéri** — Seek s V, `14h` na
+  `1980A` — a číta jeho stav troma spôsobmi: bity 3 a 4 (`AND 18h` na
+  `19821`) znamenajú nečitateľnú stopu a stanú sa bitom 2, ktorý diskové
+  funkcie na `149E7` prečítajú a položia tú otázku; bit 7 znamená, že radič
+  príkaz vôbec nedokončil, a stane sa bitom 0, teda „no disk“.
+- **„v jednotce není disk“ je `fdc_ctl_disk_in`** (`19828`): Seek a potom
+  polling INDEX na porte `98h` s časovým limitom `5208h`. Túto cestu model
+  mal správne už predtým.
+- **Bit 7 je časový limit, nie stav radiča.** `EA00` (`19A00`) vydá príkaz
+  a čaká 2000 pokusov na uvoľnenie BUSY (`19A16`); keď nepríde, vráti `80h`
+  (`19A52`). Inak stav maskuje `5Dh`, takže bity 1 a 7 z radiča neprejdú —
+  sú vyhradené pre batériu a pre tento časový limit.
+
+**Čo bolo zlé v modeli.** Dve nezávislé veci, každá stačila sama:
+
+1. `TypeOneStatus()` nevidel príkaz, takže vracal ten istý stav po Restore,
+   Seeku aj po Seeku s verify. Verify teda vždy uspel a `fdc_ctl_disk_test`
+   vrátil „všetko v poriadku“ pre prázdnu mechaniku aj pre nenaformátovanú
+   disketu. Teraz dostane príkaz a na verify sa pýta média: naformátovaná
+   stopa odpovie, nenaformátovaná dá **Seek Error**, prázdna mechanika
+   **zostane BUSY** — bez dier v médiu nemá radič čo počítať, takže príkaz
+   nedokončí a firmvér ho vytimeoutuje. `fdc_verify` (`100b`) je meno
+   zo `SYSEQU.LIB`.
+2. `InterceptBios` vracal pri každom zlyhaní `1`. Teraz vracia `3` bez
+   diskety, `2` pri zápise na zamknutú a `1` inak (`DiskFailure`).
+
+**Že to nie je podvrh, je odmerané.** S vypnutým obídením BIOS-u a s radičom,
+ktorý bez média zostáva BUSY aj pri Read Sector, dôjde **pôvodný ovládač
+v ROM** k „disk není založen“ sám. Obídenie teda hovorí to, čo by povedal
+firmvér, len bez tých niekoľkých tisíc pollingov.
+
+**Prečo napriek tomu Read Sector bez média RNF vracia ďalej.** Čakanie na
+BUSY po Read Sector je na `19EF3` a **nemá časový limit** — je to `JR NZ` na
+seba. Skutočný stroj sa tam nedostane (firmvér sa najprv pýta), ale cesta,
+ktorá by sa tam dostala, by emulátor zavesila natvrdo. Nepresný stav, z
+ktorého sa firmvér spamätá, je lacnejší než zaseknutý stroj. Rozdiel, ktorý
+používateľ počuje, robí `DiskFailure`. **Verify je iné** a BUSY tam zostáva:
+vydáva sa jediným miestom, a to cez `EA00`, ktorý limit má.
+
+**Čo drží zásah.** Nový režim `hlaseni` v `integration_test`: tri prípady,
+každý s vlastným bootom, a v každom sa okrem očakávanej vety kontroluje aj to,
+že **nezaznelo „vadný disk“**. Odskúšané mutáciou — vypnutie verify zhodí dva
+prípady, vrátenie kódu `3` na `1` zhodí tretí, takže obe opravy sú kryté
+každá zvlášť. Sonda dostala tokeny `nova` a `vysun`; bez nich sa tie dve
+médiá nedali vyrobiť.
+
+**Čo zostáva otvorené.** `F8` (adresár) na nenaformátovanej diskete povie
+„vadný disk“ ďalej, a je to zrejme správne: tá cesta sa nepýta
+`fdc_ctl_disk_test`, ide rovno na BIOS, a nenaformátovaná stopa je z pohľadu
+čítania nečitateľná stopa. Neoverené na skutočnom stroji — ak si to majiteľ
+pamätá inak, je to prvé miesto, kam sa pozrieť. Neoverené je aj to, čo model
+robí pri **zápise** na prázdnu mechaniku: `DiskFailure` vráti `3`, ale
+kadiaľ tam firmvér ide a či to počuť, zmerané nie je.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -2137,7 +2234,7 @@ V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
 | `ports.py` | mapa I/O portov lineárnym rozmetaním inštrukcií |
 | `latches.py` | všetky odkazy na tiene latchov + súhrn po bitoch |
 | `melodies.py` | vyrenderuje melódie z ROM do `audio/melodie/` |
-| `check_io_names.py` | overí `src/eureka_io.h` proti `IOPORT.LIB`, `IOREG.LIB` a `KB.H` |
+| `check_io_names.py` | overí `src/eureka_io.h` proti `IOPORT.LIB`, `IOREG.LIB`, `SYSEQU.LIB` a `KB.H` |
 
 Príklad:
 
@@ -2227,12 +2324,13 @@ integration_test ROM DISK_FOLDER rtc   -> PASS (budík sa nastaví a zazvoní)
 integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
 integration_test ROM DISK_FOLDER format-> PASS (Shift+F8 naformátuje prázdnu)
 integration_test ROM DISK_FOLDER wp    -> PASS (zámok číta, zápis odmietne)
+integration_test ROM DISK_FOLDER hlaseni -> PASS (tri stavy mechaniky, tri vety)
 disk_test                              -> PASS (144 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 settings_test                          -> PASS (51 kontrol, bez ROM)
 ```
 
-Všetkých **dvanásť** naraz spustí `run-tests.bat`: paralelne, s jedným
+Všetkých **trinásť** naraz spustí `run-tests.bat`: paralelne, s jedným
 súhrnom na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
 diskety si pripraví sám, takže ručne netreba nič.
 
@@ -2240,7 +2338,7 @@ Ten počet je jediné miesto, kde sa tento zoznam dá overiť zvonka, a preto tu
 stojí číslom: keď režim pribudne do `MODES` v `Makefile` a sem nie, rozdiel
 nevidno inak než spočítaním riadkov `PASS`. Presne to sa aj stalo — `wp`
 tu chýbal a text hovoril „jedenásť“, kým `run-tests.bat` už dávno púšťal
-dvanásť procesov.
+dvanásť procesov. Trinásty je `hlaseni` (6.30).
 
 Pozor: `com` potrebuje `READ.COM` v priečinku disku a bez neho zlyhá.
 Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`, a `run-tests.bat`

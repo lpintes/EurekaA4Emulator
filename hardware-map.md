@@ -92,6 +92,16 @@ Disketová radič potvrdený protokolom seek na 19806h:
 `IN A,(99h)` (aktuálna stopa) → `OUT (9Bh),A` (cieľová) → príkaz 14h.
 Formátovanie: DMA kanál 1, 7000 bajtov (jedna DD stopa) do 9Bh, príkaz F0h/F2h.
 
+Ten príkaz `14h` je Seek s **verify** (`fdc_verify` = `100b`, SYSEQU.LIB)
+a je to **jediný verify v celom firmvéri** — je to `fdc_ctl_disk_test`
+(197FB) a stojí na ňom celý rozdiel medzi „disk není naformátován“,
+„disk není založen“ a „vadný disk“ (HANDOFF 6.30). Číta sa troma
+spôsobmi: bity 3 a 4 (`AND 18h` na 19821) → nečitateľná stopa, bit 7 →
+radič príkaz nedokončil, teda prázdna mechanika, bit 6 → ochrana proti
+zápisu. Bity 1 a 7 **nie sú z radiča** — `EA00` (19A00) stav maskuje
+`5Dh` a tie dva si vyhradzuje pre slabú batériu (port `A8h` bit 1)
+a pre svoj vlastný časový limit 2000 pokusov (vráti `80h` na 19A52).
+
 ## Zvuk
 
 Generátor je čisto softvérový. Obsluha prerušenia PRT0 na fyz. 0FB6D:
