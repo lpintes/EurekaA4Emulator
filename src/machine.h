@@ -194,6 +194,7 @@ class EurekaMachine {
   uint16_t PeekWord(uint16_t logical) const;
   void ReturnFromCall();
   bool InterceptBios();
+  uint8_t DiskFailure(bool writing) const;
   void Advance(uint32_t cpuCycles);
   void ScheduleInterrupt();
   void RenderAudio(uint32_t cpuCycles);
@@ -207,7 +208,7 @@ class EurekaMachine {
 
   void StartFdcCommand(uint8_t command);
   void ForgetFormattedTrack();
-  uint8_t TypeOneStatus() const;
+  uint8_t TypeOneStatus(uint8_t command) const;
   uint8_t ReadFdcData();
   void WriteFdcData(uint8_t value);
   uint8_t ReadRtc(uint16_t port) const;

@@ -266,6 +266,11 @@ constexpr uint8_t kFdcCmdWriteTrack = 0xf0;
 // Type I flag: update the track register as the head steps.  The format
 // routine relies on it (50h at 19EE8) instead of seeking.
 constexpr uint8_t kFdcFlagUpdateTrack = 0x10;
+// Type I flag: verify the head landed where it was sent by reading an ID
+// header off the track.  The ROM issues it exactly once -- 14h at 1980A, in
+// fdc_ctl_disk_test -- and that one command is how the machine tells an empty
+// drive from an unformatted diskette from a good one.
+constexpr uint8_t kFdcVerify = 0x04;  // fdc_verify
 // Type I commands leave bit 7 clear, and they finish inside the controller.
 constexpr uint8_t kFdcTypeTwoOrThree = 0x80;
 
@@ -281,6 +286,18 @@ constexpr uint8_t kFdcStatusSeekError = 0x10;   // Type I
 constexpr uint8_t kFdcStatusNotFound = 0x10;    // Type II and III
 constexpr uint8_t kFdcStatusWriteProtect = 0x40;
 constexpr uint8_t kFdcStatusMotorOn = 0x80;
+
+// What the BIOS disk entries hand back in A.  DEVICES.10 lists them for
+// fdc_ctl_read_track and BDOS branches on the same set at 1BB45: it speaks
+// "disk je chranen proti zapisu" for 2, "disk neni zalozen" for 3, "slaba
+// baterie" for 4 and "vadny disk" for everything else.  So the code chosen
+// here is the sentence the user hears -- answering every failure with 1 made
+// an empty drive report a faulty diskette.
+constexpr uint8_t kDiskResultOk = 0x00;
+constexpr uint8_t kDiskResultFaulty = 0x01;
+constexpr uint8_t kDiskResultWriteProtected = 0x02;
+constexpr uint8_t kDiskResultNoDisk = 0x03;
+constexpr uint8_t kDiskResultLowBattery = 0x04;
 
 // Geometry the controller and the ROM agree on.
 constexpr unsigned kSectorBytes = 512;

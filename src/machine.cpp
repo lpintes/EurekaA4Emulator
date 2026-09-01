@@ -844,7 +844,7 @@ void EurekaMachine::RunDma1() {
   io_[hw::kDstat] = static_cast<uint8_t>(io_[hw::kDstat] & ~hw::kDstatDe1);
 }
 
-uint8_t EurekaMachine::TypeOneStatus() const {
+uint8_t EurekaMachine::TypeOneStatus(uint8_t command) const {
   // After a Type I command the firmware waits for the index pulse to decide
   // whether a disk is actually in the drive: 19828 issues a seek, then polls
   // 98h with TST 02h and reports "neni disk" if it never arrives (19848).
@@ -862,6 +862,19 @@ uint8_t EurekaMachine::TypeOneStatus() const {
   // fdc_ctl_chkdsk and fdc_ctl_diskin, and SYSEQU.LIB has it in
   // write_error_mask but not in read_error_mask, so it stops writes only.
   if (disk_.write_protected()) status |= hw::kFdcStatusWriteProtect;
+  // The verify flag makes the controller read an ID header off the track it
+  // landed on, and that one read is the only thing in the machine that tells
+  // three media apart.  fdc_ctl_disk_test (197FB) issues the machine's only
+  // verify -- 14h at 1980A -- and reads the answer three ways: a formatted
+  // track answers, an unformatted one comes back Seek Error and becomes
+  // "unreadable" (19825), and an empty drive answers nothing at all.  With no
+  // index holes the controller never leaves BUSY, so the firmware's own
+  // timeout at 19A16 runs out, EA00 hands back 80h and 19812 reads that as
+  // "no disk".  Answering every verify with success is why both of them used
+  // to end up at "vadny disk" instead.
+  if ((command & hw::kFdcVerify) != 0 &&
+      !disk_.TrackFormatted(fdcTrack_, outputLatch_ & hw::kFdcSide))
+    status |= disk_.present() ? hw::kFdcStatusSeekError : hw::kFdcStatusBusy;
   return status;
 }
 
@@ -875,12 +888,12 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   if (type == hw::kFdcCmdRestore) {
     fdcTrack_ = 0;
     fdcStepDirection_ = -1;
-    fdcStatus_ = TypeOneStatus();
+    fdcStatus_ = TypeOneStatus(command);
   } else if (type == hw::kFdcCmdSeek) {
     const uint8_t target = io_[hw::kFdcData];
     fdcStepDirection_ = target >= fdcTrack_ ? 1 : -1;
     fdcTrack_ = target;
-    fdcStatus_ = TypeOneStatus();
+    fdcStatus_ = TypeOneStatus(command);
   } else if ((command & hw::kFdcTypeTwoOrThree) == 0) {
     // The rest of Type I: Step, Step In and Step Out, each of which occupies
     // two nibbles.  The format routine walks the disk with Step In (50h at
@@ -893,7 +906,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
       const int stepped = static_cast<int>(fdcTrack_) + fdcStepDirection_;
       fdcTrack_ = static_cast<uint8_t>(std::clamp(stepped, 0, 255));
     }
-    fdcStatus_ = TypeOneStatus();
+    fdcStatus_ = TypeOneStatus(command);
   } else if ((command & hw::kFdcCommandGroup) == hw::kFdcCmdReadSector) {
     fdcBuffer_.resize(hw::kSectorBytes);
     const unsigned side = outputLatch_ & hw::kFdcSide;
@@ -914,6 +927,15 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     } else {
       // Record Not Found.  The buffer has to go with it: a DMA channel armed
       // for this read would otherwise drain 512 bytes of nothing into RAM.
+      //
+      // An empty drive gets the same answer, and that is a deliberate
+      // departure from the controller: with no index holes a 1770 would never
+      // stop looking, so a real one stays BUSY here.  Measured that way the
+      // firmware's own driver does reach "disk neni zalozen" -- but the wait
+      // it spins in at 19EF3 has no timeout at all, so any path that does get
+      // that far would hang the emulator outright rather than say anything.
+      // A wrong status the firmware recovers from beats a machine that stops.
+      // The distinction the user hears is made in DiskFailure instead.
       fdcBuffer_.clear();
       fdcStatus_ = hw::kFdcStatusNotFound;
       fdcIntrq_ = true;
@@ -1002,8 +1024,13 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   }
   // Type I commands and Force Interrupt finish inside this model, so they
   // raise INTRQ straight away.  Type II and III commands raise it when their
-  // data transfer runs out, in ReadFdcData and WriteFdcData below.
-  if ((command & hw::kFdcTypeTwoOrThree) == 0 ||
+  // data transfer runs out, in ReadFdcData and WriteFdcData below.  The one
+  // Type I that does not finish is a verify with no medium under the head:
+  // it is still BUSY, so it has not completed and must not signal that it
+  // has -- the firmware is meant to time it out and call that an empty drive.
+  // Force Interrupt is what gets the controller back, and it clears BUSY.
+  if (((command & hw::kFdcTypeTwoOrThree) == 0 &&
+       (fdcStatus_ & hw::kFdcStatusBusy) == 0) ||
       type == hw::kFdcCmdForceInterrupt)
     fdcIntrq_ = true;
   // A channel parked by an earlier DE1 write starts moving now.
@@ -1169,6 +1196,26 @@ void EurekaMachine::ReturnFromCall() {
   cpu_.sp += 2;
 }
 
+// Why a BIOS disk transfer failed, in the code BDOS branches on at 1BB45.
+// The distinction is not bookkeeping: it is the sentence the user hears, and
+// the three cases sound nothing alike.  A read that fails on an empty drive
+// is "disk neni zalozen"; a write refused by the notch is "disk je chranen
+// proti zapisu"; a sector that will not come back off a diskette that is
+// there is "vadny disk", and that last one is the only one that ever meant a
+// broken diskette.  Answering all of them with 1 said "vadny disk" to a user
+// who had simply not put a diskette in.
+//
+// These are not codes this model invents.  Measured with the intercept turned
+// off and the controller left BUSY on an empty drive, the ROM's own driver
+// reaches "disk neni zalozen" by itself, which is the sentence this reproduces
+// -- and reproduces without the several thousand status polls that answer
+// costs the firmware.
+uint8_t EurekaMachine::DiskFailure(bool writing) const {
+  if (!disk_.present()) return hw::kDiskResultNoDisk;
+  if (writing && disk_.write_protected()) return hw::kDiskResultWriteProtected;
+  return hw::kDiskResultFaulty;
+}
+
 bool EurekaMachine::InterceptBios() {
   // Eureka's extended CP/M BIOS jump table lives at C100. Page zero points
   // at BOOT/WBOOT targets, not at the beginning of this table.
@@ -1227,14 +1274,15 @@ bool EurekaMachine::InterceptBios() {
       std::array<uint8_t, VirtualDisk::kRecordSize> record{};
       const bool ok = disk_.ReadRecord(biosTrack_, biosSector_, record.data());
       if (ok) for (unsigned i = 0; i < record.size(); ++i) Poke(biosDma_ + i, record[i]);
-      cpu_.a = ok ? 0 : 1;
+      cpu_.a = ok ? hw::kDiskResultOk : DiskFailure(false);
       ReturnFromCall();
       return true;
     }
     case 14: {
       std::array<uint8_t, VirtualDisk::kRecordSize> record{};
       for (unsigned i = 0; i < record.size(); ++i) record[i] = Peek(biosDma_ + i);
-      cpu_.a = disk_.WriteRecord(biosTrack_, biosSector_, record.data()) ? 0 : 1;
+      const bool ok = disk_.WriteRecord(biosTrack_, biosSector_, record.data());
+      cpu_.a = ok ? hw::kDiskResultOk : DiskFailure(true);
       lastDiskWrite_ = cycles_;
       ReturnFromCall();
       return true;
