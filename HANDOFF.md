@@ -2065,6 +2065,64 @@ platí ďalej a je zovšeobecnením 6.26: **keď sa niečo nedá uložiť,
 neznamená to, že sa to nedá nastaviť.** Oplatí sa hľadať ďalšie miesta,
 kde je perzistencia zamenená za schopnosť.
 
+### 6.29 Porty a masky majú mená z manuálu — `src/eureka_io.h`
+
+Emulátor mal 302 šestnástkových literálov v `machine.cpp` a 36
+v `emulator_thread.cpp`. Číslo portu, bit latchu, príkaz radiča a kód klávesu
+vyzerali v kóde rovnako, a jediné, čo ich rozlišovalo, bol komentár nad nimi.
+Teraz je z nich 27 a 4; zvyšok sú adresy v ROM, zmerané prahy a posuny masiek,
+teda veci, ktoré meno z prameňa nemajú.
+
+**Pravidlo, podľa ktorého sú mená vybrané.** Meno je to, ktoré používa jeho
+prameň, prepísané do `kPascalCase` projektu — `vmsel_mask` → `hw::kVmselMask`,
+`pol_disk` → `hw::kPolDisk`, `K_KEYPAD` → `hw::kKeyKeypad`. Nie krajšie
+meno, ktoré by som vymyslel: meno z prameňa sa dá grepnúť v `eurekatech/`
+a spor o to, čo bit robí, rozhodne Robotron, nie ten, kto písal kód. Vymyslené
+meno nesie môj úsudok, a to je presne to, na čom sa tento projekt už dvakrát
+popálil.
+
+Prameň je pri každej konštante v komentári. Sú štyri:
+
+- `IOREG.LIB` — interné registre HD64180 (`00h`–`3Fh`). Ich **bity** v ňom nie
+  sú — príloha H výslovne odkazuje na Hitachi — takže mená bitov sú
+  z datasheetu a v hlavičke sú tak označené.
+- `IOPORT.LIB` — externé porty `80h`–`BFh` aj s maskami.
+- `KB.H` — kódy klávesov Eureky.
+- datasheet WD177x — príkazy a stavové bity radiča. V `eurekatech/` nie je,
+  takže tie mená nesú odkaz na miesto v ROM, ktoré ich potvrdzuje.
+
+**Jedna výnimka z toho pravidla: porty membránovej klávesnice.** Manuál si
+v ich číslovaní protirečí — `IOPORT.LIB` počíta `bkb_row0 = 89h`,
+`bkb_row2 = 8Ch`, kým text prílohy H tlačí tie isté popisy proti `$8C` a `$89`,
+teda **row0 a row2 prehodené**. Rozpor **nie je nový**: `hardware-map.md` ho
+už drží aj s dôkazom, ktorý ho rozhoduje v prospech `IOPORT.LIB` — ROM na
+1D41F maskuje `89h` hodnotou `3Fh`, aby dostala šesť bodov, a na 1D206
+maskuje `8Ch` hodnotou `0Fh`, aby ignorovala shift.
+
+Preto sa tie tri porty **nevolajú** `kBkbRow0/1/2`, ale `hw::kBkbDots`,
+`hw::kBkbFunction` a `hw::kBkbCursor` — pomenované podľa toho, čo nesú. Číslo
+riadku by čitateľa poslalo do tej polovice manuálu, ktorá sa mýli. Je to jediné
+miesto, kde hlavička meno z prameňa nepreberá, a hovorí prečo.
+
+**Dve miesta, kde sa hodnoty zhodujú náhodou.** `kFdcStatusIndex` a
+`kFdcStatusDrq` sú obe `02h`, `kFdcStatusTrack00` a `kFdcStatusLostData` obe
+`04h`, `kFdcStatusSeekError` a `kFdcStatusNotFound` obe `10h` — WD177x
+znamená tými bitmi niečo iné po príkaze typu I než po prenose dát. A
+v dekodéri scancodov je `kCtrlFlag` = `04h` tá istá hodnota ako
+`kFirstCharacter`, pričom jedno je príznak v tabuľke a druhé hranica znakov.
+Obe dvojice majú dve mená zámerne. **Nezlučuj ich** — je to tá istá vec ako
+`formatting_erases()` vedľa `has_home()` (6.28).
+
+**`run-tests.bat` tento zásah nedrží a držať nemôže** — je mechanický, takže
+dvanásť `PASS` by prišlo aj s prehodenou maskou. Drží ho
+`tools/check_io_names.py`: prečíta hlavičku, pre každú konštantu s komentárom
+menujúcim symbol z prameňa ho nájde v `IOPORT.LIB`, `IOREG.LIB` alebo `KB.H`
+a porovná hodnoty. **107 overených, nula nezhôd**, 21 bez protajšku (WD177x
+a vlastné konštanty). Odskúšané mutáciou: `kVmselMask` `0x40` → `0x20` zhodí
+kontrolu a vráti nenulový návratový kód.
+
+Overené aj: `build.bat` bez jediného varovania a dvanásť `PASS`.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -2079,6 +2137,7 @@ V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
 | `ports.py` | mapa I/O portov lineárnym rozmetaním inštrukcií |
 | `latches.py` | všetky odkazy na tiene latchov + súhrn po bitoch |
 | `melodies.py` | vyrenderuje melódie z ROM do `audio/melodie/` |
+| `check_io_names.py` | overí `src/eureka_io.h` proti `IOPORT.LIB`, `IOREG.LIB` a `KB.H` |
 
 Príklad:
 

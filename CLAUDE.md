@@ -34,6 +34,29 @@ Pozor: obsah `eurekatech/` je materiál tretích strán (Robotron
 a Borland) a MIT licencia projektu sa naň nevzťahuje. Viď
 `eurekatech/PUVOD.md`.
 
+### Čísla portov a bitov sú v `src/eureka_io.h`, s menami z manuálu
+
+Namiesto `0xa0` a `0x40` má kód `hw::kPowerLatch` a `hw::kVmselMask`.
+Mená sú tie, ktoré používa ich prameň, len prepísané do `kPascalCase`, a pri
+každej konštante je v komentári napísané, ktorý súbor v `eurekatech/` ju
+dokladá. To je celý zmysel: meno sa dá grepnúť a spor o to, čo bit robí,
+rozhodne Robotron.
+
+Keď pridávaš konštantu, **nevymýšľaj meno, kým si nepozrel `IOPORT.LIB`,
+`IOREG.LIB` a `KB.H`**. Kde prameň nesiaha (príkazy WD177x, adresy v ROM),
+patrí k menu odkaz na miesto, ktoré ho potvrdzuje.
+
+Hlavička na dvoch miestach zámerne drží **dve mená pre tú istú hodnotu** —
+stavové bity WD177x znamenajú po príkaze typu I niečo iné než po prenose dát.
+Nezlučuj ich. A `IOPORT.LIB` si s textom prílohy H protirečí v číslovaní
+`bkb_row0`/`bkb_row2`; hlavička hovorí, ako je to rozhodnuté a prečo
+(HANDOFF 6.29).
+
+**Po zásahu do hlavičky spusti `python tools/check_io_names.py`.** Prehodená
+maska prejde prekladom aj všetkými dvanástimi testami — sú to nezávislé veci.
+Tento skript porovná každú konštantu s tým, čo o nej hovorí manuál, a je
+jediné, čo taký preklep chytí.
+
 ## O používateľovi
 
 Používateľ je **nevidiaci**, pracuje s čítačom obrazovky (NVDA), hovorí
