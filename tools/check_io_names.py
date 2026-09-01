@@ -1,7 +1,7 @@
 """Checks src/eureka_io.h against the manual it claims to transcribe.
 
 Every constant in that header whose comment names a source symbol -- an
-IOPORT.LIB or IOREG.LIB equate, or a KB.H define -- is looked up in the
+IOPORT.LIB, IOREG.LIB or SYSEQU.LIB equate, or a KB.H define -- is looked up in the
 matching file under eurekatech/ and compared.  A swapped mask survives both
 the compiler and run-tests.bat, so this is the only thing that catches one.
 
@@ -85,7 +85,7 @@ def read_header():
 
 
 def main():
-    equates = read_equates('IOPORT.LIB', 'IOREG.LIB')
+    equates = read_equates('IOPORT.LIB', 'IOREG.LIB', 'SYSEQU.LIB')
     defines = read_kb_defines()
 
     checked = 0
@@ -97,7 +97,7 @@ def main():
             where = 'KB.H'
         else:
             expected = equates.get(source.lower())
-            where = 'IOPORT.LIB/IOREG.LIB'
+            where = 'IOPORT.LIB/IOREG.LIB/SYSEQU.LIB'
         if expected is None:
             # A comment that names something else -- prose, or a symbol from a
             # data sheet that is not in eurekatech/.  Not an error.
