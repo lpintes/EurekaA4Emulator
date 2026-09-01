@@ -6,6 +6,7 @@
 
 #include "audio_player.h"
 #include "disk_stash.h"
+#include "eureka_io.h"
 #include "host_console.h"
 #include "text_codec.h"
 
@@ -87,46 +88,46 @@ uint8_t SpecialKey(const HostKeyEvent& key) {
   // has no chord at all, so mapping it here would only hand PressMembraneKey
   // a code it drops without a word; left at zero, the diagnostics say so.
   if (key.virtualKey >= VK_F1 && key.virtualKey <= VK_F11)
-    code = static_cast<uint8_t>(0xc0 + key.virtualKey - VK_F1);
+    code = static_cast<uint8_t>(hw::kKeyF1 + key.virtualKey - VK_F1);
   else {
     switch (key.virtualKey) {
-      case VK_UP: code = 0x81; break;
-      case VK_DOWN: code = 0x82; break;
-      case VK_LEFT: code = 0x84; break;
-      case VK_RIGHT: code = 0x88; break;
-      case VK_HOME: code = 0x85; break;
-      case VK_END: code = 0x86; break;
-      case VK_PRIOR: code = 0x89; break;
-      case VK_NEXT: code = 0x8a; break;
+      case VK_UP: code = hw::kKeyUp; break;
+      case VK_DOWN: code = hw::kKeyDown; break;
+      case VK_LEFT: code = hw::kKeyLeft; break;
+      case VK_RIGHT: code = hw::kKeyRight; break;
+      case VK_HOME: code = hw::kKeyHome; break;
+      case VK_END: code = hw::kKeyEnd; break;
+      case VK_PRIOR: code = hw::kKeyPgUp; break;
+      case VK_NEXT: code = hw::kKeyPgDn; break;
       // KB.H and KB.LIB disagree about these two.  The ROM settles it: its
       // own table for the PC keyboard maps scan code 52h, Insert, to 8Dh and
-      // 53h, Delete, to 8Eh (DF05), which is what KB.LIB says.
-      case VK_INSERT: code = 0x8d; break;
-      case VK_DELETE: code = 0x8e; break;
+      // 53h, Delete, to 8Eh (DF05), which is what KB.LIB says -- so these are
+      // kKeyCtrlUp and kKeyCtrlDown by KB.H's naming, and Insert and Delete
+      // by the machine's behaviour.
+      case VK_INSERT: code = hw::kKeyCtrlUp; break;
+      case VK_DELETE: code = hw::kKeyCtrlDown; break;
       default: return 0;
     }
   }
-  if (shift) code |= 0x10;
-  if (alt) code |= 0x20;
+  if (shift) code |= hw::kKeyShift;
+  if (alt) code |= hw::kKeyAlt;
   return code;
 }
-
-// The space bar in the row 89h bit set.  It is the same key as ALT on this
-// keyboard, and with shift it is Escape (1D52F).
-constexpr uint8_t kSpaceBar = 0x80;
 
 // The row bits run in Perkins key order, left to right, not in dot number
 // order: bit 0 is dot 3 and bit 2 is dot 1.  Under the hands that is exactly
 // the natural layout, F D S going outwards on the left and J K L on the right.
 uint8_t BrailleBit(WORD virtualKey) {
   switch (virtualKey) {
-    case 'F': return 0x04;  // dot 1
-    case 'D': return 0x02;  // dot 2
-    case 'S': return 0x01;  // dot 3
-    case 'J': return 0x08;  // dot 4
-    case 'K': return 0x10;  // dot 5
-    case 'L': return 0x20;  // dot 6
-    case VK_SPACE: return kSpaceBar;
+    case 'F': return hw::kBkbDot1;
+    case 'D': return hw::kBkbDot2;
+    case 'S': return hw::kBkbDot3;
+    case 'J': return hw::kBkbDot4;
+    case 'K': return hw::kBkbDot5;
+    case 'L': return hw::kBkbDot6;
+    // The space bar is the same key as ALT on this keyboard, and with shift
+    // it is Escape (1D52F).
+    case VK_SPACE: return hw::kBkbSpace;
     default: return 0;
   }
 }
@@ -173,6 +174,14 @@ enum : uint8_t {
   kModAltGr = 8,  // right Alt, the one that selects the DF98 table
 };
 
+// XT set 1 scan codes for the modifier keys themselves.  Windows hands us the
+// scan code of every other key in the message, so these are the only ones
+// this file has to know.
+constexpr uint8_t kScanLeftShift = 0x2a;
+constexpr uint8_t kScanRightShift = 0x36;
+constexpr uint8_t kScanCtrl = 0x1d;
+constexpr uint8_t kScanAlt = 0x38;
+
 // The modifiers are not forwarded as key events at all.  Windows reports the
 // whole modifier state on every single event, and that report is the only
 // thing here worth trusting: measured 26. 8. 2026, the release of AltGr
@@ -203,16 +212,20 @@ uint8_t WantedModifiers(DWORD state) {
 void SendModifier(EurekaMachine& machine, uint8_t mod, bool down) {
   uint8_t code = 0;
   switch (mod) {
-    case kModShift: code = 0x2a; break;
-    case kModCtrl: code = 0x1d; break;
-    case kModAlt: code = 0x38; break;
+    case kModShift: code = kScanLeftShift; break;
+    case kModCtrl: code = kScanCtrl; break;
+    case kModAlt: code = kScanAlt; break;
     // The right Alt is the one extended key among them, so it needs the E0
     // prefix on the break as much as on the make -- DFD6 lists both 38h and
     // B8h, and only behind an E0 does the decoder ever look there (1DD48).
-    case kModAltGr: machine.QueueScanCode(0xe0); code = 0x38; break;
+    case kModAltGr:
+      machine.QueueScanCode(hw::kScanExtended);
+      code = kScanAlt;
+      break;
     default: return;
   }
-  machine.QueueScanCode(down ? code : static_cast<uint8_t>(code | 0x80));
+  machine.QueueScanCode(down ? code
+                             : static_cast<uint8_t>(code | hw::kScanBreak));
 }
 
 // Brings the machine's idea of the modifiers in line with the host's.  Called
@@ -237,12 +250,15 @@ void SyncModifiers(EurekaMachine& machine, HostKeyboard& host, uint8_t wanted) {
 // QWERTZ layout at DF05 included, is the ROM's own work.
 void SendScanCode(EurekaMachine& machine, const HostKeyEvent& key) {
   const uint8_t code = key.scanCode;
-  if (code == 0 || code >= 0x80) return;
+  if (code == 0 || code >= hw::kScanBreak) return;
   // SyncModifiers owns these, from the state Windows reports rather than from
   // the event, so a make or break built here would fight it.
-  if (code == 0x2a || code == 0x36 || code == 0x1d || code == 0x38) return;
-  if (key.extended) machine.QueueScanCode(0xe0);
-  machine.QueueScanCode(key.down ? code : static_cast<uint8_t>(code | 0x80));
+  if (code == kScanLeftShift || code == kScanRightShift || code == kScanCtrl ||
+      code == kScanAlt)
+    return;
+  if (key.extended) machine.QueueScanCode(hw::kScanExtended);
+  machine.QueueScanCode(key.down ? code
+                                 : static_cast<uint8_t>(code | hw::kScanBreak));
 }
 
 // With diagnostics on, every key event is echoed with what the emulator made
@@ -555,8 +571,9 @@ void EmulatorThread::Run() {
         } else {
           // More than one cursor key was down: send the union, keeping only
           // the modifier bits of the code the single keys would have used.
-          machine.QueueKey(
-              static_cast<uint8_t>(0x80 | chord | (SpecialKey(key) & 0x30)));
+          machine.QueueKey(static_cast<uint8_t>(
+              hw::kKeyKeypad | chord |
+              (SpecialKey(key) & (hw::kKeyShift | hw::kKeyAlt))));
         }
         return;
       }
@@ -614,7 +631,7 @@ void EmulatorThread::Run() {
     // down -- thirty taps a second would queue thirty chords the machine then
     // works through long after the finger came up.
     if (!ctrl && key.virtualKey == VK_ESCAPE) {
-      if (!key.autoRepeat) machine.PressBraille(kSpaceBar, true);
+      if (!key.autoRepeat) machine.PressBraille(hw::kBkbSpace, true);
       return;
     }
     if (const uint8_t arrow = ArrowBit(key.virtualKey)) {

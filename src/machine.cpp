@@ -8,22 +8,11 @@
 #include <ctime>
 #include <fstream>
 
+#include "eureka_io.h"
+
 namespace fs = std::filesystem;
 
 namespace {
-constexpr uint8_t kTimer0Vector = 0x04;
-constexpr uint8_t kTimer1Vector = 0x06;
-// The HD64180 lists its internal sources in a fixed order and the ROM's own
-// table at C180 matches it: PRT0 at +4, PRT1 at +6, the clocked serial port
-// at +12, where this image puts the IBM PC keyboard handler.
-constexpr uint8_t kCsioVector = 0x0c;
-constexpr uint8_t kTif0 = 0x40;
-constexpr uint8_t kTif1 = 0x80;
-constexpr uint8_t kTie0 = 0x10;
-constexpr uint8_t kTie1 = 0x20;
-constexpr uint8_t kTde0 = 0x01;
-constexpr uint8_t kTde1 = 0x02;
-
 uint8_t BcdOrBinary(int value) {
   return static_cast<uint8_t>(value);
 }
@@ -141,11 +130,11 @@ void EurekaMachine::Reset() {
   std::fill(memory_.begin() + kRomSize, memory_.end(), 0);
   io_.fill(0);
   rtcRam_.fill(0);
-  cbar_ = 0xf0;
+  cbar_ = hw::kCbarReset;
   cbr_ = 0;
   bbr_ = 0;
   outputLatch_ = 0;
-  dac_ = 0x80;
+  dac_ = hw::kDacMidScale;
   cycles_ = 0;
   instructions_ = 0;
   timerAccum_[0] = timerAccum_[1] = 0;
@@ -169,7 +158,7 @@ void EurekaMachine::Reset() {
   speechInput_.clear();
   biosTrack_ = 0;
   biosSector_ = 0;
-  biosDma_ = 0x80;
+  biosDma_ = 0x80;  // CP/M default DMA address, not a hardware constant.
   biosReads_ = 0;
   fdcStatus_ = 0;
   fdcTrack_ = 0;
@@ -198,11 +187,11 @@ void EurekaMachine::Reset() {
   rtcNextPoll_ = 0;
 
   // Hardware reset values used by the ROM while probing serial devices.
-  io_[0x04] = 0x02;
-  io_[0x05] = 0x02;
-  io_[0x0a] = 0;
-  io_[0x10] = 0;
-  io_[0x0e] = io_[0x0f] = io_[0x16] = io_[0x17] = 0xff;
+  io_[hw::kStat0] = hw::kStatTdre;
+  io_[hw::kStat1] = hw::kStatTdre;
+  io_[hw::kCntr] = 0;
+  io_[hw::kTcr] = 0;
+  io_[hw::kRldr0l] = io_[hw::kRldr0h] = io_[hw::kRldr1l] = io_[hw::kRldr1h] = 0xff;
   z80_init(&cpu_);
   cpu_.read_byte = ReadMemory;
   cpu_.write_byte = WriteMemory;
@@ -221,8 +210,9 @@ void EurekaMachine::CopyStateFrom(const EurekaMachine& other) {
 }
 
 uint32_t EurekaMachine::PhysicalAddress(uint16_t logical) const {
-  const uint16_t bankStart = static_cast<uint16_t>(cbar_ & 0x0f) << 12;
-  const uint16_t common1Start = static_cast<uint16_t>(cbar_ & 0xf0) << 8;
+  const uint16_t bankStart = static_cast<uint16_t>(cbar_ & hw::kCbarBankMask) << 12;
+  const uint16_t common1Start =
+      static_cast<uint16_t>(cbar_ & hw::kCbarCommon1Mask) << 8;
   uint32_t physical;
   if (logical < bankStart) physical = logical;
   else if (logical < common1Start) physical = logical + (static_cast<uint32_t>(bbr_) << 12);
@@ -307,8 +297,8 @@ void EurekaMachine::SampleRtc() const {
 // 7:30 really means "any second of that minute".  The registers are binary and
 // never exceed 99, so bit 7 cannot collide with a real value.
 bool EurekaMachine::RtcAlarmMatches(const std::array<uint8_t, 8>& now) const {
-  for (unsigned index = 0; index < 8; ++index)
-    if ((rtcRam_[index] & 0x80) == 0 && rtcRam_[index] != now[index])
+  for (unsigned index = 0; index < hw::kRtcRegisters; ++index)
+    if ((rtcRam_[index] & hw::kRtcAlarmIgnore) == 0 && rtcRam_[index] != now[index])
       return false;
   return true;
 }
@@ -333,12 +323,19 @@ void EurekaMachine::UpdateRtcEvents() {
   const std::array<uint8_t, 8> now = CurrentRtcRegisters();
   uint8_t events = 0;
   if (rtcEventsPrimed_) {
-    if (now[0] != rtcPrevious_[0]) events |= 0x02;            // 1/100 second
-    if (now[0] / 10 != rtcPrevious_[0] / 10) events |= 0x04;  // 1/10 second
-    if (now[3] != rtcPrevious_[3]) events |= 0x08;            // second
-    if (now[2] != rtcPrevious_[2]) events |= 0x10;            // minute
-    if (now[1] != rtcPrevious_[1]) events |= 0x20;            // hour
-    if (now[5] != rtcPrevious_[5]) events |= 0x40;            // day
+    const unsigned hundredths = hw::kRtcHundredths;
+    if (now[hundredths] != rtcPrevious_[hundredths])
+      events |= hw::kRtcEventHundredth;
+    if (now[hundredths] / 10 != rtcPrevious_[hundredths] / 10)
+      events |= hw::kRtcEventTenth;
+    if (now[hw::kRtcSecond] != rtcPrevious_[hw::kRtcSecond])
+      events |= hw::kRtcEventSecond;
+    if (now[hw::kRtcMinute] != rtcPrevious_[hw::kRtcMinute])
+      events |= hw::kRtcEventMinute;
+    if (now[hw::kRtcHour] != rtcPrevious_[hw::kRtcHour])
+      events |= hw::kRtcEventHour;
+    if (now[hw::kRtcDate] != rtcPrevious_[hw::kRtcDate])
+      events |= hw::kRtcEventDay;
   }
   rtcPrevious_ = now;
   rtcEventsPrimed_ = true;
@@ -348,23 +345,25 @@ void EurekaMachine::UpdateRtcEvents() {
   // instant the heartbeat cleared it by reading the port, and the same alarm
   // would fire again and again until the minute ran out.
   const bool matched = RtcAlarmMatches(now);
-  if (matched && !rtcAlarmMatched_) events |= 0x01;
+  if (matched && !rtcAlarmMatched_) events |= hw::kRtcEventAlarm;
   rtcAlarmMatched_ = matched;
 
   // Appendix H: a status bit stands for an event "in rtc_mask", and bit 7 says
   // an interrupt happened whatever rtc_command's enable bit says -- so the
   // mask gates the bits and the command register does not.
-  const uint8_t fired = static_cast<uint8_t>(events & rtcMask_ & 0x7f);
-  if (fired != 0) rtcStatus_ |= static_cast<uint8_t>(fired | 0x80);
+  const uint8_t fired =
+      static_cast<uint8_t>(events & rtcMask_ & hw::kRtcEventMask);
+  if (fired != 0)
+    rtcStatus_ |= static_cast<uint8_t>(fired | hw::kRtcInterrupted);
 }
 
 uint8_t EurekaMachine::ReadRtc(uint16_t port) const {
-  const unsigned index = port & 7;
+  const unsigned index = port & (hw::kRtcRegisters - 1);
   // Reading rtc_100th latches all the other registers at that instant, which
   // is what stops a batch read from straddling a tick (Appendix H, "Real Time
   // Clock").  The ROM depends on it: 0DFA4 sweeps 90h..96h in one pass, and
   // without latching the seconds could advance halfway through the sweep.
-  if (index == 0 || !rtcLatched_) SampleRtc();
+  if (index == hw::kRtcHundredths || !rtcLatched_) SampleRtc();
   return rtcRegisters_[index];
 }
 
@@ -374,17 +373,25 @@ uint8_t EurekaMachine::ReadInputBuffer() const {
   // read a value.  Bit 6 of the output latch picks the pair: clear selects the
   // internal thermometer and the external voltmeter, set selects the speech
   // rate pot and the battery (Appendix H, vmsel_mask).
-  const bool batteryPair = (outputLatch_ & 0x40) != 0;
-  const uint8_t vm1Threshold = batteryPair ? 0x80 : 0x64;  // rate pot / thermometer
-  const uint8_t vm2Threshold = batteryPair ? 0xdc : 0x80;  // battery / ext meter
+  // What each of the four inputs sits at, on the DAC's own scale.  These are
+  // not documented anywhere: they are the values that make the firmware report
+  // a sane room temperature, a mid-travel rate slider and a charged battery.
+  constexpr uint8_t kThermometerLevel = 0x64;
+  constexpr uint8_t kRatePotLevel = 0x80;
+  constexpr uint8_t kExternalMeterLevel = 0x80;
+  constexpr uint8_t kBatteryLevel = 0xdc;
+  const bool batteryPair = (outputLatch_ & hw::kVmselMask) != 0;
+  const uint8_t vm1Threshold = batteryPair ? kRatePotLevel : kThermometerLevel;
+  const uint8_t vm2Threshold = batteryPair ? kBatteryLevel : kExternalMeterLevel;
   // A set comparator bit means the DAC has risen above the measured input, so
   // for the battery it means "below the reference" -- the disk path writes ADh
   // to the DAC at 19A01 and treats bit 1 as low battery at 19839 and 19A18.
   // Nothing else lives on bit 1: the FDC's INTRQ is not readable here, and
   // reporting it on this bit made every disk command fail as "slaba baterie".
-  uint8_t value = 0x2c;  // CTS not asserted, no ring voltage, no modem carrier.
-  if (dac_ >= vm1Threshold) value |= 0x01;
-  if (dac_ >= vm2Threshold) value |= 0x02;
+  // Those three are active low, so leaving them set is the idle state.
+  uint8_t value = hw::kCts1Mask | hw::kRingMask | hw::kDcd0Mask;
+  if (dac_ >= vm1Threshold) value |= hw::kVm1Mask;
+  if (dac_ >= vm2Threshold) value |= hw::kVm2Mask;
   return value;
 }
 
@@ -412,7 +419,7 @@ constexpr uint32_t kMinPressMs = 40;
 // Two codes are the same physical key if they differ only in their modifiers;
 // the host may well have let go of Shift before the key it modified.
 bool SameKey(uint8_t left, uint8_t right) {
-  return ((left ^ right) & 0xcf) == 0;
+  return ((left ^ right) & hw::kKeyIdentityMask) == 0;
 }
 
 constexpr uint32_t MsToCycles(uint32_t ms) {
@@ -427,7 +434,8 @@ uint8_t EurekaMachine::ReadMembraneKeyboard(uint8_t port) {
   // half of the next.  Counting scans instead of guest time cannot work: the
   // tone generator's interrupt at 00642 scans the keyboard at the DAC rate,
   // several thousand times a second, and used to eat a keypress in 3 ms.
-  if (port == 0x89 && cycles_ >= membraneUntil_ && !membraneFrames_.empty()) {
+  if (port == hw::kBkbDots && cycles_ >= membraneUntil_ &&
+      !membraneFrames_.empty()) {
     membraneState_ = membraneFrames_.front();
     membraneFrames_.pop_front();
     membraneUntil_ = cycles_ + membraneState_.cycles;
@@ -437,15 +445,15 @@ uint8_t EurekaMachine::ReadMembraneKeyboard(uint8_t port) {
       membraneHeldKey_ = 0;
   }
   switch (port) {
-    case 0x89: return membraneState_.row0;
-    case 0x8a: return membraneState_.row1;
+    case hw::kBkbDots: return membraneState_.row0;
+    case hw::kBkbFunction: return membraneState_.row1;
     // Shift is ORed in rather than framed: it is held across whatever the
     // frame queue happens to be playing, exactly as a finger holds it.  A
     // frame that carries the bit itself -- a capital letter's chord -- still
     // reads the same, which is why nothing had to change in PressBraille.
-    case 0x8c:
+    case hw::kBkbCursor:
       return static_cast<uint8_t>(membraneState_.row2 |
-                                  (membraneShift_ ? 0x40 : 0));
+                                  (membraneShift_ ? hw::kBkbShift : 0));
     default: return 0;
   }
 }
@@ -475,18 +483,18 @@ void EurekaMachine::PressMembraneKey(uint8_t key) {
     }
     return;
   }
-  const uint8_t kind = key & 0xc0;
-  const uint8_t number = key & 0x0f;
-  const bool alt = (key & 0x20) != 0;
-  const uint8_t shift = (key & 0x10) != 0 ? 0x40 : 0;
+  const uint8_t kind = key & hw::kKeyKindMask;
+  const uint8_t number = key & hw::kKeyNumberMask;
+  const bool alt = (key & hw::kKeyAlt) != 0;
+  const uint8_t shift = (key & hw::kKeyShift) != 0 ? hw::kBkbShift : 0;
   MembraneFrame frame;
-  if (kind == 0x80) {
-    frame.row0 = alt ? 0x80 : 0;
+  if (kind == hw::kKeyKeypad) {
+    frame.row0 = alt ? hw::kBkbSpace : 0;
     frame.row2 = static_cast<uint8_t>(number | shift);
-  } else if (kind == 0xc0 && number < 8) {
+  } else if (kind == hw::kKeyFunction && number < hw::kFunctionKeysWithRowBit) {
     frame.row1 = static_cast<uint8_t>(1u << number);
     frame.row2 = shift;
-  } else if (kind == 0xc0) {
+  } else if (kind == hw::kKeyFunction) {
     // There are only eight function keys.  F9 and F10 are chords of the space
     // bar and braille dots, decoded at 1D541; the shifted forms are chords of
     // their own, so they carry no shift bit.
@@ -494,24 +502,34 @@ void EurekaMachine::PressMembraneKey(uint8_t key) {
       // The row bits run in Perkins key order, left to right, so bit 0 is dot
       // 3 and bit 2 is dot 1; the ROM indexes its braille tables (D7A0) with
       // the row byte itself, and index 04h there is the letter "a".
-      case 0xc8: frame.row0 = 0x84; break;  // space + dot 1    = F9  (MODE)
-      case 0xc9: frame.row0 = 0x88; break;  // space + dot 4    = F10 (WHERE)
-      case 0xd8: frame.row0 = 0x86; break;  // space + dots 1,2 = Shift+F9
-      case 0xd9: frame.row0 = 0x98; break;  // space + dots 4,5 = Shift+F10
+      case hw::kKeyF9:  // MODE
+        frame.row0 = hw::kBkbSpace | hw::kBkbDot1;
+        break;
+      case hw::kKeyF10:  // WHERE
+        frame.row0 = hw::kBkbSpace | hw::kBkbDot4;
+        break;
+      case hw::kKeySF9:
+        frame.row0 = hw::kBkbSpace | hw::kBkbDot1 | hw::kBkbDot2;
+        break;
+      case hw::kKeySF10:
+        frame.row0 = hw::kBkbSpace | hw::kBkbDot4 | hw::kBkbDot5;
+        break;
       // F11 is a chord too -- the "d" chord, which the keyboard section of
       // hardware-map.md has listed all along and this switch did not.  It was
       // reachable by typing the dots and unreachable by its key code, and
       // the difference was silent.  Measured: chord 9Ch says "ROM
       // operacniho systemu", the same as scan code 57h on the PC keyboard.
-      case 0xca: frame.row0 = 0x9c; break;  // space + dots 1,4,5 = F11
+      case hw::kKeyF11:
+        frame.row0 = hw::kBkbSpace | hw::kBkbDot1 | hw::kBkbDot4 | hw::kBkbDot5;
+        break;
       default: return;
     }
   } else {
     return;
   }
-  if (alt && kind == 0x80) {
+  if (alt && kind == hw::kKeyKeypad) {
     MembraneFrame space;
-    space.row0 = 0x80;
+    space.row0 = hw::kBkbSpace;
     space.cycles = MsToCycles(kModifierMs);
     membraneFrames_.push_back(space);
   }
@@ -543,7 +561,7 @@ void EurekaMachine::PressBraille(uint8_t dots, bool shift) {
   if (dots == 0) return;
   MembraneFrame frame;
   frame.row0 = dots;
-  frame.row2 = shift ? 0x40 : 0;
+  frame.row2 = shift ? hw::kBkbShift : 0;
   frame.cycles = MsToCycles(kPressMs);
   membraneFrames_.push_back(frame);
   MembraneFrame release;
@@ -564,10 +582,12 @@ uint8_t EurekaMachine::ReadPortInner(z80* cpu, uint16_t port) {
   auto* machine = static_cast<EurekaMachine*>(cpu->userdata);
   const uint8_t low = static_cast<uint8_t>(port);
   switch (port) {
-    case 0x0190: case 0x0191: case 0x0192: case 0x0193:
-    case 0x0194: case 0x0195: case 0x0196: case 0x0197:
-      return machine->rtcRam_[port & 7];
-    case 0x0290: {
+    case hw::kRtcRamBase + 0: case hw::kRtcRamBase + 1:
+    case hw::kRtcRamBase + 2: case hw::kRtcRamBase + 3:
+    case hw::kRtcRamBase + 4: case hw::kRtcRamBase + 5:
+    case hw::kRtcRamBase + 6: case hw::kRtcRamBase + 7:
+      return machine->rtcRam_[port & (hw::kRtcRegisters - 1)];
+    case hw::kRtcStatus: {
       // rtc_status, and reading it clears it (Appendix H).  The firmware
       // depends on that: .service_alarm reads it every heartbeat at CF61 and
       // would otherwise service the same alarm on every tick that follows.
@@ -578,54 +598,58 @@ uint8_t EurekaMachine::ReadPortInner(z80* cpu, uint16_t port) {
     // rtc_command is write only, so nothing reads this; answering with the
     // last value written is still better than the clock register that used to
     // sit here, because 291h and 91h are different registers.
-    case 0x0291: return machine->rtcCommand_;
+    case hw::kRtcCommand: return machine->rtcCommand_;
     default: break;
   }
-  if (low >= 0x90 && low <= 0x97) return machine->ReadRtc(low);
+  if (low >= hw::kRtcBase && low <= hw::kRtcLast) return machine->ReadRtc(low);
   switch (low) {
-    case 0x04: return static_cast<uint8_t>(machine->io_[0x04] | 0x02);
-    case 0x05: return static_cast<uint8_t>(machine->io_[0x05] | 0x02);
-    case 0x08: return 0;
-    case 0x09: return 0;
-    case 0x0a: return static_cast<uint8_t>(machine->io_[0x0a] |
-                                           (machine->csioPending_ ? 0x80 : 0));
-    case 0x0b:
+    case hw::kStat0:
+      return static_cast<uint8_t>(machine->io_[hw::kStat0] | hw::kStatTdre);
+    case hw::kStat1:
+      return static_cast<uint8_t>(machine->io_[hw::kStat1] | hw::kStatTdre);
+    case hw::kRdr0: return 0;
+    case hw::kRdr1: return 0;
+    case hw::kCntr:
+      return static_cast<uint8_t>(
+          machine->io_[hw::kCntr] | (machine->csioPending_ ? hw::kCntrEf : 0));
+    case hw::kTrdr:
       // Reading the data register takes the byte and clears EF, which is what
       // both the reset handshake at 18847 and the scan code interrupt at
       // 1DD2E rely on to know another byte may come.
       machine->csioPending_ = false;
       return machine->csioData_;
-    case 0x0c: return machine->ReadTimerData(0, false);
-    case 0x0d: return machine->ReadTimerData(0, true);
-    case 0x10:
+    case hw::kTmdr0l: return machine->ReadTimerData(0, false);
+    case hw::kTmdr0h: return machine->ReadTimerData(0, true);
+    case hw::kTcr:
       machine->timerControlRead_[0] = machine->timerControlRead_[1] = true;
-      return machine->io_[0x10];
-    case 0x14: return machine->ReadTimerData(1, false);
-    case 0x15: return machine->ReadTimerData(1, true);
-    case 0x18: return static_cast<uint8_t>((machine->cycles_ / 20) & 0xff);
-    case 0x30: return machine->io_[0x30];
-    case 0x38: return machine->cbr_;
-    case 0x39: return machine->bbr_;
-    case 0x3a: return machine->cbar_;
+      return machine->io_[hw::kTcr];
+    case hw::kTmdr1l: return machine->ReadTimerData(1, false);
+    case hw::kTmdr1h: return machine->ReadTimerData(1, true);
+    case hw::kFrc:
+      return static_cast<uint8_t>((machine->cycles_ / hw::kTimerPrescale) & 0xff);
+    case hw::kDstat: return machine->io_[hw::kDstat];
+    case hw::kCbr: return machine->cbr_;
+    case hw::kBbr: return machine->bbr_;
+    case hw::kCbar: return machine->cbar_;
     // The membrane keyboard uses true logic: a set bit means a pressed key.
-    case 0x89: case 0x8a: case 0x8c:
+    case hw::kBkbDots: case hw::kBkbFunction: case hw::kBkbCursor:
       return machine->ReadMembraneKeyboard(low);
-    case 0x98: {
+    case hw::kFdcStatus: {
       const uint8_t status = machine->fdcStatus_;
       machine->fdcIntrq_ = false;
       return status;
     }
-    case 0x99: return machine->fdcTrack_;
-    case 0x9a: return machine->fdcSector_;
-    case 0x9b: return machine->ReadFdcData();
-    case 0xa8: return machine->ReadInputBuffer();
+    case hw::kFdcTrack: return machine->fdcTrack_;
+    case hw::kFdcSector: return machine->fdcSector_;
+    case hw::kFdcData: return machine->ReadFdcData();
+    case hw::kInputBuffer: return machine->ReadInputBuffer();
     // pwr_stb: the strobe that cuts the main supply.  IOPORT.LIB calls it R/W
     // and says any access switches the machine off, so the value returned here
     // never matters -- the firmware never looks at it.  It reads the port at
     // 1D144 and then spins on JR $-2 waiting for the power to go, which is why
     // ignoring this used to leave the emulator in a two-instruction loop with
     // interrupts disabled: silent, deaf and burning a core.
-    case 0xb8:
+    case hw::kPwrStb:
       machine->PowerDown();
       return 0xff;
     default:
@@ -642,9 +666,11 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
   if (machine->diag_.enabled() && machine->diag_.traces(low))
     machine->diag_.TracePortWrite(cpu->pc, port, value);
   switch (port) {
-    case 0x0190: case 0x0191: case 0x0192: case 0x0193:
-    case 0x0194: case 0x0195: case 0x0196: case 0x0197:
-      machine->rtcRam_[port & 7] = value;
+    case hw::kRtcRamBase + 0: case hw::kRtcRamBase + 1:
+    case hw::kRtcRamBase + 2: case hw::kRtcRamBase + 3:
+    case hw::kRtcRamBase + 4: case hw::kRtcRamBase + 5:
+    case hw::kRtcRamBase + 6: case hw::kRtcRamBase + 7:
+      machine->rtcRam_[port & (hw::kRtcRegisters - 1)] = value;
       // Re-read the comparator without firing anything.  The firmware writes
       // the eight alarm registers one at a time (0DA5B), and a stale field
       // half way through that sequence can match by accident; letting that
@@ -655,21 +681,21 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
     // Neither of these is a clock register.  They used to land in io_[90h] and
     // io_[91h], the same cells the hour and minute counters use, which stayed
     // harmless only for as long as nothing read the mask back.
-    case 0x0290: machine->rtcMask_ = value; return;
-    case 0x0291: machine->rtcCommand_ = value; return;
+    case hw::kRtcMask: machine->rtcMask_ = value; return;
+    case hw::kRtcCommand: machine->rtcCommand_ = value; return;
     default: break;
   }
-  if (low != 0x10) machine->io_[low] = value;
+  if (low != hw::kTcr) machine->io_[low] = value;
   switch (low) {
-    case 0x0a: break;
-    case 0x0b:
+    case hw::kCntr: break;
+    case hw::kTrdr:
       // FFh is the Reset command every PC keyboard answers with AAh, "self
       // test passed"; the ROM waits for exactly that at 18858 and gives up
       // after about 180 ms.  A real keyboard takes its time, and answering
       // instantly would be worse than useless: the ROM does a throwaway read
       // of TRDR at 18841 after enabling the receiver, and an answer that
       // early would be swallowed by it.
-      if (value == 0xff) {
+      if (value == hw::kKbReset) {
         // Reset also empties the keyboard's own output buffer, and leaving
         // that out cost a whole evening: the Enter that launched the emulator
         // arrives as a break code before the machine has executed a single
@@ -678,50 +704,54 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
         // receiver off for good -- every key after that fell into silence.
         machine->csioRx_.clear();
         machine->csioPending_ = false;
-        machine->csioRx_.push_back(0xaa);
+        machine->csioRx_.push_back(hw::kKbSelfTestOk);
         machine->csioReadyAt_ = machine->cycles_ + kCpuHz / 1000 * 30;
       }
       break;
-    case 0x0c: machine->WriteTimerData(0, false, value); break;
-    case 0x0d: machine->WriteTimerData(0, true, value); break;
-    case 0x10:
+    case hw::kTmdr0l: machine->WriteTimerData(0, false, value); break;
+    case hw::kTmdr0h: machine->WriteTimerData(0, true, value); break;
+    case hw::kTcr:
       // TIF1/TIF0 are read-only; only the low six control bits are writable.
-      machine->io_[0x10] = static_cast<uint8_t>((machine->io_[0x10] & 0xc0) |
-                                                (value & 0x3f));
+      machine->io_[hw::kTcr] = static_cast<uint8_t>(
+          (machine->io_[hw::kTcr] & (hw::kTcrTif0 | hw::kTcrTif1)) |
+          (value & hw::kTcrWritable));
       break;
-    case 0x14: machine->WriteTimerData(1, false, value); break;
-    case 0x15: machine->WriteTimerData(1, true, value); break;
-    case 0x30: {
+    case hw::kTmdr1l: machine->WriteTimerData(1, false, value); break;
+    case hw::kTmdr1h: machine->WriteTimerData(1, true, value); break;
+    case hw::kDstat: {
       uint8_t status = previous;
-      if ((value & 0x20) == 0)
-        status = static_cast<uint8_t>((status & ~0x80) | (value & 0x80));
-      if ((value & 0x10) == 0)
-        status = static_cast<uint8_t>((status & ~0x40) | (value & 0x40));
-      status = static_cast<uint8_t>((status & 0xc0) | (value & 0x0d));
-      machine->io_[0x30] = status;
-      if ((status & 0x40) != 0) machine->RunDma0();
-      if ((status & 0x80) != 0) machine->MaybeRunDma1();
+      if ((value & hw::kDstatDwe1) == 0)
+        status = static_cast<uint8_t>((status & ~hw::kDstatDe1) |
+                                      (value & hw::kDstatDe1));
+      if ((value & hw::kDstatDwe0) == 0)
+        status = static_cast<uint8_t>((status & ~hw::kDstatDe0) |
+                                      (value & hw::kDstatDe0));
+      status = static_cast<uint8_t>((status & (hw::kDstatDe0 | hw::kDstatDe1)) |
+                                    (value & hw::kDstatPlain));
+      machine->io_[hw::kDstat] = status;
+      if ((status & hw::kDstatDe0) != 0) machine->RunDma0();
+      if ((status & hw::kDstatDe1) != 0) machine->MaybeRunDma1();
       break;
     }
-    case 0x38: machine->cbr_ = value; break;
-    case 0x39: machine->bbr_ = value; break;
-    case 0x3a: machine->cbar_ = value; break;
-    case 0x80: case 0xa0:
+    case hw::kCbr: machine->cbr_ = value; break;
+    case hw::kBbr: machine->bbr_ = value; break;
+    case hw::kCbar: machine->cbar_ = value; break;
+    case hw::kModemLatch: case hw::kPowerLatch:
       // Stored in io_ above; the machine does not act on these yet, so record
       // the bit transitions instead of letting them disappear.
       if (machine->diag_.enabled())
         machine->diag_.NoteLatch(cpu->pc, low, previous, value);
       break;
-    case 0x88: machine->dac_ = value; break;
+    case hw::kDacPort: machine->dac_ = value; break;
     // The strobe answers to a write just as it does to a read.  This ROM only
     // ever reads it (1D144 is the single access in the whole image), but the
     // port is documented R/W and a program loaded from disk may well write it.
-    case 0xb8: machine->PowerDown(); break;
-    case 0x98: machine->StartFdcCommand(value); break;
-    case 0x99: machine->fdcTrack_ = value; break;
-    case 0x9a: machine->fdcSector_ = value; break;
-    case 0x9b: machine->WriteFdcData(value); break;
-    case 0xb0:
+    case hw::kPwrStb: machine->PowerDown(); break;
+    case hw::kFdcCommand: machine->StartFdcCommand(value); break;
+    case hw::kFdcTrack: machine->fdcTrack_ = value; break;
+    case hw::kFdcSector: machine->fdcSector_ = value; break;
+    case hw::kFdcData: machine->WriteFdcData(value); break;
+    case hw::kOutputLatch:
       if (machine->diag_.enabled())
         machine->diag_.NoteLatch(cpu->pc, low, machine->outputLatch_, value);
       machine->outputLatch_ = value;
@@ -734,20 +764,22 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
 }
 
 void EurekaMachine::RunDma0() {
-  uint32_t source = io_[0x20] | (static_cast<uint32_t>(io_[0x21]) << 8) |
-                    (static_cast<uint32_t>(io_[0x22] & 0x0f) << 16);
-  uint32_t destination = io_[0x23] | (static_cast<uint32_t>(io_[0x24]) << 8) |
-                         (static_cast<uint32_t>(io_[0x25] & 0x0f) << 16);
-  uint32_t count = io_[0x26] | (static_cast<uint32_t>(io_[0x27]) << 8);
-  if (count == 0) count = 65536;
+  uint32_t source =
+      io_[hw::kSar0l] | (static_cast<uint32_t>(io_[hw::kSar0h]) << 8) |
+      (static_cast<uint32_t>(io_[hw::kSar0b] & hw::kDmaBankMask) << 16);
+  uint32_t destination =
+      io_[hw::kDar0l] | (static_cast<uint32_t>(io_[hw::kDar0h]) << 8) |
+      (static_cast<uint32_t>(io_[hw::kDar0b] & hw::kDmaBankMask) << 16);
+  uint32_t count = io_[hw::kBcr0l] | (static_cast<uint32_t>(io_[hw::kBcr0h]) << 8);
+  if (count == 0) count = hw::kDmaFullCount;
   for (uint32_t index = 0; index < count; ++index) {
     // Routed through the guarded write so a stray descriptor cannot corrupt
     // the ROM image, which Reset() does not restore.
     WritePhysical((destination + index) & kPhysicalMask,
                   memory_[(source + index) & kPhysicalMask], cpu_.pc);
   }
-  io_[0x26] = io_[0x27] = 0;
-  io_[0x30] &= ~0x40;
+  io_[hw::kBcr0l] = io_[hw::kBcr0h] = 0;
+  io_[hw::kDstat] &= static_cast<uint8_t>(~hw::kDstatDe0);
 }
 
 bool EurekaMachine::FdcWantsDma() const {
@@ -755,7 +787,7 @@ bool EurekaMachine::FdcWantsDma() const {
   // Direction has to match, or a read buffer the firmware never drained (it
   // verifies a formatted track by status alone) would look like a controller
   // asking to be fed, and the next Write Track would lose its data.
-  const bool toMemory = (io_[0x32] & 0x02) != 0;
+  const bool toMemory = (io_[hw::kDcntl] & hw::kDcntlDim1) != 0;
   return toMemory != fdcWriting_;
 }
 
@@ -774,21 +806,22 @@ void EurekaMachine::MaybeRunDma1() {
 }
 
 void EurekaMachine::RunDma1() {
-  // Channel 1 is always memory <-> I/O.  28h-2Ah hold the 20-bit memory
-  // address, 2Bh-2Ch the I/O address, 2Eh-2Fh the byte count.  DCNTL bit 1
-  // selects the direction and bit 0 whether the memory address counts down.
+  // Channel 1 is always memory <-> I/O: MAR1 holds the 20-bit memory address,
+  // IAR1 the I/O address and BCR1 the byte count, and DCNTL says which way the
+  // bytes go and whether the memory address counts down.
   //
   // The ROM uses this for Write Track: 7000 bytes -- one double-density
-  // track -- streamed from a RAM buffer into the floppy data register at 9Bh.
-  const uint8_t mode = io_[0x32] & 0x03;
-  const bool toMemory = (mode & 0x02) != 0;
-  const int32_t step = (mode & 0x01) != 0 ? -1 : 1;
-  uint32_t address = io_[0x28] | (static_cast<uint32_t>(io_[0x29]) << 8) |
-                     (static_cast<uint32_t>(io_[0x2a] & 0x0f) << 16);
+  // track -- streamed from a RAM buffer into the floppy data register.
+  const uint8_t mode = io_[hw::kDcntl] & hw::kDcntlDim;
+  const bool toMemory = (mode & hw::kDcntlDim1) != 0;
+  const int32_t step = (mode & hw::kDcntlDim0) != 0 ? -1 : 1;
+  uint32_t address =
+      io_[hw::kMar1l] | (static_cast<uint32_t>(io_[hw::kMar1h]) << 8) |
+      (static_cast<uint32_t>(io_[hw::kMar1b] & hw::kDmaBankMask) << 16);
   const uint16_t port = static_cast<uint16_t>(
-      io_[0x2b] | (static_cast<uint16_t>(io_[0x2c]) << 8));
-  uint32_t count = io_[0x2e] | (static_cast<uint32_t>(io_[0x2f]) << 8);
-  if (count == 0) count = 65536;
+      io_[hw::kIar1l] | (static_cast<uint16_t>(io_[hw::kIar1h]) << 8));
+  uint32_t count = io_[hw::kBcr1l] | (static_cast<uint32_t>(io_[hw::kBcr1h]) << 8);
+  if (count == 0) count = hw::kDmaFullCount;
 
   // Real transfers are paced by DREQ1; running the whole block at once keeps
   // the model simple and matches how channel 0 already behaves.  Nothing in
@@ -801,12 +834,14 @@ void EurekaMachine::RunDma1() {
     address = static_cast<uint32_t>(address + step) & kPhysicalMask;
   }
 
-  io_[0x28] = static_cast<uint8_t>(address);
-  io_[0x29] = static_cast<uint8_t>(address >> 8);
-  io_[0x2a] = static_cast<uint8_t>((io_[0x2a] & 0xf0) | ((address >> 16) & 0x0f));
-  io_[0x2e] = io_[0x2f] = 0;
+  io_[hw::kMar1l] = static_cast<uint8_t>(address);
+  io_[hw::kMar1h] = static_cast<uint8_t>(address >> 8);
+  io_[hw::kMar1b] = static_cast<uint8_t>((io_[hw::kMar1b] & ~hw::kDmaBankMask) |
+                                         ((address >> 16) & hw::kDmaBankMask));
+  io_[hw::kBcr1l] = io_[hw::kBcr1h] = 0;
   dma1Armed_ = false;
-  io_[0x30] = static_cast<uint8_t>(io_[0x30] & ~0x80);  // DE1 clears at BCR1 = 0
+  // DE1 clears at BCR1 = 0.
+  io_[hw::kDstat] = static_cast<uint8_t>(io_[hw::kDstat] & ~hw::kDstatDe1);
 }
 
 uint8_t EurekaMachine::TypeOneStatus() const {
@@ -818,13 +853,15 @@ uint8_t EurekaMachine::TypeOneStatus() const {
   // asks whether it appears, never how often.  With no disk it never appears,
   // which is how the machine says "neni disk".
   uint8_t status = 0;
-  if (disk_.present()) status |= 0x02;  // INDEX comes from the hole in the medium
-  if (fdcTrack_ == 0) status |= 0x04;   // TRACK 00 is a sensor on the mechanism
+  // INDEX comes from the hole in the medium; TRACK 00 is a sensor on the
+  // mechanism.
+  if (disk_.present()) status |= hw::kFdcStatusIndex;
+  if (fdcTrack_ == 0) status |= hw::kFdcStatusTrack00;
   // Bit 6 is the WPRT input of the 1770, driven by the notch in the medium.
   // The firmware reads it here: DEVICES.10 reports it as bit 6 of both
   // fdc_ctl_chkdsk and fdc_ctl_diskin, and SYSEQU.LIB has it in
   // write_error_mask but not in read_error_mask, so it stops writes only.
-  if (disk_.write_protected()) status |= 0x40;
+  if (disk_.write_protected()) status |= hw::kFdcStatusWriteProtect;
   return status;
 }
 
@@ -834,68 +871,70 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   fdcPosition_ = 0;
   fdcWriting_ = false;
   fdcIntrq_ = false;
-  const uint8_t type = command & 0xf0;
-  if (type == 0x00) {
+  const uint8_t type = command & hw::kFdcCommandType;
+  if (type == hw::kFdcCmdRestore) {
     fdcTrack_ = 0;
     fdcStepDirection_ = -1;
     fdcStatus_ = TypeOneStatus();
-  } else if (type == 0x10) {
-    const uint8_t target = io_[0x9b];
+  } else if (type == hw::kFdcCmdSeek) {
+    const uint8_t target = io_[hw::kFdcData];
     fdcStepDirection_ = target >= fdcTrack_ ? 1 : -1;
     fdcTrack_ = target;
     fdcStatus_ = TypeOneStatus();
-  } else if (type >= 0x20 && type <= 0x70) {
-    // Step, Step In and Step Out.  The format routine walks the disk with
-    // Step In (50h at 19EE8) rather than seeking, so without the update flag
-    // being honoured every track is written on top of track 0.
-    if (type == 0x40 || type == 0x50) fdcStepDirection_ = 1;
-    else if (type == 0x60 || type == 0x70) fdcStepDirection_ = -1;
-    if ((command & 0x10) != 0) {  // U: update the track register
+  } else if ((command & hw::kFdcTypeTwoOrThree) == 0) {
+    // The rest of Type I: Step, Step In and Step Out, each of which occupies
+    // two nibbles.  The format routine walks the disk with Step In (50h at
+    // 19EE8) rather than seeking, so without the update flag being honoured
+    // every track is written on top of track 0.
+    const uint8_t group = command & hw::kFdcCommandGroup;
+    if (group == hw::kFdcCmdStepIn) fdcStepDirection_ = 1;
+    else if (group == hw::kFdcCmdStepOut) fdcStepDirection_ = -1;
+    if ((command & hw::kFdcFlagUpdateTrack) != 0) {
       const int stepped = static_cast<int>(fdcTrack_) + fdcStepDirection_;
       fdcTrack_ = static_cast<uint8_t>(std::clamp(stepped, 0, 255));
     }
     fdcStatus_ = TypeOneStatus();
-  } else if ((command & 0xe0) == 0x80) {
-    fdcBuffer_.resize(512);
-    const unsigned side = outputLatch_ & 1;
+  } else if ((command & hw::kFdcCommandGroup) == hw::kFdcCmdReadSector) {
+    fdcBuffer_.resize(hw::kSectorBytes);
+    const unsigned side = outputLatch_ & hw::kFdcSide;
     // A read finishes on its own: the controller walks the whole sector and
     // drops BUSY even when nobody services DRQ, merely flagging lost data.
     // Holding BUSY until the buffer drains hangs the verify read the format
     // routine issues at 19EF0 with no DMA armed, which spins on BUSY at 19EF3.
     if (disk_.ReadPhysicalSector(fdcTrack_, side, fdcSector_, fdcBuffer_.data())) {
-      fdcStatus_ = 0x02;
+      fdcStatus_ = hw::kFdcStatusDrq;
     } else if (static_cast<int>(fdcTrack_) == fdcFormattedCylinder_ &&
                static_cast<int>(side) == fdcFormattedSide_) {
       // The format routine writes 161 logical tracks, one past the 800K image,
       // and verifies each one it wrote.  A real mechanism steps to cylinder 80
       // and reads back the track it has just laid down, so a read of wherever
       // Write Track last ran has to succeed even outside the image.
-      std::fill(fdcBuffer_.begin(), fdcBuffer_.end(), 0xe5);
-      fdcStatus_ = 0x02;
+      std::fill(fdcBuffer_.begin(), fdcBuffer_.end(), hw::kFormatFill);
+      fdcStatus_ = hw::kFdcStatusDrq;
     } else {
       // Record Not Found.  The buffer has to go with it: a DMA channel armed
       // for this read would otherwise drain 512 bytes of nothing into RAM.
       fdcBuffer_.clear();
-      fdcStatus_ = 0x10;
+      fdcStatus_ = hw::kFdcStatusNotFound;
       fdcIntrq_ = true;
     }
-  } else if ((command & 0xe0) == 0xa0) {
+  } else if ((command & hw::kFdcCommandGroup) == hw::kFdcCmdWriteSector) {
     if (!disk_.present()) {
-      fdcStatus_ = 0x10;
+      fdcStatus_ = hw::kFdcStatusNotFound;
       fdcIntrq_ = true;
     } else if (disk_.write_protected()) {
       // A 1770 refuses a write on a protected medium before it touches the
       // surface: it raises bit 6 and drops BUSY at once, with no data request
       // at all.  Leaving fdcWriting_ false is the point -- the guest's DMA
       // then finds nothing to feed and the image is never opened for writing.
-      fdcStatus_ = 0x40;
+      fdcStatus_ = hw::kFdcStatusWriteProtect;
       fdcIntrq_ = true;
     } else {
-      fdcBuffer_.assign(512, 0);
+      fdcBuffer_.assign(hw::kSectorBytes, 0);
       fdcWriting_ = true;
-      fdcStatus_ = 0x03;
+      fdcStatus_ = hw::kFdcStatusBusy | hw::kFdcStatusDrq;
     }
-  } else if (type == 0xc0) {
+  } else if (type == hw::kFdcCmdReadAddress) {
     // Read Address hands back the first sector ID header it finds, so it is
     // exactly how anything asks "is there a format on this track" -- and it is
     // how the ROM's own format routine decides whether to warn that the disk
@@ -903,34 +942,37 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     // so it has to come back Record Not Found; answering with a made-up
     // header made a blank diskette claim to be formatted.
     if (!disk_.present() ||
-        !disk_.TrackFormatted(fdcTrack_, outputLatch_ & 1)) {
-      fdcStatus_ = 0x10;
+        !disk_.TrackFormatted(fdcTrack_, outputLatch_ & hw::kFdcSide)) {
+      fdcStatus_ = hw::kFdcStatusNotFound;
       fdcIntrq_ = true;
       return;
     }
-    fdcBuffer_ = {fdcTrack_, static_cast<uint8_t>(outputLatch_ & 1),
-                  fdcSector_, 2, 0, 0};
-    fdcStatus_ = 0x02;  // Read Address completes on its own, as above.
-  } else if (type == 0xd0) {
+    // The six bytes of an ID field: track, side, sector, size code and the two
+    // CRC bytes, which nothing here checks.
+    fdcBuffer_ = {fdcTrack_, static_cast<uint8_t>(outputLatch_ & hw::kFdcSide),
+                  fdcSector_, hw::kSectorSizeCode, 0, 0};
+    fdcStatus_ = hw::kFdcStatusDrq;  // Completes on its own, as above.
+  } else if (type == hw::kFdcCmdForceInterrupt) {
     fdcStatus_ = 0;
-  } else if (type == 0xe0) {
+  } else if (type == hw::kFdcCmdReadTrack) {
     // Read Track reads the raw surface, so the same applies: nothing written
     // means nothing to read.
     if (!disk_.present() ||
-        !disk_.TrackFormatted(fdcTrack_, outputLatch_ & 1)) {
-      fdcStatus_ = 0x10;
+        !disk_.TrackFormatted(fdcTrack_, outputLatch_ & hw::kFdcSide)) {
+      fdcStatus_ = hw::kFdcStatusNotFound;
       fdcIntrq_ = true;
       return;
     }
-    fdcBuffer_.resize(5120);
-    for (unsigned sector = 1; sector <= 10; ++sector) {
-      disk_.ReadPhysicalSector(fdcTrack_, outputLatch_ & 1, sector,
-                               fdcBuffer_.data() + (sector - 1) * 512);
+    fdcBuffer_.resize(hw::kSectorsPerTrack * hw::kSectorBytes);
+    for (unsigned sector = 1; sector <= hw::kSectorsPerTrack; ++sector) {
+      disk_.ReadPhysicalSector(
+          fdcTrack_, outputLatch_ & hw::kFdcSide, sector,
+          fdcBuffer_.data() + (sector - 1) * hw::kSectorBytes);
     }
-    fdcStatus_ = 0x02;  // Read Track completes on its own, as above.
-  } else if (type == 0xf0) {
+    fdcStatus_ = hw::kFdcStatusDrq;  // Completes on its own, as above.
+  } else if (type == hw::kFdcCmdWriteTrack) {
     if (!disk_.present()) {
-      fdcStatus_ = 0x10;
+      fdcStatus_ = hw::kFdcStatusNotFound;
       fdcIntrq_ = true;
       return;
     }
@@ -938,29 +980,32 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
       // Write Track is a write like any other, and DEVICES.10 says so from
       // the other end: fdc_ctl_write_track returns status 2, "Disk Write
       // Protected".  So a protected diskette cannot be formatted either.
-      fdcStatus_ = 0x40;
+      fdcStatus_ = hw::kFdcStatusWriteProtect;
       fdcIntrq_ = true;
       return;
     }
+    // One raw double-density track, gaps and address marks included.
     fdcBuffer_.assign(6250, 0);
     fdcWriting_ = true;
     fdcFormattedCylinder_ = fdcTrack_;
-    fdcFormattedSide_ = static_cast<int>(outputLatch_ & 1);
+    fdcFormattedSide_ = static_cast<int>(outputLatch_ & hw::kFdcSide);
     // The track the guest is laying down.  Behind a host folder this changes
     // nothing -- the track image is discarded, because erasing the user's
     // files because the emulated machine formatted is not this model's call
     // to make (6.5) -- but on a diskette with no home it is the whole
     // point: an unformatted one has no track answering until this runs.
-    disk_.FormatTrack(fdcTrack_, outputLatch_ & 1);
+    disk_.FormatTrack(fdcTrack_, outputLatch_ & hw::kFdcSide);
     // The operation reports success either way.
-    fdcStatus_ = 0x03;
+    fdcStatus_ = hw::kFdcStatusBusy | hw::kFdcStatusDrq;
   } else {
     fdcStatus_ = 0;
   }
   // Type I commands and Force Interrupt finish inside this model, so they
   // raise INTRQ straight away.  Type II and III commands raise it when their
   // data transfer runs out, in ReadFdcData and WriteFdcData below.
-  if ((command & 0x80) == 0 || type == 0xd0) fdcIntrq_ = true;
+  if ((command & hw::kFdcTypeTwoOrThree) == 0 ||
+      type == hw::kFdcCmdForceInterrupt)
+    fdcIntrq_ = true;
   // A channel parked by an earlier DE1 write starts moving now.
   if (dma1Armed_ && FdcWantsDma()) {
     dma1Armed_ = false;
@@ -982,13 +1027,13 @@ uint8_t EurekaMachine::ReadFdcData() {
 }
 
 void EurekaMachine::WriteFdcData(uint8_t value) {
-  io_[0x9b] = value;
+  io_[hw::kFdcData] = value;
   if (!fdcWriting_ || fdcPosition_ >= fdcBuffer_.size()) return;
   fdcBuffer_[fdcPosition_++] = value;
   if (fdcPosition_ == fdcBuffer_.size()) {
-    if ((fdcCommand_ & 0xe0) == 0xa0) {
-      disk_.WritePhysicalSector(fdcTrack_, outputLatch_ & 1, fdcSector_,
-                                fdcBuffer_.data());
+    if ((fdcCommand_ & hw::kFdcCommandGroup) == hw::kFdcCmdWriteSector) {
+      disk_.WritePhysicalSector(fdcTrack_, outputLatch_ & hw::kFdcSide,
+                                fdcSector_, fdcBuffer_.data());
       lastDiskWrite_ = cycles_;
     }
     fdcStatus_ = 0;
@@ -998,14 +1043,14 @@ void EurekaMachine::WriteFdcData(uint8_t value) {
 }
 
 uint16_t EurekaMachine::TimerReload(unsigned channel) const {
-  const unsigned base = channel == 0 ? 0x0e : 0x16;
+  const unsigned base = channel == 0 ? hw::kRldr0l : hw::kRldr1l;
   return io_[base] | (static_cast<uint16_t>(io_[base + 1]) << 8);
 }
 
 uint8_t EurekaMachine::ReadTimerData(unsigned channel, bool high) {
   if (timerControlRead_[channel]) {
-    const uint8_t flag = channel == 0 ? kTif0 : kTif1;
-    io_[0x10] &= static_cast<uint8_t>(~flag);
+    const uint8_t flag = channel == 0 ? hw::kTcrTif0 : hw::kTcrTif1;
+    io_[hw::kTcr] &= static_cast<uint8_t>(~flag);
     timerPending_[channel] = false;
     timerControlRead_[channel] = false;
   }
@@ -1014,8 +1059,8 @@ uint8_t EurekaMachine::ReadTimerData(unsigned channel, bool high) {
 }
 
 void EurekaMachine::WriteTimerData(unsigned channel, bool high, uint8_t value) {
-  const uint8_t enable = channel == 0 ? kTde0 : kTde1;
-  if ((io_[0x10] & enable) != 0) return;
+  const uint8_t enable = channel == 0 ? hw::kTcrTde0 : hw::kTcrTde1;
+  if ((io_[hw::kTcr] & enable) != 0) return;
   if (high)
     timerCurrent_[channel] = static_cast<uint16_t>((timerCurrent_[channel] & 0x00ff) |
                                                    (value << 8));
@@ -1032,7 +1077,8 @@ void EurekaMachine::RenderAudio(uint32_t cpuCycles) {
   // too.  What the hardware also has, and this did not, is the analogue low
   // pass that removes them.  filtersel_mask (B0h bit 4) picks its cutoff:
   // set is the normal one the speech engine wants, clear opens it up.
-  const Biquad& b = (outputLatch_ & 0x10) != 0 ? kSpeechFilter : kOpenFilter;
+  const Biquad& b =
+      (outputLatch_ & hw::kFilterselMask) != 0 ? kSpeechFilter : kOpenFilter;
   const double input = (static_cast<double>(dac_) - 128.0) * 256.0;
   while (audioPhase_ >= kCpuHz) {
     // Direct form II transposed: the state carries over when the cutoff
@@ -1060,7 +1106,7 @@ void EurekaMachine::RenderAudio(uint32_t cpuCycles) {
 // while the receiver is on, not before.
 void EurekaMachine::PumpCsio() {
   if (csioPending_ || csioRx_.empty() || cycles_ < csioReadyAt_) return;
-  if ((io_[0x0a] & 0x20) == 0) return;  // RE clear: the receiver is off
+  if ((io_[hw::kCntr] & hw::kCntrRe) == 0) return;  // the receiver is off
   csioData_ = csioRx_.front();
   csioRx_.pop_front();
   csioPending_ = true;
@@ -1070,7 +1116,7 @@ void EurekaMachine::PumpCsio() {
   // the key, and the interrupt handler's throwaway read of TRDR at 1DFFE would
   // swallow the second one before the handler ever came round to it.  Single
   // byte keys never noticed, so letters worked and navigation did not.
-  io_[0x0a] &= static_cast<uint8_t>(~0x20);
+  io_[hw::kCntr] &= static_cast<uint8_t>(~hw::kCntrRe);
 }
 
 void EurekaMachine::Advance(uint32_t cpuCycles) {
@@ -1078,21 +1124,21 @@ void EurekaMachine::Advance(uint32_t cpuCycles) {
   RenderAudio(cpuCycles);
   PumpCsio();
   UpdateRtcEvents();
-  const uint8_t control = io_[0x10];
+  const uint8_t control = io_[hw::kTcr];
   for (unsigned channel = 0; channel < 2; ++channel) {
-    const uint8_t enable = channel == 0 ? kTde0 : kTde1;
+    const uint8_t enable = channel == 0 ? hw::kTcrTde0 : hw::kTcrTde1;
     if ((control & enable) == 0) {
       timerAccum_[channel] = 0;
       continue;
     }
     timerAccum_[channel] += cpuCycles;
-    while (timerAccum_[channel] >= 20) {
-      timerAccum_[channel] -= 20;
+    while (timerAccum_[channel] >= hw::kTimerPrescale) {
+      timerAccum_[channel] -= hw::kTimerPrescale;
       if (timerCurrent_[channel] == 0) timerCurrent_[channel] = TimerReload(channel);
       else --timerCurrent_[channel];
       if (timerCurrent_[channel] == 0) {
         timerPending_[channel] = true;
-        io_[0x10] |= channel == 0 ? kTif0 : kTif1;
+        io_[hw::kTcr] |= channel == 0 ? hw::kTcrTif0 : hw::kTcrTif1;
       }
     }
   }
@@ -1100,20 +1146,21 @@ void EurekaMachine::Advance(uint32_t cpuCycles) {
 
 void EurekaMachine::ScheduleInterrupt() {
   if (cpu_.int_pending || !cpu_.iff1) return;
-  const uint8_t control = io_[0x10];
-  if (timerPending_[0] && (control & kTie0)) {
+  const uint8_t control = io_[hw::kTcr];
+  const uint8_t base = io_[hw::kIl] & hw::kIlVectorBase;
+  if (timerPending_[0] && (control & hw::kTcrTie0)) {
     // HD64180 internal interrupts always use I/IL vectored acquisition,
     // independently of the Z80 IM setting.
     cpu_.interrupt_mode = 2;
-    z80_gen_int(&cpu_, static_cast<uint8_t>((io_[0x33] & 0xe0) | kTimer0Vector));
-  } else if (timerPending_[1] && (control & kTie1)) {
+    z80_gen_int(&cpu_, static_cast<uint8_t>(base | hw::kVectorTimer0));
+  } else if (timerPending_[1] && (control & hw::kTcrTie1)) {
     cpu_.interrupt_mode = 2;
-    z80_gen_int(&cpu_, static_cast<uint8_t>((io_[0x33] & 0xe0) | kTimer1Vector));
-  } else if (csioPending_ && (io_[0x0a] & 0x40)) {
+    z80_gen_int(&cpu_, static_cast<uint8_t>(base | hw::kVectorTimer1));
+  } else if (csioPending_ && (io_[hw::kCntr] & hw::kCntrEie)) {
     // Lowest of the three, which is the HD64180's own order.  The flag stays
     // up until the handler reads TRDR, so this re-arms by itself.
     cpu_.interrupt_mode = 2;
-    z80_gen_int(&cpu_, static_cast<uint8_t>((io_[0x33] & 0xe0) | kCsioVector));
+    z80_gen_int(&cpu_, static_cast<uint8_t>(base | hw::kVectorCsio));
   }
 }
 
@@ -1126,7 +1173,10 @@ bool EurekaMachine::InterceptBios() {
   // Eureka's extended CP/M BIOS jump table lives at C100. Page zero points
   // at BOOT/WBOOT targets, not at the beginning of this table.
   constexpr uint16_t base = 0xc100;
-  if (Peek(base) != 0xc3) return true;
+  // Every entry is a JP, so a table that does not start with one is not the
+  // table -- the ROM has not been mapped in yet.
+  constexpr uint8_t kOpcodeJp = 0xc3;
+  if (Peek(base) != kOpcodeJp) return true;
   unsigned function = 0;
   // Every C100 entry is a JP into the matching C03A stub, so a call that comes
   // through the table passes both points.  Functions answered with
@@ -1213,7 +1263,7 @@ void EurekaMachine::PowerDown() {
   // The DAC holds whatever the last sample was, and with the CPU stopped
   // nothing will ever move it again.  Parking it at mid-scale keeps the tail
   // of the announcement from ending on a step to a DC offset.
-  dac_ = 0x80;
+  dac_ = hw::kDacMidScale;
   membraneFrames_.clear();
   membraneState_ = MembraneFrame{};
   membraneHeldKey_ = 0;
@@ -1223,7 +1273,11 @@ void EurekaMachine::PowerDown() {
 bool EurekaMachine::Step() {
   if (poweredOff_) return false;
   if (!InterceptBios()) return false;
-  if (cpu_.pc == 0x0103 && PhysicalAddress(cpu_.pc) == 0x0103)
+  // The speech engine's entry point, taking the phoneme byte in A.  Both the
+  // logical and the physical address have to match, or an unrelated routine
+  // that happens to sit at 0103 in some other bank would be captured too.
+  constexpr uint16_t kSpeechEntry = 0x0103;
+  if (cpu_.pc == kSpeechEntry && PhysicalAddress(cpu_.pc) == kSpeechEntry)
     speechInput_.push_back(cpu_.a);
   ScheduleInterrupt();
   const unsigned long before = cpu_.cyc;
@@ -1241,12 +1295,12 @@ void EurekaMachine::QueueKey(uint8_t key) {
   // application keys act wherever they are pressed.  Text is not a key code
   // and has no business here -- it is typed with QueueText, on the PC keyboard
   // the ROM knows how to read.
-  if ((key & 0x80) == 0) return;
+  if ((key & hw::kKeyIsCode) == 0) return;
   PressMembraneKey(key);
 }
 
 void EurekaMachine::ReleaseKey(uint8_t key) {
-  if ((key & 0x80) == 0 || membraneHeldKey_ == 0 ||
+  if ((key & hw::kKeyIsCode) == 0 || membraneHeldKey_ == 0 ||
       !SameKey(key, membraneHeldKey_))
     return;
   if (membraneState_.key == membraneHeldKey_) {
@@ -1278,36 +1332,50 @@ constexpr uint32_t kScanTableAltGr = 0x1df98;
 // Pairs of (scan code, result) for the codes that arrive behind an E0h
 // prefix, searched at 1DD51.  The list starts one pair in and ends at a zero.
 constexpr uint32_t kScanTableExtended = 0x1dfd6;
+// What the tables put where a character would go for the modifiers themselves:
+// F0h and up is a modifier (1DDE6), F1h specifically is the left shift flag
+// tested at 1DDD5, and 10h in the extended list marks the right Alt (1DD51).
+constexpr uint8_t kModifierEntry = 0xf0;
+constexpr uint8_t kLeftShiftFlag = 0xf1;
+constexpr uint8_t kAltGrFlag = 0x10;
+// The other extended modifier the plain table carries (1DD79), and caps lock
+// (1DD7E).  kCtrlFlag shares its value with kFirstCharacter below by accident,
+// not by meaning: one is a flag in a table, the other a bound on characters.
+constexpr uint8_t kCtrlFlag = 0x04;
+constexpr uint8_t kCapsLockFlag = 0x01;
+// 01h to 03h go to the dead-key handler and put nothing in the queue (1DDED).
+constexpr uint8_t kFirstCharacter = 0x04;
+// Bounds the decoder itself keeps: nothing from 60h up reaches a table at all
+// (1DD4C), and 3Ah is where the letters end and the modifier tables stop being
+// consulted (1DD68).
+constexpr unsigned kScanCodeLimit = 0x60;
+constexpr unsigned kScanCodeLetters = 0x3a;
 
 uint8_t EurekaMachine::TranslatedScanCode(uint8_t code, ScanModifier modifier)
     const {
-  // 1DD4C: anything from 60h up is dropped before a table is even chosen.
-  if (code == 0 || code >= 0x60) return 0;
-  if (code >= 0x3a) {
+  if (code == 0 || code >= kScanCodeLimit) return 0;
+  if (code >= kScanCodeLetters) {
     // 1DD68 sends these straight to the plain table: above the letters the
     // decoder never looks at a modifier table at all, which is why the numeric
     // keypad types the same character shifted or not.
     if (modifier == ScanModifier::kAltGr) return 0;  // dropped at 1DD85
     const uint8_t value = memory_[kScanTablePlain + code];
-    // 10h and 04h are the two extended modifiers (1DD74, 1DD79), 01h is caps
-    // lock (1DD7E) and 80h and up is an Eureka key code, not a character
-    // (1DD88).
-    if (value == 0 || value == 0x10 || value == 0x04 || value == 0x01 ||
-        value >= 0x80)
+    // The two extended modifiers (1DD74, 1DD79), caps lock (1DD7E), and from
+    // 80h up an Eureka key code rather than a character (1DD88).
+    if (value == 0 || value == kAltGrFlag || value == kCtrlFlag ||
+        value == kCapsLockFlag || value >= hw::kKeyIsCode)
       return 0;
     // The one key whose shifted character the decoder computes instead of
     // looking it up (1DD8C), and so the only place '<' and '>' live.
-    if (value == 0x3c)
-      return modifier == ScanModifier::kShift ? 0x3e : 0x3c;
+    if (value == '<') return modifier == ScanModifier::kShift ? '>' : '<';
     return value;
   }
   const uint32_t table = modifier == ScanModifier::kAltGr   ? kScanTableAltGr
                          : modifier == ScanModifier::kShift ? kScanTableShift
                                                             : kScanTablePlain;
   const uint8_t value = memory_[table + code];
-  // 1DDE6: F0h and up are the modifier keys themselves.  1DDED: 01h to 03h go
-  // to the dead-key handler and put nothing in the queue.
-  if (value == 0 || value >= 0xf0 || value < 0x04) return 0;
+  if (value == 0 || value >= kModifierEntry || value < kFirstCharacter)
+    return 0;
   return value;
 }
 
@@ -1319,14 +1387,14 @@ void EurekaMachine::BuildKeyboardLayout() {
   // tests), and the extended list is the only thing that says E0 38 is the
   // right Alt that selects the third table (1DD51 -> 10h -> bit 4).
   shiftScanCode_ = 0;
-  for (unsigned code = 1; code < 0x3a; ++code)
-    if (memory_[kScanTablePlain + code] == 0xf1) {
+  for (unsigned code = 1; code < kScanCodeLetters; ++code)
+    if (memory_[kScanTablePlain + code] == kLeftShiftFlag) {
       shiftScanCode_ = static_cast<uint8_t>(code);
       break;
     }
   altGrScanCode_ = 0;
   for (uint32_t at = kScanTableExtended + 2; memory_[at] != 0; at += 2)
-    if (memory_[at + 1] == 0x10 && memory_[at] < 0x80) {
+    if (memory_[at + 1] == kAltGrFlag && memory_[at] < hw::kScanBreak) {
       altGrScanCode_ = memory_[at];
       break;
     }
@@ -1340,7 +1408,7 @@ void EurekaMachine::BuildKeyboardLayout() {
   for (ScanModifier modifier : order) {
     if (modifier == ScanModifier::kShift && shiftScanCode_ == 0) continue;
     if (modifier == ScanModifier::kAltGr && altGrScanCode_ == 0) continue;
-    for (unsigned code = 0x5f; code >= 1; --code) {
+    for (unsigned code = kScanCodeLimit - 1; code >= 1; --code) {
       const uint8_t ch = TranslatedScanCode(static_cast<uint8_t>(code), modifier);
       if (ch == 0) continue;
       typedKeys_[ch] = TypedKey{static_cast<uint8_t>(code), modifier};
@@ -1361,21 +1429,21 @@ bool EurekaMachine::QueueText(const std::string& text, uint8_t* unmapped) {
         QueueScanCode(shiftScanCode_);
         break;
       case ScanModifier::kAltGr:
-        QueueScanCode(0xe0);
+        QueueScanCode(hw::kScanExtended);
         QueueScanCode(altGrScanCode_);
         break;
       case ScanModifier::kNone:
         break;
     }
     QueueScanCode(key.code);
-    QueueScanCode(static_cast<uint8_t>(key.code | 0x80));
+    QueueScanCode(static_cast<uint8_t>(key.code | hw::kScanBreak));
     switch (key.modifier) {
       case ScanModifier::kShift:
-        QueueScanCode(static_cast<uint8_t>(shiftScanCode_ | 0x80));
+        QueueScanCode(static_cast<uint8_t>(shiftScanCode_ | hw::kScanBreak));
         break;
       case ScanModifier::kAltGr:
-        QueueScanCode(0xe0);
-        QueueScanCode(static_cast<uint8_t>(altGrScanCode_ | 0x80));
+        QueueScanCode(hw::kScanExtended);
+        QueueScanCode(static_cast<uint8_t>(altGrScanCode_ | hw::kScanBreak));
         break;
       case ScanModifier::kNone:
         break;
