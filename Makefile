@@ -121,7 +121,7 @@ A4ROM ?= C:/b/a4rom.dmp
 ROM   ?= $(A4ROM)
 DISK  ?= $(BUILD)/testdisk
 
-MODES  := bas com kbd power dc rtc hudba format wp
+MODES  := bas com kbd power dc rtc hudba format wp hlaseni
 CHECKS := check-codec check-disk check-settings $(addprefix check-,$(MODES))
 
 .PHONY: $(CHECKS)

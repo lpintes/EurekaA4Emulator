@@ -715,6 +715,69 @@ bool CheckProtectedDiskRefusesFormat(EurekaMachine& machine) {
   return false;
 }
 
+// What the machine says about a drive it cannot read, which is three different
+// sentences and used to be one.
+//
+// "vadny disk" is BDOS speaking (1BB56), and it is the answer to every BIOS
+// disk status the firmware does not recognise.  The ones it does recognise are
+// 2, 3 and 4 (1BB45), and the ROM has its own questions in front of that: the
+// disk functions ask fdc_ctl_disk_in and fdc_ctl_disk_test first, and those
+// two tell an empty drive from an unformatted diskette by issuing one Seek
+// with verify (14h at 1980A) and reading it three ways.  With the model
+// answering every verify with success and every BIOS failure with 1, all of
+// that collapsed into "vadny disk" -- the sentence that on a real machine
+// means the diskette is damaged.
+//
+// So this is one check per sentence, plus the one that matters most: none of
+// the three may be "vadny disk".
+bool CheckSaysWhichDiskProblem(EurekaMachine& machine) {
+  // The firmware keeps what it learned about the medium in RAM, so each case
+  // gets its own boot with the medium already in the drive.
+  struct Case {
+    const char* what;      // how the drive is set up
+    bool eject;            // empty drive, or an unformatted diskette
+    uint8_t key;           // C7h is F8 "adresar disku", D5h is Shift+F6
+    const char* expected;  // an ASCII stretch of the Kamenicky speech
+    const char* sentence;  // the same, readably, for the failure line
+  };
+  const Case cases[] = {
+      {"prazdna mechanika, adresar", true, 0xc7, "disk nen", "disk neni zalozen"},
+      {"prazdna mechanika, diskove funkcie", true, 0xd5, "jednotce nen",
+       "v jednotce neni disk"},
+      {"nenaformatovana disketa, diskove funkcie", false, 0xd5, "naform",
+       "disk neni naformatovan"},
+  };
+
+  bool passed = true;
+  for (const Case& item : cases) {
+    if (item.eject) machine.EjectDisk();
+    else machine.CreateEmptyDisk(false);
+    machine.Reset();
+    for (int step = 0; step < 8'000'000; ++step)
+      if (!machine.Step()) break;
+
+    machine.TakeSpeechInput();
+    machine.QueueKey(item.key);
+    // Generously long: an empty drive is the slow case on purpose.  The
+    // firmware finds out the drive is empty by timing the controller out --
+    // it polls the status two thousand times (19A16) before it gives up --
+    // and that wait is the shape of the answer, not overhead to be trimmed.
+    const std::vector<uint8_t> spoken = RunAndListen(machine, 120'000'000);
+
+    if (!Contains(spoken, item.expected)) {
+      std::cout << "  " << item.what << ": necakal som \"" << item.sentence
+                << "\"\n";
+      Say("  stroj povedal", spoken);
+      passed = false;
+    } else if (Contains(spoken, "vadn")) {
+      std::cout << "  " << item.what << ": stroj povedal aj \"vadny disk\","
+                << " co znamena poskodenu disketu\n";
+      passed = false;
+    }
+  }
+  return passed;
+}
+
 void Grind(EurekaMachine& machine, uint64_t instructions) {
   const uint64_t deadline = machine.instructions() + instructions;
   while (machine.instructions() < deadline) {
@@ -847,9 +910,10 @@ int wmain(int argc, wchar_t** argv) {
        std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power" &&
        std::wstring(argv[3]) != L"dc" && std::wstring(argv[3]) != L"rtc" &&
        std::wstring(argv[3]) != L"hudba" &&
-       std::wstring(argv[3]) != L"format" && std::wstring(argv[3]) != L"wp")) {
+       std::wstring(argv[3]) != L"format" && std::wstring(argv[3]) != L"wp" &&
+       std::wstring(argv[3]) != L"hlaseni")) {
     std::wcerr << L"usage: integration_test ROM DISK_FOLDER "
-                  L"com|bas|kbd|power|dc|rtc|hudba|format|wp\n";
+                  L"com|bas|kbd|power|dc|rtc|hudba|format|wp|hlaseni\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -876,6 +940,12 @@ int wmain(int argc, wchar_t** argv) {
     std::cout << (passed ? "PASS" : "FAIL") << " mode=WP"
               << " citanie=" << (reads ? "ok" : "chyba")
               << " odmietnutie=" << (refuses ? "ok" : "chyba") << "\n";
+    return passed ? 0 : 1;
+  }
+
+  if (std::wstring(argv[3]) == L"hlaseni") {
+    const bool passed = CheckSaysWhichDiskProblem(*machine);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=HLASENI\n";
     return passed ? 0 : 1;
   }
 
