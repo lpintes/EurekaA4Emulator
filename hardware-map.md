@@ -20,6 +20,84 @@ Oficiálne názvy signálov sú prevzaté z `IOPORT.LIB`.
 - ROM na fyzických 00000h–3FFFFh.
 - DMA kanál 1 číta zdroj s bankou 07h, teda RAM siaha aspoň po 70000h+.
 
+### Rozloženie RAM a buffery aplikácií
+
+RAM je 64 KB na fyzických 70000h–7FFFFh. Logické rozloženie je to, ktoré
+manuál (`MEMORY.5`) volá **Standard Eureka A4** — len posunuté o 20000h,
+lebo anglické stroje majú RAM na 50000h. Doložené tromi nezávislými
+vecami: tiene latchov na C438h–C43Ah (manuál ich má presne tam),
+`sysram_addr equ 0c000h` v `SYSEQU.LIB`, a generátor tónov bežiaci v RAM
+na logickej B000h = fyzickej 7B000h (HANDOFF 6.10).
+
+Logické adresy pri bežiacej vstavanej aplikácii:
+
+- 0000h–00FFh — page 0 EurekaDOSu
+- 0100h–BFFFh — pracovná plocha aplikácie (pri programe z diskety TPA)
+- B000h–BFFFh — `application_scratch`, „from here to sysram can be used
+  by anything" (`SYSEQU.LIB`)
+- C000h–CFFFh — SYSRAM, **vždy viditeľná**; v nej CC00h–CF9Fh RAMCODE
+  a CFA0h–CFFFh SYSJUMPS
+- D000h–DDFFh telefónny zoznam, DE00h–E5FFh diár, E600h–EFFFh záznamník,
+  F000h–F7FFh virtuálna obrazovka, F800h–FDFFh scratch reči,
+  FE00h–FFFFh sektorový buffer diskety
+
+Horných 12 KB od D000h je **väčšinu času prekrytých ROM operačného
+systému** (reset: CBR=0Bh, teda D000h = 18000h). Buffery aplikácií tam
+teda fyzicky sú, ale logicky ich nevidno — `PEEK` na E600h vráti
+operačný systém, nie poznámky. To je aj dôvod, prečo `POKE` z BASICu
+zväčša nezaberie: pod logickou adresou je ROM a zápis sa **ticho**
+stratí. Model to robí rovnako (`EurekaMachine::WritePhysical`).
+
+### Prenosy bufferov cez DMA
+
+Preto sa buffery pred prácou kopírujú dole. Slúži na to `.dma0_move`
+zo SYSJUMPS: argumenty sú vložené priamo za `CALL` v poradí `dw` zdroj,
+`db` banka, `dw` cieľ, `db` banka, `dw` dĺžka (`SYSJUMPS.11`). V celom
+dumpe je tento vzor presne šesťkrát, plus raz pri štarte:
+
+| fyz. adresa | volanie | prenos | dĺžka | čo to je |
+|---|---|---|---|---|
+| 0EECB | CALL EEEEh | DE00h/07 → B000h/07 | 0800h | diár dole |
+| 0EED7 | CALL EEEEh | B000h/07 → DE00h/07 | 0800h | diár späť |
+| 139B9 | CALL F9FBh | E600h/07 → B600h/07 | 0A00h | záznamník dole |
+| 139C5 | CALL F9FBh | B600h/07 → E600h/07 | 0A00h | záznamník späť |
+| 19CF9 | CALL E2F5h | E600h/07 → B600h/07 | 0A00h | záznamník dole (z OS) |
+| 19D13 | CALL E2F5h | B600h/07 → E600h/07 | 0A00h | záznamník späť (z OS) |
+| 18025 | CALL E2F5h | D000h/01 → CC00h/07 | 0400h | RAMCODE pri štarte |
+
+Banka 07h znamená bity 16–19 fyzickej adresy, teda 7E600h a 7B600h.
+Posledný riadok je bootovacia inicializácia: kód obsluhy prerušení sa
+z ROM (1D000h) kopíruje do SYSRAM, aby ho nikdy nemohlo vybankovať —
+robí sa hneď po nastavení tabuľky vektorov na C180h.
+
+**Telefónny zoznam sa takto neprenáša.** Pristupuje sa k nemu na mieste
+cez ukazovateľ (0F2F0: `LD HL,D000h` / `ADD HL,BC` / `LD (C46Eh),HL`)
+a horných 12 KB sa preň mapuje prestavením MMU. Vzor toho prestavenia je
+v ROM častý — napr. 19332 si `IN0` odloží CBR aj CBAR, prepne ich a skočí
+(`.go_overlay`).
+
+### Textový procesor a záznamník sú jeden program
+
+Na 133E6 a 133FB sú **dva vstupy do tej istej rutiny**; obe vetvy
+pokračujú na 1340A. Líšia sa len bufferom:
+
+- 133E6 — `IY=0100h`, `DE=B000h`, `A=01h` → **textový procesor**
+  (Shift+F1), plocha 0100h–AFFFh
+- 133FB — `IY=B600h`, `DE=C000h`, `A=00h` → **záznamník** (F1),
+  plocha B600h–BFFFh, teda 0A00h bajtov končiacich tesne pod SYSRAM
+
+`IY` je začiatok bufferu, `DE` jeho koniec. Rozdiel medzi režimami drží
+jediný bajt na B02Fh (nastavuje ho 13428). Rutina na 139AF z neho robí
+bitovú masku: vráti 01h alebo 20h, čo sú `wp_mask` (bit 0) a `nt_mask`
+(bit 5) zo `SYSEQU.LIB`. Zapisujú sa do `activity` (C473h) a `altered`
+(C474h) — masiek, ktoré podľa `SYSRAM.A` hovoria, ktoré aplikácie majú
+dáta v RAM a ktoré majú neuložené zmeny; číta ich 139A2 a 139A7.
+
+Vnútro bufferu záznamníka doložené nie je. Vieme len, že prvý bajt textu
+je na B601h = desiatkovo 46593 (pozorované majiteľom stroja cez `PEEK`
+z BASICu, sedí s B600h ako začiatkom bloku); čo je na B600h samotnom,
+overené nemáme.
+
 ## Moduly ROM (kontrolný súčet každého = 0 mod 256)
 
 | rozsah | obsah | build |
@@ -73,10 +151,23 @@ ním `JR $-2` — firmvér čaká, kým napájanie naozaj zhasne. Cesta k nemu:
   (0AA19, 0D477, 10F0D, 19395, 19C64). Pri `08CAh` (2250 tikov = 30 s
   pred koncom) sa volá `CCFEh` — výstražná znelka.
 - Rutina 1D132 pred strobom uloží do `C45Ah` hodnotu `FFh`. To je značka
-  „vypnuté čisto": boot ju číta na 180CB a skočí na `CFD9h` namiesto
-  plnej inicializácie na 180D2, potom ju na 180D6 zmaže. Preto sa stroj
-  po zapnutí vracal tam, kde ho používateľ nechal — `GLOSSARY.TXT`
-  dodáva, že napájanie RAM ani hodín sa nikdy neodpájalo.
+  „som vypnutý" a číta ju boot na 180CB — ale **len keď ho zobudil
+  budík**, a vtedy `JP NZ,CFD9h` vedie cez SYSJUMPS (`1D3D9`) na `CD32h`
+  = fyz. 1D132, teda **na tú istú rutinu vypnutia**. Budík zobudí vypnutý
+  stroj, firmvér ho obslúži a stroj zase zaspí.
+  Rozhoduje o tom bit 0 bajtu, ktorý si boot odloží na 0040h už na 18011
+  (`IN A,(C)` s `BC=0290h`, teda `rtc_status`); bit 0 je `kRtcEventAlarm`.
+  Pri zapnutí rukou je nula, ide sa na 180D2 (`schedule_alarm`) a značka
+  sa na 180D6 zmaže.
+  **Neplatí, čo tu stálo do 6. 9. 2026:** že boot podľa značky „pokračuje
+  namiesto plnej inicializácie" a že preto sa stroj vracal tam, kde ho
+  používateľ nechal. `CFD9h` nie je pokračovanie, je to vypnutie, a boot
+  beží v oboch prípadoch celý. Stroj sa vracal preto, že RAM sa nemazala
+  (`GLOSSARY.TXT`: napájanie RAM ani hodín sa nikdy neodpájalo) a `magic`
+  na `C45Bh` sedel — nezhoda s `55AAh` je to, čo na 18132 povie
+  „inicializace eureky" a na 1805E vymaže `C43Ch`–`C508h`. Viď HANDOFF
+  6.15, kde je celá cesta rozobratá aj s dôkazom mapovania
+  `CC00h` ↔ `1D000h`.
 
 **Z externej klávesnice sa vypnúť nedalo.** Bajt `8Fh` nie je ani
 v jednej zo štyroch prekladových tabuliek ROM (1DF05 základná, 1DF5E
