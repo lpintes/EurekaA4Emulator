@@ -92,9 +92,13 @@ class EurekaMachine {
   // Eureka the power supply is off and only RAM and the clock stay alive.
   bool powered_off() const { return poweredOff_; }
   // What the firmware left in C45Ah on the way out.  FFh means it powered down
-  // deliberately (1D141), and the boot code reads it at 180CB to resume where
-  // the user was instead of initialising from scratch.  A host that keeps the
-  // RAM across runs has to keep this byte with it.
+  // deliberately (1D141).  It does NOT mean "resume": the boot code reads it at
+  // 180CB only after finding an alarm event in rtc_status (bit 0, saved to
+  // 0040h at 18011), and then JP NZ,CFD9h goes to the power-down routine again
+  // -- an alarm wakes a switched-off machine, the firmware serves it and puts
+  // it back to sleep.  Switching on by hand takes the other branch and clears
+  // the byte at 180D6.  What actually makes a machine resume where the user
+  // was is RAM surviving with magic 55AAh intact at C45Bh; see HANDOFF 6.15.
   uint8_t power_down_marker() const { return Peek(0xc45a); }
   // Presses one of the twenty keys the machine has: the Eureka key codes of
   // KB.LIB, all of which have bit 7 set.  Anything else is not a key on this

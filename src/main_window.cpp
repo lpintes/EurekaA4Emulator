@@ -933,10 +933,11 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case WM_EMU_POWERED_OFF:
       // C45Ah is FFh here: the firmware's own marker that this was a clean
-      // power-down, read back at 180CB so the machine resumes where the user
-      // was instead of initialising.  Once the host keeps RAM across runs, it
-      // is this byte that makes the difference between switching on and a
-      // hard reset.
+      // power-down.  It is not what makes the next start a resume -- that is
+      // RAM surviving with magic 55AAh at C45Bh, and the marker only stops an
+      // alarm from waking the machine for good (HANDOFF 6.15).  Once the host
+      // keeps RAM across runs, saving it here is what separates switching on
+      // from a hard reset.
       MessageBoxW(hwnd_,
                   L"Eureka sa vypla.\r\n\r\n"
                   L"Na skutočnom stroji by RAM aj hodiny zostali pod napätím "

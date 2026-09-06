@@ -278,8 +278,10 @@ bool CheckAltGr(EurekaMachine& machine, const EurekaMachine& booted) {
 // The four cursor keys at once (8Fh, k_udlr) are the Eureka's off switch, and
 // the inactivity timeout takes the same road.  Both end at a single instruction
 // -- IN A,(B8h) at 1D144 -- so the whole thing is checked here from the outside:
-// the machine says "konec", stops executing, and leaves FFh in C45Ah, which is
-// the marker its own boot code reads at 180CB to resume instead of initialise.
+// the machine says "konec", stops executing, and leaves FFh in C45Ah, the
+// marker its own boot code reads at 180CB to put itself back to sleep when an
+// alarm wakes it -- not, as this said until 6 Sep 2026, to resume instead of
+// initialise (HANDOFF 6.15).  The byte checked here is the same either way.
 // Without this the strobe can go back to being a no-op and nothing would say
 // so: an emulator that ignores it just spins in the two instructions after it,
 // with interrupts off, which is silence and looks like any other hang.

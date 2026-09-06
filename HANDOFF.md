@@ -1123,6 +1123,94 @@ stav a stroj sa po zapnutí vrátil tam, kde používateľ skončil.
   si mal niesť aspoň MD5 ROM a identitu disku a pri nezhode ponúknuť
   tvrdý štart.
 
+**Doplnené 6. 9. 2026.** Štyri veci, a prvá z nich opravuje odsek vyššie.
+
+#### Značka `C45Ah` neznamená „pokračuj", ale „nezobúdzaj sa"
+
+Vyššie stojí, že ROM sa podľa nej „sama rozhodne pokračovať". **To
+neplatí.** Je to tá istá zámena susednosti za príčinnosť, pred ktorou
+varuje `CLAUDE.md` — značka pri vypnutí naozaj vzniká, ale boot ju
+používa na niečo iné. Rozobratá celá cesta:
+
+- `18000` nastaví `CBAR=D0h` a `BBR=70h`, takže logická `0000`–`CFFF` je
+  RAM od `70000h`. Na `18011` prečíta `IN A,(C)` s `BC=0290h`, teda
+  `rtc_status`, a odloží ho na logickú `0040h` (fyz. `70040h`).
+- `180C2` z toho bajtu testuje cez `RRCA` bit 0. To je `kRtcEventAlarm`
+  (`eureka_io.h`, príloha H): **zobudil ma budík?**
+- Bit 0 = 0 → `180D2`, teda `CFC4h` → `1D379` = `schedule_alarm_addr`
+  (`D031h` v `SYSEQU.LIB`); potom sa značka na `180D6` zmaže a beh ide do
+  hlavného menu. To je normálne zapnutie rukou.
+- Bit 0 = 1 → `180C8` `CFEBh` → `1D365` = `service_alarm_addr` (`D02Bh`),
+  teda obsluha budíka — a **až potom** `180CF` `JP NZ,CFD9h`. `CFD9h` je
+  slot SYSJUMPS na `1D3D9` so skokom na `CD32h`, čo je fyz. `1D132`:
+  **rutina vypnutia**, tá istá, ktorá tam značku napísala.
+
+Mapovanie `CC00h` ↔ `1D000h` je isté z dvoch strán: prenos RAMCODE na
+`18025` (`D000h`/banka 01 → `CC00h`/banka 07, 400h bajtov) a `1D2B8`,
+ktorá je `.skssp` (`POP HL` / `CALL CEC4h` / `PUSH HL`) a cez `CEC4h` =
+`1D2C4` prechádza nulou ukončený reťazec.
+
+Zmysel je teda opačný: hodiny bežia aj vo vypnutom stroji, budík ho
+zobudí, firmvér ho obslúži a podľa `C45Ah` zistí, že sa má **zase
+vypnúť**. Že sa Eureka vrátila tam, kde používateľ skončil, nie je
+zásluha tejto značky — je to tým, že RAM sa nemazala a `magic` na
+`C45Bh` sedel.
+
+Pre uchovanie RAM je to dobrá správa, lebo je to ešte jednoduchšie:
+**stačí obnoviť RAM a naštartovať od nuly.** Boot prebehne celý, `magic`
+bude sedieť, trvalé dáta na `C43Ch`–`C508h` sa nevymažú a stroj sa ohlási
+bez „inicializace eureky". Značku netreba ošetrovať — ale treba vedieť,
+čo robí: keby sa RAM obnovila v okamihu, keď `rtc_status` hlási budík,
+stroj by sa po nej hneď vypol.
+
+Odtiaľ je aj samotná veta: `18132` volá `CFDCh` (`.skssp`) s reťazcom
+`inicializace eureky` na `18135`. Spúšťa ju jediná podmienka — `18126`
+porovná `(C45Bh)` s `55AAh`. Pri nezhode navyše `1805E` vymaže
+`C43Ch`–`C508h`, `LDIR` s `BC=00CDh`, čo je presne blok, ktorý `MEMORY.5`
+volá „Permanent data storage".
+
+#### Osem bajtov je mimo tých 64 kB
+
+`rtcRam_` (`machine.h`) je RAM v obvode hodín, porty `190h`–`197h`: čas
+a dátum najbližšieho budíka. Nie je v `memory_`, takže uloženie RAM ho
+nezachytí a `Reset()` ho vymaže. Patrí do toho istého súboru — je to
+malé a preto sa na to ľahko zabudne, a strata budíkov by bola tichá.
+
+#### Zmeškané budíky treba odmerať
+
+Hodiny berú čas z hostiteľa (`CurrentRtcRegisters` volá `localtime_s`),
+takže medzi dvoma behmi môže ubehnúť ľubovoľne veľa času. `SYSJUMPS.11`
+popisuje `schedule_alarm` slovami „process past due alarms". Čo urobí
+s budíkom starým týždeň, **nevieme a treba to odmerať sondou**, nie
+odhadnúť.
+
+#### Disketa je krytá — odsek vyššie je prísnejší, než treba
+
+Veta o ukazovateľoch do FCB a adresára je z 26. 8., teda spred uzavretia
+6.17. EurekaDOS sa k disku prihlasuje sám a robí to **dátovo**: 64
+kontrolných súčtov adresára (`CKS = 256/4` v `BDOS.8`, „so that disk
+changes can be detected"). Obnovená RAM s cudzími súčtami je pre firmvér
+ten istý vstup ako disketa vymenená za behu, a tá je odmeraná. Zostáva
+teda **MD5 ROM**; identitu disku súbor niesť nemusí. Ostrá zostáva jedna
+trhlina, tá istá ako v 6.17: relogovanie je overené ručne a raz, a na
+ceste „za behu", nie „cez vypnutie a zapnutie".
+
+#### Kedy sa neukladá
+
+`PowerDown()` je riadené vypnutie a stroj v ňom stojí. Zatvorenie okna
+krížikom uprostred zápisu na disketu je na skutočnom stroji vybratie
+batérie — a po ňom prišla presne „inicializace eureky". Neuložiť snímku
+v tom prípade teda nie je diera, je to vernosť hardvéru.
+
+#### Čo tým prestalo platiť inde
+
+Tú istú nesprávnu vetu o `C45Ah` nesú ešte tri miesta, a **nie sú
+opravené**: `hardware-map.md` (odsek o rutine `1D132`), komentár pri
+`EurekaMachine::power_down_marker()` v `machine.h` a komentár pri
+`WM_EMU_POWERED_OFF` v `main_window.cpp`. Text `MessageBox`-u pre
+používateľa je v poriadku — hovorí o RAM a hodinách pod napätím, nie
+o značke.
+
 ### 6.16 Lupanie: chýbal väzobný kondenzátor — opravené
 
 **Uzavreté 26. 8. 2026, celé znenie v `HANDOFF-archiv.md`.** Držaná
