@@ -677,6 +677,18 @@ a `B0` bit 7 (`rts1_mask`). Prvý sa zmení pri diskovej práci s druhou
 stranou, druhý potrebuje sériovú reláciu. `A0` bit 2 (`pol_relay`) sa
 zmení až pri práci s telefónnou linkou.
 
+**Doplnené 7. 9. 2026: pri `fdc_side` je veta „zmení sa pri diskovej práci
+s druhou stranou" príliš pokojná.** `HARDWARE.1` hovorí, že mechanika je
+3,5" **obojstranná, 80 stôp**, 1 MB nenaformátovaných → 800 K, z toho 8 K
+adresár a **792 K dáta** — čo presne sedí s našimi 396 blokmi po 2 KiB.
+Druhá strana teda nie je zvláštny prípad, je to bežná polovica každej
+plnšej diskety, a niečo ju prepnúť malo. Model stranu vie
+(`machine.cpp:912` ju berie z `outputLatch_ & hw::kFdcSide`,
+`TrackFormatted` aj `ReadPhysicalSector` ju prijímajú), takže nepokrytá je
+skôr **cesta ovládača v ROM**: `InterceptBios` ju obchádza, takže kód,
+ktorý stranu prepína, takmer nebeží. Overiť sa to dá technikou z 6.30 —
+vypnúť obídenie BIOS-u a nechať bežať pôvodný ovládač.
+
 ### 6.5 Formátovanie nemaže hostiteľský priečinok
 
 Emulátor formátovanie dokončí a ohlási úspech, ale obsah stopy zahodí:
@@ -799,6 +811,16 @@ a `8Ch` **priamo**, nie cez frontu, takže znelku zastaví jedine kláves
 braillovej klávesnice — hociktorý bod, medzerník alebo kurzor. Emulátor ho
 tam po zrušení defaultu (6.11) doručí v oboch režimoch, ktoré zostali, a drží
 to `integration_test ROM DISK hudba` dvoma behmi: s medzerníkom a bez ničoho.
+
+**Doplnené 7. 9. 2026, a je to prekvapivé dosť na to, aby to tu stálo
+výslovne: z externej klávesnice sa hudba zastaviť NEDÁ — ani na skutočnom
+stroji.** Overil to majiteľ naživo. Vyplýva to z odseku vyššie (slučka
+číta `89h` a `8Ch` priamo, teda vidí len dvadsaťklávesovú membránu), ale
+odvodiť sa to dá až spätne, kým hlásenie znie „nedá sa prerušiť ničím“.
+Je to **pravdepodobný pôvod tých hlásení**: kto skúšal medzerník na
+exterke, robil vec, ktorá na kremíku nefunguje tiež. Emulátor je tu
+verný a nie je čo opravovať.
+
 Otvorená zostáva druhá polovica:
 
 #### Umŕtvená klávesnica po čase — otvorené
@@ -1057,6 +1079,18 @@ teda do riadku nedostane skôr, než sonda dopíše meno. Môže to byť aj
 artefakt sondy — tá podáva klávesy bez pustenia a bez ľudského tempa, na
 rozdiel od okna; majiteľ mal ukladanie v exterke ručne funkčné (viď archív).
 
+**Doplnené 7. 9. 2026: „dôvod treba nájsť znovu" už neplatí — dôvod je
+známy a je to artefakt sondy.** Majiteľ potvrdil, že pri používaní
+emulátora ukladanie funguje. `tests/diag_probe.cpp` pritom volá
+`machine->QueueKey` a `machine->QueueText` **priamo** (riadky 320, 331,
+354), teda nejde ani cez `emulator_thread`, ani cez spracovanie klávesov
+v okne — je to iný producent klávesov než tá cesta, ktorou chodia pri
+používaní. Zostáva z toho **diera v pokrytí**, nie chyba: ukladanie
+v BASICu nemá automatický test. A zostáva jedno pozorovanie, ktoré sa
+nemá zamiesť — že rýchly vstup ten scenár zhodí; pri používaní sa to
+neprejaví, ale keby sa to raz ozvalo pri rýchlom písaní, toto je prvé
+miesto, kam sa pozrieť.
+
 ### 6.12 Kapacita diskety je z manuálu, nie z odhadu
 
 **Uzavreté, celé znenie aj s meraniami je v `HANDOFF-archiv.md`.** DPB, ktorý
@@ -1211,6 +1245,16 @@ opravené**: `hardware-map.md` (odsek o rutine `1D132`), komentár pri
 používateľa je v poriadku — hovorí o RAM a hodinách pod napätím, nie
 o značke.
 
+**Doplnené 7. 9. 2026: „nie sú opravené" už neplatí, opravené sú všetky
+tri.** Spravili to commity `067cb19` (mapa hardvéru) a `fab9c38` (HANDOFF)
+zo 6. 9. 2026. `hardware-map.md` nesie pri rutine `1D132` výslovné
+„Neplatí, čo tu stálo do 6. 9. 2026", `machine.h` pri
+`power_down_marker()` aj `main_window.cpp` pri `WM_EMU_POWERED_OFF`
+hovoria, že návrat tam, kde používateľ skončil, robí prežitá RAM
+s `magic` `55AAh` na `C45Bh`, a nie tá značka. Odsek vyššie zostáva, lebo
+popisuje stav, v akom to bolo 6. 9. ráno; sám o sebe sa však čítal ako
+zoznam nespravenej práce a raz už takmer poslal agenta opraviť hotové.
+
 ### 6.16 Lupanie: chýbal väzobný kondenzátor — opravené
 
 **Uzavreté 26. 8. 2026, celé znenie v `HANDOFF-archiv.md`.** Držaná
@@ -1321,6 +1365,11 @@ Ostáva otvorené a **neodložené len preto, že sa naň zabudlo**:
 **Neodskúšané v ostrej relácii s NVDA zostáva:** `NVDA+T` počas spánku, dialógy
 (Nastavenia, Pomocník) a prechod cez `Shift+F11` tam a späť. Zo zdrojákov aj
 z merania to vychádza, ale povedané to nie je.
+
+**Doplnené 7. 9. 2026: toto už neplatí.** Majiteľ potvrdil, že doplnok sa
+od začiatku používa aj ladí v ostrých reláciách s NVDA a funguje, ako má.
+Odsek vyššie zostáva ako záznam toho, čo bolo overené len zo zdrojákov
+v čase, keď vznikol; ako zoznam nedokončenej práce sa čítať nemá.
 
 ### 6.19 Podpriečinky sa ignorujú — rozhodnuté
 
@@ -1650,6 +1699,17 @@ Jednotky vznikajú z troch zdrojov, v poradí spoľahlivosti:
    oddelené čiarkami. Jediný spoľahlivý zdroj, lebo ostatné dva hádajú,
    a hlavne: prežije opakované delenie. Kto raz zistí, že `TP.COM` chce
    `TURBO.MSG`, zapíše to raz.
+
+   **Doplnené 7. 9. 2026: nepíše ho len človek ručne — mení sa aj
+   v sprievodcovi.** Veta „zapíše to raz“ vyššie znela ako ručná úprava
+   textového súboru; rozhodnuté je, že keď používateľ jednotku opraví
+   v GUI, sprievodca ju zapíše späť do `SPOLU.txt`. Dôvod je ten istý,
+   pre ktorý je `SPOLU.txt` prvý v poradí spoľahlivosti: oprava má prežiť
+   opakované delenie, a to sa stane len vtedy, keď sa má kam zapísať.
+   Z toho plynie požiadavka na vrstvu — jednotky musia byť v pláne
+   v tvare, ktorý sa dá upraviť a zapísať späť. Je to zároveň jediná
+   výnimka z pravidla, že zdrojový priečinok sa neotvára na zápis, a
+   platí len na výslovný pokyn používateľa.
 2. **Zhoda mena** (default zapnuté): `TURBO.COM` + `TURBO.MSG` +
    `TURBO.OVR`. Bezpečné a chytí väčšinu skutočných prípadov.
 3. **Sprievodné prípony k jedinému `.COM` v priečinku** — `.OVR`, `.OVL`,
@@ -2308,6 +2368,43 @@ pamätá inak, je to prvé miesto, kam sa pozrieť. Neoverené je aj to, čo mod
 robí pri **zápise** na prázdnu mechaniku: `DiskFailure` vráti `3`, ale
 kadiaľ tam firmvér ide a či to počuť, zmerané nie je.
 
+#### Odmerané na skutočnom stroji 7. 9. 2026
+
+Majiteľ s kamarátom prešli oba stavy média naprieč vstupnými bodmi. Toto
+je odpoveď, proti ktorej sa model porovnáva — **odsek vyššie tým prestal
+byť otvorený v prvej polovici**: `F8` na nenaformátovanej diskete naozaj
+povie „vadný disk“ aj na kremíku, takže model je verný. Druhá polovica
+(zápis na prázdnu mechaniku) otvorená zostáva, ale už proti známej
+odpovedi, nie naslepo.
+
+**Prázdna mechanika:**
+
+- adresár disku (`F8`) — „disk není založen“
+- diskové funkcie — „v jednotce není disk“
+- textový procesor, čítanie — „disk není založen, žádný soubor nebyl načten“
+- textový procesor, ukladanie — „disk není založen“ + „nebyl uložen“
+- BASIC, načítanie — „disk není založen, chyba 21“
+- BASIC, ukladanie — „disk není založen, chyba 21“
+- formátovanie — najprv „mám formátovat disk ano nebo ne?“ a **až po
+  odpovedi** „v jednotce není disk“
+
+**Nenaformátovaná disketa** (skúšané DOSovou disketou; pre stroj je to to
+isté, lebo formát nepozná):
+
+- adresár disku (`F8`) — „vadný disk“
+- diskové funkcie — otázka, či ju má naformátovať
+
+Tri veci z toho, ktoré sa dajú ľahko urobiť zle a v modeli sa neoveria
+samy: jeden stav média hovorí **rôzne vety podľa vstupného bodu**
+(prázdna mechanika je raz „disk není založen“ a raz „v jednotce není
+disk“); **formátovanie sa pýta skôr, než sa pozrie**, takže poradie je
+otázka a až potom zistenie; a nenaformátovaná disketa má tiež dve rôzne
+odpovede podľa toho, odkiaľ sa na ňu siahne.
+
+**Neisté zostáva zamknutá disketa** — či „disk je chráněn proti zápisu“
+znie rovnako zo všetkých vstupných bodov, alebo sa tiež líši. Majiteľ si
+tým nie je istý (7. 9. 2026), takže sa to nesmie predpokladať.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -2352,7 +2449,11 @@ v 6.18 tu.
 
 **Hotové 27. 8. 2026: doplnok pre NVDA** (`nvda-addon/`) — čítačka spí nad
 oknom stroja a len nad ním, takže ponuka a dialógy sa čítajú ďalej.
-Zostáva to odskúšať v skutočnej relácii s NVDA; rozbor je na konci 6.18.
+Odskúšané v ostrom používaní; doplnok sa od začiatku používa aj ladí
+a funguje, ako má (potvrdené 7. 9. 2026). Rozbor je na konci 6.18. Pozor
+len na vývojovú slučku: beží zo scratchpadu, takže zmena v repozitári sa
+neprejaví, kým sa modul nenakopíruje (`build-addon.bat scratchpad`)
+a nenačíta znovu (`NVDA+Ctrl+F3`).
 
 1. **Sonda na klávesnicu** (6.18, koniec) — dva krátke `.COM` programy
    cez `dev_kb` a `con_ctl_getkey`, ktoré ohlásia prijatý kód. Bez ich dát
