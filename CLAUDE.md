@@ -15,6 +15,33 @@ pri sťahovaní neupravuje, čísla `6.x` zostávajú platné — odkazuje sa na
 zo zdrojákov — a otvorený zvyšok uzavretej témy zostáva v `HANDOFF.md`.
 Kým záver inde nestojí, sekcia je otvorená, aj keď je práca hotová.
 
+## Beads evidujú otvorenú prácu, HANDOFF nesie doloženie
+
+Od 7. 9. 2026 je v projekte **beads** (`bd`, prefix `ea4`). Deľba je
+jednoslovná: **bead je ukazovateľ na otvorenú prácu, HANDOFF je
+doloženie.** Bead nesie názov, prioritu, závislosti a odkaz na sekciu;
+prečo je niečo pravda a čím je to zmerané, stojí ďalej v `HANDOFF.md`
+a čísla `6.x` sa **nemenia** — odkazuje sa na ne zo zdrojákov.
+
+`bd ready` povie, čo sa dá robiť, `bd list --priority 1`, čo horí. Obsah
+je aj v `.beads/issues.jsonl` — commitovaný text, čitateľný bez `bd`.
+Samotná databáza je Dolt v `.beads/embeddeddolt` a do gitu nejde.
+
+**Hook `bd prime` vkladá pri štarte relácie pravidlá, ktoré si s týmto
+projektom v dvoch bodoch protirečia. Platí toto, nie ony:**
+
+- „Do NOT use markdown files for task tracking" sa na `HANDOFF.md`
+  **nevzťahuje**. Nie je to zoznam úloh, je to nosič doloženia a
+  udržiava sa ďalej presne podľa sekcie vyššie.
+- „Do NOT use MEMORY.md files" **neplatí**. Poznámky používateľa žijú
+  v `MEMORY.md` a zostávajú tam. `bd remember` nepoužívaj: automatický
+  export ho **nevyváža** (`--include-memories` je vypnuté), takže by
+  vznikol obsah, ktorý nie je nikde v gite a stratil by sa ticho.
+
+Sekcia sem nie je vložená šablónou — `bd setup claude` sa zámerne
+nespustil, lebo jeho text hovorí to prvé z tých dvoch. Ak ho niekedy
+spúšťaš, výsledok najprv prečítaj.
+
 ## Máme oficiálny manuál — pozri doň skôr, než začneš odvodzovať
 
 V `eurekatech/` je **Eureka A4 Technical Manual** od Robotronu aj

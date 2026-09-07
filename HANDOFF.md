@@ -6,6 +6,18 @@ P/L, Austrália, 1989) a emulátor, ktorý ju spúšťa.
 Tento dokument je nosič kontextu. Zachytáva, čo je zistené, čím je to
 doložené, a čo je otvorené. Podrobná mapa hardvéru je v `hardware-map.md`.
 
+**Od 7. 9. 2026 platí jedna zmena v tom, ako sa tento dokument číta.**
+Otvorená práca sa eviduje v **beads** (`bd`, prefix `ea4`): `bd ready`
+povie, čo sa dá robiť, `bd list --priority 1`, čo horí, a obsah je aj
+v `.beads/issues.jsonl`, čo je commitovaný text čitateľný bez `bd`.
+Tento dokument zostáva **doložením** — prečo je niečo pravda a čím je to
+zmerané. Bead je naň ukazovateľ, nie jeho kópia, a čísla `6.x` sa
+nemenia; odkazuje sa na ne zo zdrojákov.
+
+Prakticky to znamená, že sekcia 6 aj poradie v sekcii 8 sa ďalej čítajú
+ako rozbor, nie ako pracovný zoznam. Ten je v `bd`. Keď sa niečo z toho
+uzavrie, zavrieť patrí **oboje** — bead aj odsek tu.
+
 ---
 
 ## 1. Zdroj
