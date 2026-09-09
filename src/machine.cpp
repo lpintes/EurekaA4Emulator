@@ -128,12 +128,13 @@ bool EurekaMachine::DiskSwappable() const {
 
 void EurekaMachine::Reset() {
   if (!romLoaded_) return;
-  // A cold start, which on the hardware means the batteries came out: the RAM
-  // goes, the clock chip's own eight bytes go with it -- they are on the same
-  // supply -- and the cycle counter starts from zero, so the firmware finds no
-  // magic 55AAh at C45Bh, wipes C43Ch-C508h at 1805E and says "inicializace
-  // eureky" (18132).  Everything else the machine needs put back is in
-  // PowerOn, which this shares with a warm start.
+  // A cold start, which on the hardware is the power cut-off switch: the RAM
+  // goes, the clock chip's own eight bytes go with it -- INSTALL.2 promises
+  // both, "all memory and the Real Time Clock will be cleared when the machine
+  // is next switched on" -- and the cycle counter starts from zero, so the
+  // firmware finds no magic 55AAh at C45Bh, wipes C43Ch-C508h at 1805E and
+  // says "inicializace eureky" (18132).  Everything else the machine needs put
+  // back is in PowerOn, which this shares with a warm start.
   std::fill(memory_.begin() + kRomSize, memory_.end(), 0);
   rtcRam_.fill(0);
   cycles_ = 0;

@@ -73,7 +73,11 @@ class EurekaMachine {
   bool DiskSwappable() const;
   // A cold start: the RAM above the ROM window, the clock chip's eight bytes
   // and the cycle counter all go, so the firmware initialises from scratch.
-  // It is the batteries coming out, not the power switch.
+  // The hardware has one of these too, and it is not the on/off chord: the
+  // power cut-off switch of INSTALL.2, the recessed "piano key" that disables
+  // the battery, after which "all memory and the Real Time Clock will be
+  // cleared when the machine is next switched on".  That sentence is why this
+  // clears rtcRam_ as well as memory_.
   void Reset();
   // A warm start: the same as Reset for everything on the switched supply --
   // MMU, timers, peripherals, the CPU -- but memory_ above the ROM, rtcRam_

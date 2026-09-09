@@ -67,6 +67,7 @@ BEGIN
     POPUP "&Stroj"
     BEGIN
         MENUITEM "&Reset\tF11, Ctrl+R",                         ID_MACHINE_RESET
+        MENUITEM "&Zapnúť Eureku\tF11, Ctrl+P",                 ID_MACHINE_POWERON
         MENUITEM "&Vypnúť Eureku\tF11, Ctrl+V",                 ID_MACHINE_POWEROFF
     END
     POPUP "&Klávesnica"
@@ -143,6 +144,17 @@ END
 // Whoever adds an entry here: the window never sees the press, so it cannot
 // spend the one-shot on it.  MainWindow's WM_COMMAND does that instead, and
 // without it F11 would stay armed for good -- silently.
+//
+// And a greyed menu item does not even send that WM_COMMAND.  Measured
+// 9. 9. 2026 with a hidden window and a hand-built MSG: for an accelerator
+// whose command is greyed, TranslateAccelerator still returns 1 -- the message
+// is eaten and RunMessageLoop moves on -- but no WM_COMMAND arrives at all.
+// The one-shot survives that only because every entry in this table is Ctrl
+// with something: the *Ctrl* press is no accelerator, so it reaches the window
+// and arms passOnceUsed_, and the letter's release spends it.  So keep them
+// Ctrl+something.  A bare key here, pointing at an item that RefreshMenu ever
+// greys, would leave F11 armed with nothing to spend it -- the silent sticky
+// mode again, and this time without a single message to notice it by.
 
 IDR_ACCELERATORS_HOST ACCELERATORS
 BEGIN
@@ -151,6 +163,7 @@ BEGIN
     "M",        ID_DISK_NEW,         VIRTKEY, CONTROL
     "Q",        ID_FILE_EXIT,        VIRTKEY, CONTROL
     "R",        ID_MACHINE_RESET,    VIRTKEY, CONTROL
+    "P",        ID_MACHINE_POWERON,  VIRTKEY, CONTROL
     "V",        ID_MACHINE_POWEROFF, VIRTKEY, CONTROL
     "K",        ID_KEYBOARD_TOGGLE,  VIRTKEY, CONTROL
     "N",        ID_TOOLS_SETTINGS,   VIRTKEY, CONTROL

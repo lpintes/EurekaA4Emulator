@@ -1249,9 +1249,14 @@ ceste „za behu", nie „cez vypnutie a zapnutie".
 #### Kedy sa neukladá
 
 `PowerDown()` je riadené vypnutie a stroj v ňom stojí. Zatvorenie okna
-krížikom uprostred zápisu na disketu je na skutočnom stroji vybratie
+krížikom uprostred zápisu na disketu je na skutočnom stroji odpojenie
 batérie — a po ňom prišla presne „inicializace eureky". Neuložiť snímku
 v tom prípade teda nie je diera, je to vernosť hardvéru.
+
+**Opravené 9. 9. 2026:** tu stálo „vybratie batérie“. Eureka má **jednu**
+batériu a nevyberá sa — je to zaliaty olovený gél, ktorý sa dá odpojiť
+vypínačom v dierke na ľavej hrane (`HARDWARE.1`, `INSTALL.2`). Zmysel
+odseku sa nemení, len meno úkonu.
 
 #### Čo tým prestalo platiť inde
 
@@ -2142,6 +2147,71 @@ Jedna vec, ktorá vyzerá ako drobnosť: `vypni` z **aplikácie** stroj
 nevypne, akord je vec hlavného menu. Sonda to nezakrýva — vypíše `[bezi]`
 a beží ďalej.
 
+#### Ešte v ten deň: okno to už vie tiež, 6.31 je celá zavretá
+
+Odsek vyššie napísal, že v okne je `Reset` stále jediná cesta späť. **Už
+nie je** a celá 6.31 je tým uzavretá; otvorené na epicu `ea4-aip` zostáva
+len prežitie **procesu**, teda snímka do súboru.
+
+Ponuka `Stroj` má tri položky: `Reset` (`Ctrl+R`), `Zapnúť Eureku`
+(`Ctrl+P`) a `Vypnúť Eureku` (`Ctrl+V`). Zapnutie a vypnutie sú **dva
+príkazy, nie jedna prepínacia položka** — rozhodol majiteľ 9. 9. 2026.
+Vždy je dostupný práve jeden z nich a druhý je zošedený, čo je ten istý
+vzor ako `Vysunúť disketu` alebo `Zamknúť`: zošedený prvok stojí sám
+a čítačka ho prečíta ako nedostupný. Položka, ktorá by menila názov pod
+rukami, by za tú istú skratku raz vypínala a raz zapínala. `Reset` je
+zapnutý v oboch stavoch, lebo je to studený štart, teda voľba v oboch,
+nie cesta von z jedného.
+
+`Ctrl+P` je v hostiteľskej tabuľke, takže Eureke neberie nič a vo
+vypnutom stave platí aj bez `F11` — `HostShortcutsActive()` je vtedy
+pravdivé. Jednorazovku míňa všeobecná vetva `WM_COMMAND`, nič zvláštne
+sa preň nepridávalo.
+
+Vlákno má `PostPowerOn` a príkaz `kPowerOn`. Na rozdiel od `kReset`
+**nesiaha na zvukové zariadenie**: vypnutie ho odtieklo a počkalo naň,
+a znovuotvorenie by len zahodilo, čo sa riadenie latencie naučilo.
+`guestClock` sa tiež neopravuje — počítadlo cyklov teplé zapnutie
+prežije a strop dlhu ho počas vypnutia držal štvrť sekundy pred hodinami,
+ktoré sa nehýbali. Tón, titulok aj návrat klávesnice Eureke robí ten istý
+`WM_EMU_POWERED_OFF`, ktorý 6.31 spravila obojsmerným; nepribudlo k tomu
+nič.
+
+README aj Pomocník hovoria oboje slovami o svete: zapnutie **nadviaže tam,
+kde ste skončili**, `Reset` **začne odznova, ako po prepnutí vypínača
+batérie**. To prirovnanie nie je ozdoba a nie je ani vymyslené: `INSTALL.2`
+opisuje „Power Cut-off Switch“, drobný prepínač v dierke na ľavej hrane,
+ktorý sa prepínal perom alebo skrutkovačom a odpájal batériu, a hovorí,
+že po ňom je pri ďalšom zapnutí **prázdna pamäť aj hodiny**. To je presne
+to, čo `Reset()` robí, a je to zároveň doloženie, prečo maže `rtcRam_`.
+Prvá verzia tohto textu hovorila o „vybratí batérií“ — Eureka má jednu
+batériu a tá sa nevyberá, opravil to majiteľ 9. 9. 2026 odkazom na
+`HARDWARE.1` a `INSTALL.2`.
+
+#### Titulok okna nemenuje klávesy — ani v jednej vetve
+
+Zamietnuté majiteľom 9. 9. 2026. Titulok mal do vtedy v dvoch stavoch
+z troch radu, ktorý kláves stav vráti: „vypnutá, **zapne ju Reset**“
+a „klávesnica uvoľnená, **vráti ju Shift+F11**“. Teraz znie
+`Eureka A4 — vypnutá — disketa: …`, resp.
+`Eureka A4 — klávesnica uvoľnená — režim: … — disketa: …`.
+
+Dôvod je ten istý ako pri zamietnutých popiskách z 31. 8. 2026, len
+o riadok vyššie: titulok sa číta **nahlas pri každom `Alt+Tab`
+a `NVDA+T`**, takže odpovedá na „čo to teraz je“ a každé slovo navyše
+platí tú cenu znovu a znovu. Kláves patrí do ponuky a do Pomocníka, kde
+sa prečíta raz a zámerne.
+
+Druhá polovica dôvodu je, že **rada v stavovom riadku ticho hnije**: to
+„zapne ju Reset“ prestalo byť pravdivé v tej istej hodine, keď pribudlo
+`Ctrl+P`, a nič na to neupozornilo. Vetva o klávesnici bola najprv
+opravená len tá prvá a druhá nechaná ako „mimo zadania“; majiteľ to
+zamietol tiež — dva rovnaké riadky, jeden opravený a druhý nie, sú
+horšie než tá pôvodná rada. Opravené sú obe.
+A obe miesta výslovne dodávajú, že zavretie emulátora je iná vec — pamäť
+sa zatiaľ nikam neukladá — aby sa „nadviaže“ nečítalo ako sľub, ktorý
+platí aj cez reštart procesu.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -2216,6 +2286,11 @@ a nenačíta znovu (`NVDA+Ctrl+F3`).
    Od 9. 9. 2026 k tomu vedie kratšia cesta: vypnutý stroj zostáva
    v okne aj s RAM (6.31), takže **teplé zapnutie** sa dá odmerať bez
    toho, aby čokoľvek prežilo proces (`ea4-aip.1`).
+   **Ten krok je hotový ešte v ten deň** — `EurekaMachine::PowerOn()`,
+   tokeny sondy `vypni`/`zapni`/`studeno` a `Stroj` → `Zapnúť Eureku`
+   v ponuke; odmerané je, že firmvér nadviaže. Zostáva teda naozaj len
+   prežitie procesu: snímka do súboru, MD5 ROM, osem bajtov `rtcRam_`
+   a čo urobí zmeškaný budík.
 5. **Správa diskiet** (6.22) — **celá spravená** 9. 9. 2026 a stiahnutá
    do archívu; čo sa kedy urobilo, je tam. Otvorené z nej zostalo len
    doloženie: že sa EurekaDOS po výmene preloguje sám, je odmerané

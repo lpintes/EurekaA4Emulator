@@ -386,6 +386,8 @@ void EmulatorThread::PostDumpDiagnostics() {
 
 void EmulatorThread::PostPowerOff() { PostType(Command::Type::kPowerOff); }
 
+void EmulatorThread::PostPowerOn() { PostType(Command::Type::kPowerOn); }
+
 void EmulatorThread::PostFocusLost() { PostType(Command::Type::kFocusLost); }
 
 void EmulatorThread::PostSaveDiskAs(std::wstring folder) {
@@ -850,6 +852,22 @@ void EmulatorThread::Run() {
         // test's power mode presses it too -- this used to be spelled out here
         // and the release that followed it silently disarmed the whole thing.
         machine.PressPowerOffChord();
+        break;
+      case Command::Type::kPowerOn:
+        // Warm: the RAM, the clock and the eight bytes of alarm survive, so the
+        // firmware comes up where the user was.  Nothing is done to the sound
+        // device here, unlike Reset -- switching off drained it and waited for
+        // it, and reopening would only throw away the pacing the latency
+        // control has learned.  The cycle counter survives too, so guestClock
+        // needs no correction: the debt ceiling in the run loop held it a
+        // quarter second ahead of a clock that was not moving.
+        machine.PowerOn();
+        // The user's writing mode is theirs and survives; a chord caught
+        // half-pressed does not.  Same reasoning as Reset above.
+        host.held = host.chord = host.arrows = host.arrowChord = 0;
+        host.chordShift = false;
+        host.mods = 0;
+        host::Print(L"\r\n[Eureka bola zapnutá]\r\n");
         break;
       case Command::Type::kFocusLost:
         // Exact where ForgetStaleArrows only guesses: the releases for these

@@ -112,10 +112,25 @@ stroj nemá kam prijať kláves a čítačka nad ním číta ako nad hociktorým
 iným oknom. `Shift+F11` preto v tom stave nerobí nič a v ponuke je
 zošedené; klávesnicu vráti až zapnutie.
 
-Späť ho zapne `Reset`, a keďže klávesnica je hosťova, stačí samotné
-`Ctrl+R` bez `F11`. Ohlásia to tri stúpajúce tóny a klávesnicu dostane
-zase Eureka. Zatiaľ však **začne odznova**: nenadviaže tam, kde ste
-skončili, tak ako by to urobil skutočný stroj.
+Späť ho zapne `Ctrl+P`, a keďže klávesnica je hosťova, stačí samotné
+`Ctrl+P` bez `F11`; v ponuke je to `Stroj` → `Zapnúť Eureku`. Ohlásia to
+tri stúpajúce tóny a klávesnicu dostane zase Eureka. **Nadviaže tam, kde
+ste skončili** — rozrobená práca aj nastavenia stroja vypnutie prežijú,
+lebo RAM a hodiny majú na skutočnej Eureke vlastný zdroj a vypínač im ho
+nepretína.
+
+Vedľa toho je `Reset` (`Ctrl+R`), ktorý **začne odznova**: Eureka sa
+ohlási slovami „inicializace eureky“ a rozrobená práca je preč. Na
+skutočnom stroji tomu zodpovedá **vypínač batérie** — drobný prepínač
+v dierke na ľavej hrane medzi telefónnymi zásuvkami a zadným rohom, ktorý
+sa prepínal perom alebo malým skrutkovačom. Po ňom bola pri ďalšom
+zapnutí prázdna pamäť aj hodiny, presne ako po tomto resete. Zapnutie a reset sú v ponuke vedľa seba a vždy je dostupné len
+to, čo v danom stave dáva zmysel — vypnutý stroj sa nedá vypnúť a bežiaci
+zapnúť.
+
+Jedno vypnutie tým však prežije len to, čo je v stroji. Zavretie
+emulátora je iná vec: obsah pamäte sa zatiaľ nikam neukladá, takže ďalšie
+spustenie začína odznova.
 
 Emulátor má **len svoje okno**. Žiadna konzola pri spustení nevyskočí a
 nič vám nezoberie zameranie.

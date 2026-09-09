@@ -92,8 +92,13 @@ constexpr wchar_t kShortcutHelp[] =
     L"aj tak. Všetky sú aj v ponuke a tá ich nepotrebuje.\r\n"
     L"\r\n"
     L"F11, Ctrl+K — prepne klávesnicu medzi braillovskou a externou.\r\n"
-    L"F11, Ctrl+R — reset.\r\n"
+    L"F11, Ctrl+R — reset: Eureka začne odznova, ako po prepnutí vypínača\r\n"
+    L"      batérie — pamäť aj hodiny sú prázdne.\r\n"
     L"F11, Ctrl+V — vypne Eureku tak, ako to robí ona sama.\r\n"
+    L"F11, Ctrl+P — zapne ju späť a nadviaže tam, kde ste skončili. RAM aj\r\n"
+    L"      hodiny majú na skutočnej Eureke vlastný zdroj a vypínač im ho\r\n"
+    L"      nepretína. Zavretie emulátora je iná vec: pamäť sa zatiaľ nikam\r\n"
+    L"      neukladá.\r\n"
     L"F11, Ctrl+I — vloží disketu z iného priečinka. Vymieňať sa dá za\r\n"
     L"      behu: EurekaDOS si nový disk prihlási sám, tak ako skutočný\r\n"
     L"      stroj.\r\n"
@@ -210,6 +215,7 @@ void MainWindow::PublishKeyboardState() const {
 void MainWindow::RegisterCommands() {
   OnCommand(ID_FILE_EXIT, [this] { PostMessageW(hwnd_, WM_CLOSE, 0, 0); });
   OnCommand(ID_MACHINE_RESET, [this] { emulator_.PostReset(); });
+  OnCommand(ID_MACHINE_POWERON, [this] { emulator_.PostPowerOn(); });
   OnCommand(ID_MACHINE_POWEROFF, [this] { emulator_.PostPowerOff(); });
   OnCommand(ID_KEYBOARD_BRAILLE,
             [this] { emulator_.PostSetMode(InputMode::kBraille); });
@@ -767,15 +773,22 @@ void MainWindow::RefreshTitle() const {
       disk_.labels.name + (disk_.writeProtected ? L", zamknutá" : L"");
   // Switched off outranks everything else in the line.  Keys go nowhere and
   // the diskette is not being read, so answering "režim: externá" first would
-  // be answering a question that has stopped being the one worth asking.  The
-  // way back is named, the way this window names every other way back.
+  // be answering a question that has stopped being the one worth asking.
+  //
+  // No branch of this line names a key.  It is read aloud on every Alt+Tab and
+  // every NVDA+T, so it answers "what is it now" and nothing else; the keys
+  // that change it are in the menu and in Pomocník, where they are read once
+  // and on purpose.  Both branches gave advice until 9 Sep 2026 -- "zapne ju
+  // Reset" and "vráti ju Shift+F11" -- and the first of them had by then
+  // stopped being true, because Ctrl+P switches it on.  That is what advice in
+  // a state line costs: it is repeated on every glance and it rots quietly.
   if (poweredOff_) {
-    SetTitle(L"Eureka A4 — vypnutá, zapne ju Reset — disketa: " + diskette);
+    SetTitle(L"Eureka A4 — vypnutá — disketa: " + diskette);
     return;
   }
   SetTitle(released_
-               ? L"Eureka A4 — klávesnica uvoľnená, vráti ju Shift+F11 — "
-                 L"režim: " + std::wstring(ModeName(emulator_.mode())) +
+               ? L"Eureka A4 — klávesnica uvoľnená — režim: " +
+                     std::wstring(ModeName(emulator_.mode())) +
                      L" — disketa: " + diskette
                : L"Eureka A4 — klávesnica: " +
                      std::wstring(ModeName(emulator_.mode())) +
@@ -829,12 +842,15 @@ void MainWindow::RefreshMenu() const {
   CheckMenuItem(menu, ID_DISK_PROTECT,
                 MF_BYCOMMAND |
                     (disk_.writeProtected ? MF_CHECKED : MF_UNCHECKED));
-  // A machine that is already off has nothing to switch off.  Reset stays
-  // enabled beside it, because that is what starts it again -- greying both
-  // would leave the one state in this window with no way out of it named
-  // anywhere.
+  // A machine that is already off has nothing to switch off, and a running one
+  // nothing to switch on.  Exactly one of the pair is live at any moment and
+  // the other says so by being greyed, which a screen reader reads out; Reset
+  // stays enabled either way, because it is the cold start and that is a choice
+  // in both states, not a way out of one of them.
   EnableMenuItem(menu, ID_MACHINE_POWEROFF,
                  MF_BYCOMMAND | (poweredOff_ ? MF_GRAYED : MF_ENABLED));
+  EnableMenuItem(menu, ID_MACHINE_POWERON,
+                 MF_BYCOMMAND | (poweredOff_ ? MF_ENABLED : MF_GRAYED));
   // Before RefreshShortcutText, which reads the item text back and would
   // otherwise be working on the names this is about to replace.
   RefreshSlotItems(menu);
@@ -855,7 +871,8 @@ void MainWindow::RefreshShortcutText(HMENU menu) const {
   std::vector<UINT> ids = {ID_FILE_EXPORT,      ID_FILE_EXIT,
                            ID_DISK_INSERT,      ID_DISK_NEW,
                            ID_DISK_EJECT,       ID_DISK_PROTECT,
-                           ID_MACHINE_RESET,    ID_MACHINE_POWEROFF,
+                           ID_MACHINE_RESET,    ID_MACHINE_POWERON,
+                           ID_MACHINE_POWEROFF,
                            ID_KEYBOARD_TOGGLE,  ID_TOOLS_SETTINGS,
                            ID_TOOLS_DIAGDUMP,   ID_HELP_KEYS};
   for (int number = 1; number <= Settings::kSlots; ++number)

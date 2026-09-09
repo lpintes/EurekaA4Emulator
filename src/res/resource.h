@@ -27,6 +27,10 @@
 #define ID_DISK_SPLIT        40007
 #define ID_MACHINE_RESET     40010
 #define ID_MACHINE_POWEROFF  40011
+// Switching on again is its own command and not Reset: it keeps the RAM, the
+// clock and the eight bytes of alarm, so the machine carries on where the user
+// left it.  Reset beside it is the cold start.  See EurekaMachine::PowerOn.
+#define ID_MACHINE_POWERON   40012
 #define ID_KEYBOARD_BRAILLE  40020
 #define ID_KEYBOARD_PC       40021
 #define ID_KEYBOARD_TOGGLE   40022

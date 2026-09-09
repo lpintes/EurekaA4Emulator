@@ -475,7 +475,7 @@ v konflikte s hosťom. Platí:
   siahneš, porovnaj ju s tou tabuľkou.
 - **Akcelerátorové tabuľky sú dve a to je celý trik.** `IDR_ACCELERATORS`
   platí vždy a je to celá trvalá cena: `F11`, `Shift+F11`, `F12`.
-  `IDR_ACCELERATORS_HOST` (`Ctrl+U I M Q R V K N D H Z` a `Ctrl+0` až `Ctrl+9`
+  `IDR_ACCELERATORS_HOST` (`Ctrl+U I M Q R V P K N D H Z` a `Ctrl+0` až `Ctrl+9`
   pre sloty s disketami) platí **len keď je
   klávesnica hosťova** — po `F11` alebo `Shift+F11`. Bez toho prefixu idú
   tie klávesy Eureke, takže `Ctrl+H` na exterke naozaj urobí to, čo robí
@@ -494,6 +494,15 @@ v konflikte s hosťom. Platí:
   presne ten tichý sticky režim. Míňa to `WM_COMMAND` v `main_window.cpp`
   podľa `HIWORD(wParam) == 1`, s výnimkou `ID_KEYBOARD_PASSONCE`
   a `ID_KEYBOARD_RELEASE`, ktoré ten stav vlastnia samy.
+- **Zošedená položka `WM_COMMAND` vôbec nepošle.** Odmerané 9. 9. 2026 na
+  skrytom okne s ručne poskladaným `MSG`: keď akcelerátor ukazuje na zošedený
+  príkaz, `TranslateAccelerator` aj tak vráti 1 — správa je zjedená a slučka
+  ide ďalej — ale `WM_COMMAND` nepríde žiadne. Jednorazovku to nezabíja len
+  preto, že **každý prvok hostiteľskej tabuľky je `Ctrl` s niečím**: stlačenie
+  samotného `Ctrl` nie je akcelerátor, dôjde do okna a nastaví `passOnceUsed_`,
+  a pustenie písmena ju minie. Preto tam holý kláves nedávaj, ak jeho položku
+  `RefreshMenu` niekedy zošedí — `F11` by zostalo nachystané a **nebolo by to
+  na čom spozorovať**.
 - **Hostiteľské skratky sú `Ctrl` s písmenom, nie `Ctrl+Shift`.** Nie je to
   vec vkusu: do `Ctrl+Shift` vešajú iné programy svoje **globálne** skratky
   (`RegisterHotKey`) a tie vyhrávajú nad akcelerátorovou tabuľkou okna, nech

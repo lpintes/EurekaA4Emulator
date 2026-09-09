@@ -188,6 +188,10 @@ class EmulatorThread {
   // The four cursor keys at once (8Fh, k_udlr): how the machine is switched
   // off for real, from the Main Menu.
   void PostPowerOff();
+  // Switching it on again, warm: the RAM, the clock and the eight bytes of
+  // alarm survive, so the firmware comes up where the user left it instead of
+  // initialising.  PostReset is the cold start beside it.
+  void PostPowerOn();
   // Everything the host believes is held goes up.  The window sends this on
   // WM_KILLFOCUS, where the real key releases are delivered to whoever took
   // the focus instead.
@@ -290,7 +294,7 @@ class EmulatorThread {
   struct Command {
     enum class Type {
       kKey, kReset, kSetMode, kToggleMode, kSetDiagnostics,
-      kDumpDiagnostics, kPowerOff, kFocusLost, kSaveDiskAs,
+      kDumpDiagnostics, kPowerOff, kPowerOn, kFocusLost, kSaveDiskAs,
       kMountDisk, kEjectDisk, kCreateEmptyDisk, kInsertSlot, kAssignSlot,
       kSetWriteProtect, kSetSlotWriteProtect, kEnsureSlotDisk, kQuit,
     } type = Type::kQuit;
