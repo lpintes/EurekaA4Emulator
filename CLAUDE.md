@@ -330,6 +330,11 @@ Tokeny sekvencie:
 - `ram`, `folder`, `mount:CESTA`, `slot1`, `slot2` — výmena diskety tak,
   ako ju robí okno: počká na `DiskSwappable`, flushne a až potom vymení.
   `slot1`/`slot2` idú cez `DiskStash`, teda vrátia **tú istú** disketu.
+- `vypni`, `zapni`, `studeno` — vypínač. `vypni` stlačí štyri kurzorové
+  klávesy z hlavného menu a dobehne, kým si stroj sám nevypne napájanie,
+  `zapni` ho zapne **teplo** (RAM, osem bajtov v hodinách a počítadlo cyklov
+  prežijú, ako na hardvéri), `studeno` je `Reset()`, ktorý ich zmaže. Každý
+  vypíše, či stroj beží a čo je v `C45Ah`.
 - `nova`, `vysun` — nenaformátovaná disketa a prázdna mechanika. Sú to dve
   médiá, ktoré rýchla voľba vyrobiť nevie a firmvér o nich hovorí inak než
   o pokazenej diskete; bez nich sa ten rozdiel nedá zmerať (HANDOFF 6.30).

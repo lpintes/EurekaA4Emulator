@@ -128,16 +128,27 @@ bool EurekaMachine::DiskSwappable() const {
 
 void EurekaMachine::Reset() {
   if (!romLoaded_) return;
+  // A cold start, which on the hardware means the batteries came out: the RAM
+  // goes, the clock chip's own eight bytes go with it -- they are on the same
+  // supply -- and the cycle counter starts from zero, so the firmware finds no
+  // magic 55AAh at C45Bh, wipes C43Ch-C508h at 1805E and says "inicializace
+  // eureky" (18132).  Everything else the machine needs put back is in
+  // PowerOn, which this shares with a warm start.
   std::fill(memory_.begin() + kRomSize, memory_.end(), 0);
-  io_.fill(0);
   rtcRam_.fill(0);
+  cycles_ = 0;
+  instructions_ = 0;
+  PowerOn();
+}
+
+void EurekaMachine::PowerOn() {
+  if (!romLoaded_) return;
+  io_.fill(0);
   cbar_ = hw::kCbarReset;
   cbr_ = 0;
   bbr_ = 0;
   outputLatch_ = 0;
   dac_ = hw::kDacMidScale;
-  cycles_ = 0;
-  instructions_ = 0;
   timerAccum_[0] = timerAccum_[1] = 0;
   timerCurrent_[0] = timerCurrent_[1] = 0xffff;
   timerControlRead_[0] = timerControlRead_[1] = false;
@@ -152,8 +163,6 @@ void EurekaMachine::Reset() {
   membraneMinUntil_ = 0;
   membraneHeldKey_ = 0;
   membraneShift_ = false;
-  // A hard reset, which is what this is: RAM cleared above, so the firmware
-  // finds no power-down marker in C45Ah and initialises from scratch.
   poweredOff_ = false;
   consoleOutput_.clear();
   speechInput_.clear();
@@ -181,6 +190,14 @@ void EurekaMachine::Reset() {
   rtcLatched_ = false;
   rtcMask_ = 0;
   rtcCommand_ = 0;
+  // The event latch is cleared even on a warm start, so 180C2 always takes the
+  // "switched on by hand" branch.  That is deliberate: with bit 0 set the boot
+  // code serves the alarm and jumps straight back to the power-down routine at
+  // 1D132 (HANDOFF 6.15), so a machine restored with an alarm pending would
+  // switch itself off again the moment it came up.  What the firmware really
+  // does with an alarm that fell due while it was off has to be measured, not
+  // guessed; that is ea4-oti.  The alarm registers themselves are in rtcRam_
+  // and a warm start leaves them alone.
   rtcStatus_ = 0;
   rtcAlarmMatched_ = false;
   rtcEventsPrimed_ = false;

@@ -1272,6 +1272,12 @@ s `magic` `55AAh` na `C45Bh`, a nie tá značka. Odsek vyššie zostáva, lebo
 popisuje stav, v akom to bolo 6. 9. ráno; sám o sebe sa však čítal ako
 zoznam nespravenej práce a raz už takmer poslal agenta opraviť hotové.
 
+**Doplnené 9. 9. 2026:** odrážka „`Reset()` dnes RAM vymaže… zapnutie
+s obnovenou RAM bude iná cesta než `Reset()`“ je **spravená** —
+`EurekaMachine::PowerOn()` existuje a je odmeraný, viď dodatok k 6.31.
+Zvyšok tejto sekcie platí ďalej: snímka do súboru, MD5 ROM ani osem bajtov
+`rtcRam_` v nej zatiaľ nie sú.
+
 ### 6.16 Lupanie: chýbal väzobný kondenzátor — opravené
 
 **Uzavreté 26. 8. 2026, celé znenie v `HANDOFF-archiv.md`.** Držaná
@@ -2096,6 +2102,45 @@ magický `55AAh` na `C45Bh`.
 Do tej chvíle platí: `Reset` je jediná cesta späť a je **studená**.
 README aj Pomocník to hovoria slovami o svete („začne odznova“), nie
 o kóde.
+
+#### Doplnené 9. 9. 2026: teplé zapnutie je v modeli a je odmerané
+
+Dva odseky vyššie prestali platiť: **sonda už stroj vypnúť a zapnúť vie**
+a teplé zapnutie nie je „na dosah“, je urobené. Neplatí ani veta, že
+`Reset` je jediná cesta späť — v modeli nie je; **v okne zatiaľ áno**, tá
+časť 6.31 zostáva otvorená a je to zvyšok `ea4-aip.1`.
+
+`EurekaMachine::Reset()` sa rozdelil na dve: `Reset()` zmaže RAM nad ROM,
+`rtcRam_` a počítadlo cyklov a potom zavolá `PowerOn()`; `PowerOn()` vráti
+do stavu po zapnutí všetko ostatné — MMU, časovače, periférie, CPU. Delí
+ich to, čo si **nechávajú**, nie to, čo robia, a preto je to druhý vstupný
+bod a nie parameter. Na skutočnom stroji je to hranica napájania: RAM aj
+hodiny majú vlastný zdroj, ktorý vypínač nepretína (`GLOSSARY.TXT`).
+
+**Odmerané sondou** (`diag_probe ROM DISK seq 60000000 . vypni zapni . .`),
+a je to presne to, čo 6.15 predpovedal:
+
+- `vypni` → `[vypnute, C45Ah=FF] konec`.
+- `zapni` → `[bezi, C45Ah=00]` a **ani slovo**. Studený štart na tom istom
+  mieste (`studeno`) povie `inicializace eureky`. Firmvér teda našiel
+  `magic` `55AAh` na `C45Bh`, nevymazal `C43Ch`–`C508h` (1805E) a hlásenie
+  z 18132 nespustil.
+- `C45Ah` je po teplom zapnutí `00`: boot ho zmazal na 180D6, teda šiel
+  vetvou „zapnuté rukou“. To je tá vetva, ktorou ísť má — pri bite 0
+  v `rtc_status` by šiel cez obsluhu budíka a hneď späť do vypnutia
+  (1D132). Preto `PowerOn()` `rtcStatus_` **nuluje**, aj keď hodiny inak
+  nechá na pokoji; čo firmvér urobí s budíkom, ktorý dopadol počas
+  vypnutia, je `ea4-oti` a musí sa to odmerať, nie dopísať sem.
+- Po teplom zapnutí stroj normálne reaguje: `kC3` povie `komunikace`.
+
+Drží to `integration_test … power`, ktorý po vypnutí zapne teplo a overí,
+že hlásenie **nezaznelo**, a hneď za tým studeno, že zaznelo — bez toho
+druhého by kontrola prešla aj strojom, ktorý sa vôbec nerozbehol. Overené
+mutáciou: `PowerOn()` doplnený o mazanie RAM zhodí režim `power`.
+
+Jedna vec, ktorá vyzerá ako drobnosť: `vypni` z **aplikácie** stroj
+nevypne, akord je vec hlavného menu. Sonda to nezakrýva — vypíše `[bezi]`
+a beží ďalej.
 
 ## 7. Nástroje
 

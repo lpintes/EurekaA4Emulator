@@ -71,7 +71,20 @@ class EurekaMachine {
   // the same question as DiskSettled, which is about there being something to
   // write back: a clean disk is swappable and never settles.
   bool DiskSwappable() const;
+  // A cold start: the RAM above the ROM window, the clock chip's eight bytes
+  // and the cycle counter all go, so the firmware initialises from scratch.
+  // It is the batteries coming out, not the power switch.
   void Reset();
+  // A warm start: the same as Reset for everything on the switched supply --
+  // MMU, timers, peripherals, the CPU -- but memory_ above the ROM, rtcRam_
+  // and the cycle counter survive it.  That is the hardware: on the real
+  // Eureka the RAM and the clock have a supply of their own that switching
+  // off never cuts (GLOSSARY.TXT), so the boot code finds magic 55AAh still at
+  // C45Bh, skips the wipe at 1805E and comes up where the user left it.
+  //
+  // It is a separate entry point rather than a flag on Reset because the two
+  // differ in what they keep, not in what they do; see HANDOFF 6.15 and 6.31.
+  void PowerOn();
 
   // Replaces this machine's whole state with a copy of another's: memory,
   // CPU, ports, disk, queues, everything.  Every member is a value type, so

@@ -233,7 +233,14 @@ Mode `seq` drives the machine with a scripted sequence. A token is either
 Enter.  There are also tokens that change the medium -- `nova` puts in a
 diskette that never was formatted and `vysun` empties the drive, the two the
 quick choice cannot produce and the two the firmware talks about differently
-(6.30).  Text goes in on the emulated PC keyboard, on the keys the ROM's own
+(6.30).  Three tokens work the power switch: `vypni` presses the four cursor
+keys from the Main Menu and runs on until the machine cuts its own power,
+`zapni` switches it back on warm -- RAM, the clock chip's eight bytes and the
+cycle counter survive, as they do on the hardware -- and `studeno` is the cold
+start, `Reset()`, which wipes them.  Each prints whether the machine is running
+and what is in `C45Ah`, so the difference between the two ways back on is in
+the report and not in the reader's head (6.15, 6.31).  Text goes in on the
+emulated PC keyboard, on the keys the ROM's own
 tables put those characters on, so a character that is on none of them is
 refused out loud instead of being typed as something near it.  Between tokens
 the machine is run until it has been quiet for half a second, so the script

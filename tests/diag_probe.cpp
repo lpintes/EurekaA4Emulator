@@ -13,6 +13,7 @@
 // A sequence TOKEN is either "kXX" (one key code in hex, e.g. kD7 for
 // Shift+F8), "+wp"/"-wp" to set or clear the diskette's write protect notch,
 // "nova" for an unformatted diskette, "vysun" for an empty drive,
+// "vypni"/"zapni"/"studeno" for the power switch and the two ways back on,
 // or a literal string typed on the emulated PC keyboard.  Between
 // tokens the machine is run until it has been quiet for half a second, which
 // is what "ready for the next key" looks like now that the CPU is never parked
@@ -204,6 +205,28 @@ int wmain(int argc, wchar_t** argv) {
           machine->diagnostics().set_trace(port, true);
         std::printf("%-10ls -> [zapnute sledovanie diskovych portov]\n",
                     token.c_str());
+        continue;
+      }
+      if (token == L"vypni" || token == L"zapni" || token == L"studeno") {
+        if (token == L"vypni") {
+          // The chord from the Main Menu, not a faked strobe: the firmware
+          // says "konec" and writes C45Ah itself on the way out, and that is
+          // the state a warm start has to come up from.
+          machine->PressPowerOffChord();
+          const uint64_t deadline = machine->instructions() + budget;
+          while (machine->instructions() < deadline && !machine->powered_off())
+            machine->Step();
+        } else if (token == L"zapni") {
+          machine->PowerOn();
+        } else {
+          machine->Reset();
+        }
+        const bool blocked = RunUntilPrompt(*machine, budget);
+        std::printf("%-10ls -> [%s, C45Ah=%02X] %s%s\n", token.c_str(),
+                    machine->powered_off() ? "vypnute" : "bezi",
+                    machine->power_down_marker(),
+                    Readable(machine->TakeSpeechInput()).c_str(),
+                    blocked ? "" : "  [nezastavil sa na vstupe]");
         continue;
       }
       if (token == L"stav") {

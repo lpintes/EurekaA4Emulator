@@ -285,7 +285,15 @@ bool CheckAltGr(EurekaMachine& machine, const EurekaMachine& booted) {
 // Without this the strobe can go back to being a no-op and nothing would say
 // so: an emulator that ignores it just spins in the two instructions after it,
 // with interrupts off, which is silence and looks like any other hang.
-bool CheckPowerOff(EurekaMachine& machine) {
+// What the machine looked like the moment it switched itself off, for the
+// mode's summary line.  The check goes on to switch it back on warm and then
+// cold, so asking the machine afterwards would report the last start instead.
+struct PowerOffState {
+  bool off = false;
+  uint8_t marker = 0;
+};
+
+bool CheckPowerOff(EurekaMachine& machine, PowerOffState& seen) {
   machine.Reset();
   const uint64_t kQuiet = EurekaMachine::kCpuHz / 2;
   uint64_t lastOut = EurekaMachine::kCpuHz * 3;
@@ -305,6 +313,9 @@ bool CheckPowerOff(EurekaMachine& machine) {
   }
   const auto said = machine.TakeSpeechInput();
   spoken.insert(spoken.end(), said.begin(), said.end());
+
+  seen.off = machine.powered_off();
+  seen.marker = machine.power_down_marker();
 
   bool ok = true;
   if (!pressed) {
@@ -332,6 +343,44 @@ bool CheckPowerOff(EurekaMachine& machine) {
   for (int step = 0; step < 1000; ++step) machine.Step();
   if (machine.cycles() != cycles) {
     std::cout << "  vypnuty stroj este tika\n";
+    ok = false;
+  }
+
+  // Runs a start out and hands back everything the machine said on the way.
+  const auto boot = [&machine] {
+    uint64_t lastOut = machine.cycles() + EurekaMachine::kCpuHz * 3;
+    std::vector<uint8_t> said;
+    for (uint64_t step = 0; step < 40'000'000; ++step) {
+      if (!machine.TakeConsoleOutput().empty()) lastOut = machine.cycles();
+      const auto heard = machine.TakeSpeechInput();
+      said.insert(said.end(), heard.begin(), heard.end());
+      if (machine.cycles() > lastOut + kQuiet) break;
+      if (!machine.Step()) break;
+    }
+    return said;
+  };
+
+  // Switching on again, warm.  RAM, the clock chip's eight bytes and the cycle
+  // counter survive it, so the boot code finds magic 55AAh still at C45Bh,
+  // skips the wipe of the permanent data at 1805E and comes up without saying
+  // "inicializace eureky".  That line is the whole observable: it is the one
+  // thing the firmware says when the user's state has been thrown away, so a
+  // warm start that quietly turned into a cold one would be caught here and
+  // nowhere else.  Measured 9 Sep 2026 with diag_probe's vypni/zapni tokens.
+  machine.PowerOn();
+  if (Contains(boot(), "inicializace")) {
+    std::cout << "  teple zapnutie zmazalo RAM, povedalo \"inicializace\"\n";
+    ok = false;
+  }
+  if (machine.powered_off()) {
+    std::cout << "  po teplom zapnuti stroj nebezi\n";
+    ok = false;
+  }
+  // The contrast, without which the check above would also pass on a machine
+  // that never came up at all.
+  machine.Reset();
+  if (!Contains(boot(), "inicializace")) {
+    std::cout << "  studeny start nepovedal \"inicializace\"\n";
     ok = false;
   }
   return ok;
@@ -973,12 +1022,11 @@ int wmain(int argc, wchar_t** argv) {
   }
 
   if (std::wstring(argv[3]) == L"power") {
-    const bool passed = CheckPowerOff(*machine);
+    PowerOffState seen;
+    const bool passed = CheckPowerOff(*machine, seen);
     std::cout << (passed ? "PASS" : "FAIL") << " mode=POWER"
-              << " vypnute=" << (machine->powered_off() ? "ano" : "nie")
-              << " C45A=" << std::hex
-              << static_cast<unsigned>(machine->power_down_marker()) << std::dec
-              << "\n";
+              << " vypnute=" << (seen.off ? "ano" : "nie") << " C45A=" << std::hex
+              << static_cast<unsigned>(seen.marker) << std::dec << "\n";
     return passed ? 0 : 1;
   }
 
