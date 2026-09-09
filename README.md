@@ -355,6 +355,96 @@ neuloženej, ktorej zámok koniec behu neprežije.
 Políčko je neprístupné **len vtedy, keď je slot prázdny** — vtedy nie je
 čo zamknúť.
 
+## Rozdeliť kolekciu na diskety
+
+Priečinok, ktorý sa na disketu nezmestí, vie emulátor rozdeliť na toľko
+diskiet, koľko treba. Otvára to položka **Disketa → Rozdeliť kolekciu na
+diskety…**; keď sa priečinok práve nezmestil pri vkladaní, ponúkne sa
+rovno v tom hlásení a priečinok je už vyplnený.
+
+Nič sa pri tom neprepisuje. **Cieľ musí byť prázdny priečinok** alebo taký,
+ktorý ešte neexistuje, a **do zdrojového priečinka sa nezapisuje** — jediná
+výnimka je `SPOLU.txt` a aj tá len vtedy, keď o to výslovne požiadate.
+Súbory sa kopírujú, zdroj zostáva, ako bol.
+
+### Prvá stránka: čo, kam a ako
+
+Sú tri spôsoby delenia:
+
+- **Sekvenčne, abecedne** (východiskový). Súbory idú po poradí a disketa sa
+  plní do plna. Vyzerá to nenápadne a je to najsilnejšia voľba: „disketa 3
+  sú súbory od K po P" je vec, ktorá sa dá zapamätať, a pridanie jedného
+  súboru neprehádže zvyšok.
+- **Podľa priečinkov.** Podpriečinok je skupina a zostane pokope, pokiaľ sa
+  niekam zmestí celá. Priečinok väčší než disketa sa reže najprv pozdĺž
+  vlastných podpriečinkov.
+- **Natesno.** Najmenej diskiet. Pre archiváciu, nie na prácu — priečinky sa
+  pri ňom rozsypú a potom sa ťažko hľadá.
+
+K tomu dve políčka o tom, **čo patrí k sebe**. `TP.COM` bez `TURBO.MSG` je
+nefunkčný program, takže sa nikdy nerozdelia na dve diskety:
+
+- **Súbory s rovnakým menom** (zapnuté): `TURBO.COM`, `TURBO.MSG`,
+  `TURBO.OVR`.
+- **Sprievodné prípony k jedinému programu v priečinku** (vypnuté):
+  `WS.COM` a k nemu `WSMSGS.OVR`, `WSOVLY1.OVR`. Toto pravidlo háda, preto je
+  vypnuté.
+
+Obe platia **vždy len vnútri jedného priečinka**: `TURBO.COM` v jednom
+priečinku a `TURBO.MSG` v druhom sú dve kópie od dvoch ľudí, nie jeden
+program.
+
+Posledné políčko pridá na každú disketu **zoznam súborov `OBSAH.TXT`**
+v kódovaní Eureky, aby si ho prečítal sám stroj. Stojí jeden blok a jednu
+položku adresára a započíta sa **pred** delením, takže sa nemôže stať, že
+naň na poslednej diskete nezostane miesto.
+
+### Druhá stránka: plán
+
+Plán sa najprv ukáže a až potom vykoná. Nehovorí len počet diskiet — menuje
+aj to, čo stojí za pozretie: priečinky rozdelené medzi viac diskiet, zlúčené
+jednotky aj s pravidlom, ktoré ich zlúčilo, premenované súbory a odmietnuté
+súbory s dôvodom. Ten istý text sa uloží do `OBSAH.txt` v cieľovom
+priečinku, takže sa to dá dohľadať aj o mesiac.
+
+Súbor väčší než 792 KiB sa nezmestí nikam a skončí medzi odmietnutými
+s dôvodom. **Nikdy sa nestratí potichu.**
+
+Vnútri jednej jednotky sa nikdy nepremenováva. Keby sa `TURBO.MSG` kvôli
+zhode mien premenoval na `TURB~1.MSG`, program by svoj súbor nenašiel ani
+vtedy, keď sú obidva na jednej diskete — a zlyhalo by to nepochopiteľne.
+Hroziaca zhoda preto posiela celú jednotku na inú disketu; premenováva sa
+len osamotený súbor a plán ho vypíše menom.
+
+### `SPOLU.txt`: čo ešte patrí k sebe
+
+Obe pravidlá vyššie hádajú. Spoľahlivý zdroj je textový súbor `SPOLU.txt`
+v priečinku s kolekciou: **jedna skupina na riadok, mená oddelené čiarkami**,
+riadok začínajúci `#` je poznámka. Riadok je pravidlo, nie zoznam konkrétnych
+súborov — uplatní sa v každom priečinku kolekcie zvlášť, takže jeden riadok
+pokryje program, ktorý leží v piatich.
+
+Na druhej stránke je to isté v poli **Jednotky, ktoré patria k sebe**. Dá sa
+tam písať, tlačidlo **Prepočítať plán** postaví plán znovu (a fokus skočí na
+nový plán, aby ho čítačka prečítala) a políčko **Zapísať ich do `SPOLU.txt`**
+opravu uloží do zdrojového priečinka — vtedy prežije aj opakované delenie.
+Bez neho sa do zdroja nezapíše nič.
+
+Keď jednotky upravíte a stlačíte **Rozdeliť** bez prepočítania, plán sa
+prepočíta a dialóg zostane otvorený. Je to zámer: vykonať sa má plán, ktorý
+ste videli.
+
+### Čo z toho vznikne
+
+V cieľovom priečinku vznikne jeden priečinok na disketu, pomenovaný poradovým
+číslom a najväčšou skupinou na nej — `01-HUDBA`, `02-SLOVNIK`. Každý z nich
+je hotová disketa: vkladá sa cez **Vložiť disketu z priečinka** (`F11`,
+`Ctrl+I`) alebo sa priradí slotu. Meno priečinka je aj to, čo o diskete
+povie titulok okna.
+
+Hotové diskety sa oplatí **zamknúť proti zápisu** — Eurekino hromadné
+kopírovanie chránený zdroj priamo žiada.
+
 ## Čo si emulátor pamätá
 
 Dve veci: **disketu, ktorú ste mali naposledy**, a **deväť slotov**, a
@@ -459,7 +549,8 @@ doplnku; tu je prioritou verná činnosť ROM.
 - Nezmestí sa toľko, koľko by veľkosť priečinka naznačovala: CP/M prideľuje
   miesto po blokoch 2 KiB, takže aj 300-bajtový súbor zaberie celý blok.
   Na disk sa vojde 396 blokov a 256 položiek adresára. Keď sa priečinok
-  nezmestí, emulátor povie koľko blokov a položiek by bolo treba.
+  nezmestí, emulátor povie koľko blokov a položiek by bolo treba — a rovno
+  ponúkne, že ho rozdelí na diskety (viď *Rozdeliť kolekciu na diskety*).
 
 Pred priamou úpravou súborov vo vybranom priečinku emulátor ukončite, aby sa
 neprepísal obsah pripojeného obrazu.

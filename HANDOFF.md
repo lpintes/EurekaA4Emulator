@@ -1678,8 +1678,9 @@ kopírovania: zamknúť `testdisk`, vložiť disketu v pamäti, vrátiť
 Skúšané v prenosnom režime (`config` vedľa EXE), aby to nesiahlo na
 nastavenia majiteľa.
 
-Otvorené zostáva len to, čo bolo dôvodom celej veci: rozdeľovač kolekcie,
-ktorý má zamknuté sloty používať.
+~~Otvorené zostáva len to, čo bolo dôvodom celej veci: rozdeľovač kolekcie,
+ktorý má zamknuté sloty používať.~~ **Hotový 9. 9. 2026**; README hotové
+diskety rovno odporúča zamknúť, presne kvôli hromadnému kopírovaniu.
 
 #### Rozdeľovač kolekcie
 
@@ -1775,6 +1776,8 @@ neprepisuje a zdroj sa neotvára na zápis vôbec.
 
 **Vrstva `disk_layout` je hotová 9. 9. 2026, sprievodca nie.** Návrh vyššie
 platí celý; toto je to, čo sa rozhodlo až pri písaní a v ňom nestálo.
+(Sprievodca je hotový v ten istý deň — o kúsok nižšie. Táto veta zostáva
+v pôvodnom znení, lebo to, čo je pod ňou, sa rozhodlo pri vrstve, nie pri ňom.)
 
 - **Kapacita aj mená sú v `src/cpm_disk.h`, v jednej kópii.** Konštanty z DPB
   stáli v anonymnom priestore mien vo `virtual_disk.cpp` a rozdeľovač ich
@@ -1811,9 +1814,84 @@ bez ROM aj bez jediného súboru na disku. `PlanProblem` v nich prepočíta kaž
 disketu zo vstupu a plán odmietne, keď je v ňom súbor dvakrát, ani raz, alebo
 na diskete, kde je jeho meno už obsadené — súčtom, nie vzorkou.
 
-Otvorené zostáva to, čo sa dotýka používateľa: sprievodca, ktorý plán ukáže,
-dá `SPOLU.txt` opraviť a plán vykoná. Vrstva sama nekopíruje nič a do
-zdrojového priečinka nesiaha vôbec.
+~~Otvorené zostáva to, čo sa dotýka používateľa: sprievodca, ktorý plán ukáže,
+dá `SPOLU.txt` opraviť a plán vykoná.~~ **Hotové 9. 9. 2026, viď nižšie.**
+Vrstva sama ďalej nekopíruje nič a do zdrojového priečinka nesiaha vôbec —
+to sa nezmenilo, len nad ňou odvtedy stojí `src/disk_split.*`.
+
+#### Sprievodca a vrstva, ktorá plán vykoná — hotové 9. 9. 2026
+
+Medzi `disk_layout` a dialóg pribudla tretia vrstva, `src/disk_split.*`, a je
+to presne to, čo si prvá veta návrhu vyžiadala tým, že si čítanie kolekcie
+a kopírovanie výslovne odopiera. Rozdelenie je jednoslovné: **`disk_layout`
+sa nedotkne súboru, `disk_split` sa nedotkne rozhodnutia.**
+
+- `Scan` prečíta kolekciu **rekurzívne** — na rozdiel od `VirtualDisk::Mount`,
+  ktorý podpriečinky ignoruje (6.19). Nie je to nedôslednosť: disketa je jeden
+  plochý adresár CP/M, ale kolekcia je práve tá vec, ktorá sa doň nezmestí,
+  a jej podpriečinky sú to, čím režim „podľa priečinkov“ balí. `SPOLU.txt`
+  v koreni je návod, nie súbor kolekcie, takže sa medzi ne nepočíta; ten
+  hlbšie v strome tam patrí normálne.
+- `TargetIsUsable` je pravidlo o cieli v **jednej kópii**: prázdny priečinok
+  alebo taký, ktorý ešte neexistuje, a nikdy vnútri zdroja. Pýta sa naň
+  `Execute` tesne pred tým, než čokoľvek vyrobí, **aj prvá stránka dialógu** —
+  inak by sa používateľ dozvedel o nepoužiteľnom cieli až po tom, ako prečítal
+  plán na štyridsať diskiet. Dve kópie toho pravidla by boli dve odpovede a tá
+  počutá by nebola tá, ktorá rozhoduje.
+- `Describe` vyrába **jeden text pre náhľad aj pre `OBSAH.txt`**. Náhľad je to,
+  podľa čoho sa používateľ rozhoduje, `OBSAH.txt` to, čo si prečíta o mesiac;
+  dva texty by boli dve príležitosti rozísť sa v tom, čo sa vlastne stalo.
+- **`OBSAH.TXT` na diskete ustúpi menom používateľovmu súboru**, nie naopak.
+  Plán rezervuje blok a položku adresára, **nie meno** — kolekcia, ktorá si
+  vlastný `OBSAH.TXT` nesie, je nezvyklá, ale prepísať ho by bola presne tá
+  tichá strata, kvôli ktorej táto vrstva existuje. Náš zoznam sa uhne na
+  `OBSAH~1.TXT`. Končí znakom `1Ah`: `TXT` je v `IsTextType` textový typ,
+  takže export ho na ňom oreže, a bez neho by výplň rástla pri každej ceste
+  von a späť.
+
+**Sprievodca sú dva dialógy za sebou, nie `PropertySheet`.** Tu už naozaj ide
+o dva kroky — druhá stránka ukazuje plán postavený z odpovedí prvej —, ale
+každý z nich zostáva **jeden dialóg zo šablóny**: jedna rola, ktorú čítačka
+ohlási, jedno poradie Tab a jedno Enter. Odmerané na hotovom EXE, tak ako
+6.27: trieda oboch je `#32770`, prepínače v `IDD_SPLIT` krúžia 1044 → 1045 →
+1046 → 1044 a hore naopak, teda `WS_GROUP` na rámčeku `Čo patrí k sebe`
+skupinu naozaj ukončuje, a Tab v `IDD_SPLITPLAN` ide plán → jednotky →
+prepočítať → SPOLU.txt → OK → Zrušiť.
+
+**Plán, ktorý sa vykoná, je vždy plán, ktorý používateľ videl.** Pole jednotiek
+sa dá upraviť bez prepočítania a Rozdeliť by vtedy delilo podľa niečoho, čo na
+obrazovke nebolo. Dialóg sa preto pri zmenených jednotkách **nezavrie**:
+prepočíta plán, dá naň fokus a čaká na druhé stlačenie. Bez hlásenia zámerne —
+odpoveďou na „prepočítať“ je ten plán, a čítačka ho v tej chvíli prečíta.
+
+Či sú jednotky zmenené, sa **porovnáva textom, nesleduje sa `EN_CHANGE`**.
+Nie je to vec vkusu: `WM_SETTEXT` posiela `EN_CHANGE` tiež, takže naplnenie
+poľa v `OnInit` by prišlo ako „používateľ to upravil“ a prvé Rozdeliť by
+namiesto delenia prepočítavalo. Porovnanie sa v tom pomýliť nemá ako.
+
+**Spätný zápis do `SPOLU.txt` ide pred kopírovaním**, nie po ňom: kopírovanie
+trvá a zlyhanie zápisu treba počuť, kým ešte znamená to, na čo sa používateľ
+práve pozeral.
+
+**Vstupný bod je hlásenie o kapacite, a nie len slovami.** `CheckCapacity`
+končila radou „Rozdeľte priečinok na viac priečinkov a striedajte ich ako
+diskety“; tá veta **už neplatí** a nahradilo ju pomenovanie položky v ponuke.
+Okno navyše rozdelenie ponúkne rovno v tom hlásení, s priečinkom už vyplneným.
+Aby to vedelo, pribudol `bool* tooBig` cez `VirtualDisk::Mount` →
+`EurekaMachine::MountDisk` → `DiskChange`. Je to **hodnota, nie hľadanie
+podreťazca v hláške**: hláška je text pre používateľa a rozhodovať sa podľa
+nej by znamenalo, že jej preformulovanie ticho vypne ponuku.
+
+Skratku sprievodca **nedostal**, tak ako `Spravovať sloty…`. Každá hostiteľská
+skratka je kláves, ktorý Eureka už nikdy nedostane, a toto je úkon raz za čas.
+
+Testy: `disk_test` má o päť skupín viac (spolu 214 kontrol) a bežia ďalej bez
+ROM. Držia to, čo je o dátach: že sa každý súbor skopíruje **práve raz a bajt
+na bajt** pod menom, ktoré sľúbil plán, že zdrojový priečinok má po rozdelení
+presne toľko súborov ako pred ním, že neprázdny cieľ aj cieľ vnútri zdroja sú
+odmietnuté a **nič v nich nevznikne**, a že `SPOLU.txt` prežije cestu von
+a späť ako tie isté jednotky. Poistka overená mutáciou: keď sa vypne kontrola
+prázdneho cieľa, padnú dve kontroly.
 
 #### Výber priečinka: vybrať a pomenovať sú dva úkony
 
@@ -1846,7 +1924,10 @@ pustí ďalej.
    28. 8. 2026**, aj s režimom `format` v `integration_test`.
 3. ~~`disk_layout` a testy, ešte bez GUI~~ — **hotové 9. 9. 2026**, aj
    s `src/cpm_disk.h`, kam sa presťahovala kapacita a skladanie mien.
-4. Sprievodca rozdelenia nad hotovou vrstvou.
+4. ~~Sprievodca rozdelenia nad hotovou vrstvou.~~ — **hotové 9. 9. 2026**, aj
+   s `src/disk_split.*`, teda vrstvou, ktorá kolekciu prečíta a plán vykoná.
+
+Tým je 6.22 celá spravená a nič z nej nezostáva otvorené.
 
 Zámok proti zápisu je hotový celý, model aj hostiteľská strana.
 
@@ -1856,6 +1937,11 @@ aj v KiB, menuje tri najväčšie súbory a končí vetou „Rozdeľte priečino
 viac priečinkov a striedajte ich ako diskety.“ To je presne tá rada, ktorú
 má rozdeľovač nahradiť skutkom — tá hláška je jeho prirodzené miesto
 vstupu a je to aj miesto, kde už kapacitná aritmetika stojí hotová.
+
+**Tak sa to aj stalo, 9. 9. 2026.** Citovaná veta v hláške **už nestojí** —
+namiesto rady menuje položku ponuky — a okno rozdelenie ponúkne rovno v tom
+hlásení, s priečinkom vyplneným. Rozlíšiť tú jednu odmietnutú disketu od
+ostatných vie cez `bool* tooBig`, nie podľa textu hlášky.
 
 ### 6.23 Export orezával programy BASICu na prvom 1Ah — opravené
 
@@ -2535,10 +2621,10 @@ a nenačíta znovu (`NVDA+Ctrl+F3`).
    voľba aj dialóg `Nová disketa` s nenaformátovaným médiom **hotové**
    28. 8. 2026; **zámok proti zápisu** a **disketa ako objekt** (zásobník
    slotov, 6.24) **hotové** 29. 8. 2026; **zámok diskety v slote** (6.26)
-   a **slovník „neuložená“ s Uložiť ako** (6.28) **hotové** 31. 8. 2026.
-   Ostáva **rozdeľovač kolekcie**
-   (`disk_layout`), ktorý je na zvyšku nezávislý a dá sa písať aj testovať
-   bez GUI a bez ROM. Že sa EurekaDOS po výmene preloguje sám, je odmerané
+   a **slovník „neuložená“ s Uložiť ako** (6.28) **hotové** 31. 8. 2026;
+   **rozdeľovač kolekcie** — vrstva `disk_layout`, vykonávacia vrstva
+   `disk_split` aj sprievodca — **hotový** 9. 9. 2026, čím je 6.22 celá
+   spravená. Že sa EurekaDOS po výmene preloguje sám, je odmerané
    (koniec 6.17), zatiaľ ale len ručne — a rovnako chýba test cez ROM na
    hromadné kopírovanie, ktoré je najtvrdšia skúška celej správy diskiet
    (6.24).

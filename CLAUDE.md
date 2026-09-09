@@ -238,6 +238,17 @@ diskety alebo na skladanie 8.3 mena, patrí to tam.** Druhá kópia by dala plá
 ktorý sľúbi disketu, akú obraz nepostaví, a obe polovice by sa ďalej prekladali
 aj testovali nazeleno.
 
+Drží aj **vykonanie plánu** (`src/disk_split.*`), teda vrstvu nad ním, ktorá
+sa disku už dotýka: prečíta kolekciu, plán opíše a vykoná ho. Testuje sa
+v priečinkoch v `%TEMP%` a drží to, čo je o dátach, nie o algoritme — že sa
+každý súbor skopíruje **práve raz a bajt na bajt** pod menom, ktoré sľúbil
+plán, že zdrojový priečinok má po rozdelení presne toľko súborov ako pred ním,
+a že **neprázdny cieľ aj cieľ vnútri zdroja sú odmietnuté a nič v nich
+nevznikne**. To pravidlo o cieli je `TargetIsUsable` a je **jedno** — pýta sa
+naň aj prvá stránka sprievodcu, aby ho používateľ počul pred plánom, nie po
+ňom. Do zdroja zapisuje jediná funkcia, `WriteSpolu`, a len na výslovný pokyn.
+Overené mutáciou: vypnutá kontrola prázdneho cieľa zhodí dve kontroly.
+
 `settings_test` beží tiež bez ROM a v `%TEMP%`. Drží formát súboru
 s nastaveniami a hlavne to, že cesta s diakritikou prežije zápis aj čítanie.
 Drží aj **zámok diskety proti zápisu** (`zamok1=`, `zamok2=`… so zoznamom
