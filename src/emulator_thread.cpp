@@ -1053,8 +1053,9 @@ void EmulatorThread::Run() {
     // The loop does not end here, and that is the change: switching off is a
     // state the machine sits in, not the end of the run.  On the hardware the
     // RAM and the clock keep a supply of their own, so the worker stays alive
-    // holding them and goes on serving commands -- Reset starts it again, and
-    // one day an alarm could too.  Nothing has to stop the CPU on the way:
+    // holding them and goes on serving commands -- kPowerOn starts it again
+    // warm and kReset cold, and one day an alarm could do it too.  Nothing has
+    // to stop the CPU on the way:
     // EurekaMachine::Step returns false while it is off, and the debt ceiling
     // above pins guestClock to a quarter second ahead of a clock that is no
     // longer moving, so switching on does not sprint through the time spent

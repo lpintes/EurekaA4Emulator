@@ -2151,3 +2151,181 @@ stihla vypísať riadok (`0xC00000FD`).
 **Odmerané sondou** na majiteľovom postupe: striedanie zdroj → cieľ →
 zdroj → cieľ prejde, „soubor nelze najít“ nepríde a stroj povie „počet
 okopírovaných souborů 2“.
+
+### 6.31 Vypnutá Eureka zostáva v okne — dialóg preč, studený štart otvorený
+
+**Rozhodnuté s majiteľom 9. 9. 2026.** Dovtedy vypnutie stroja zavrelo
+celý emulátor: `WM_EMU_POWERED_OFF` ukázal `MessageBox` a hneď za ním
+poslal `WM_CLOSE`.
+
+Boli to dve chyby v jednom mieste. Text dialógu znel „na skutočnom
+stroji by RAM aj hodiny zostali pod napätím a ďalšie zapnutie by
+pokračovalo tam, kde ste skončili“ — to je opis toho, čo **nemáme
+naprogramované**, teda implementačný detail v texte pre používateľa,
+a nedá sa naň nijako odpovedať. A `WM_CLOSE` za ním bral stavu možnosť
+byť stavom: vypnutie na tomto stroji **nie je koniec**, je to
+pohotovostný stav, v ktorom RAM aj hodiny žijú ďalej.
+
+Majiteľ k tomu pridal dôvod, ktorý siaha ďalej než pohodlie: keby sa
+okno dalo minimalizovať, vypnutá Eureka by mohla **budiť, reagovať na
+diár a odbíjať hodiny**. To sú veci, ktoré na skutočnom stroji vypnutie
+prežívajú a firmvér ich obsluhuje — alarm zobudí vypnutý stroj, firmvér
+ho obslúži a uloží ho späť (viď `power_down_marker` v `machine.h`).
+Zavretý proces ich obslúžiť nemá ako.
+
+Čo je spravené:
+
+- **Vlákno stroja slučku neopúšťa.** `EmulatorThread::Run` sleduje
+  prechod `machine.powered_off()` a hlási len zmenu; slučka beží ďalej
+  a obsluhuje príkazy. Odtok zvuku pred „konec“ zostal, len sa už
+  nerobí cestou von. Nič nemusí CPU zastavovať: `Step()` vráti `false`
+  sám a strop dlhu nad ním pripne `guestClock` štvrť sekundy pred
+  hodiny, ktoré sa nehýbu, takže zapnutie **nepreletí** čas strávený
+  vypnutím.
+- **Stav je počuť a stojí v titulku.** Tri klesajúce tóny na vypnutie,
+  tri stúpajúce na zapnutie — štvrtý tvar vedľa klávesnice, diskety
+  a zámku. Stroj síce povie „konec“ vlastným hlasom, ale to, čo za tým
+  nasleduje, je ticho, a ticho znie rovnako ako spadnutý emulátor.
+  Titulok odpovedá kedykoľvek potom a vypnutie v ňom **predbieha
+  všetko ostatné**, lebo režim klávesnice prestal byť otázkou.
+- **`Vypnúť Eureku` je vo vypnutom stave zošedené**, `Reset` vedľa neho
+  nie — inak by jediný stav v tomto okne nemal nikde pomenovanú cestu
+  von.
+- **Vypnuté a uvoľnená klávesnica je jeden stav, nie dva** (doplnené po
+  pripomienke majiteľa v ten istý deň). Vypnutý stroj nemá kam prijať
+  kláves, takže držať mu klávesnicu by znamenalo, že každý kláves na nej
+  je ticho — presne ten režim, ktorý nepočuť, okolo ktorého je celý
+  `main_window.cpp` postavený — a NVDA by navyše spalo nad oknom, v
+  ktorom nie je čo čítať. `SetReleased(true)` teda ide s vypnutím
+  a `SetReleased(false)` so zapnutím, oboje **bez vlastného tónu**:
+  hlási to tón napájania, lebo je to jedna udalosť, a dva klesajúce
+  tvary za sebou sa rozoznávajú horšie než ktorýkoľvek z nich sám.
+  `Shift+F11` v tom stave nerobí nič — `SetReleased` odmieta jediný
+  smer, teda vzatie klávesnice späť, a jeho položka je zošedená, aby to
+  čítačka povedala. Tiché odmietnutie je tu bezpečné len preto, že
+  klávesnica **už je tam, kam by ju ten kláves dal**; pasca, do ktorej
+  tento súbor padá, je kláves, ktorý zmení smer klávesov potichu, nie
+  kláves, ktorý potichu odmietne nezmeniť nič.
+  Vedľajší dôsledok, ktorý stojí za zapamätanie: `HostShortcutsActive()`
+  je vo vypnutom stave pravdivé, takže `Reset` je **samotné `Ctrl+R`**
+  bez `F11` a `RefreshShortcutText` prefix sníme sám. README aj Pomocník
+  to tak hovoria.
+
+Čo zostáva otvorené: **zapnutie je dnes studený štart.** `Reset()` maže
+RAM, takže sa stroj rozbehne odznova a nenadviaže tam, kde používateľ
+skončil. Na hardvéri je to naopak — a keďže objekt `EurekaMachine`
+v procese celý čas žije aj s RAM, teplé zapnutie je odtiaľto na dosah:
+nový vstupný bod, ktorý urobí to, čo `Reset()`, ale **nesiahne** na
+`memory_` nad ROM, na `rtcRam_` ani na hodiny. Čo firmvér potom naozaj
+urobí, sa **musí odmerať, nie odhadnúť** — sonda dnes nevie stroj
+vypnúť a znovu zapnúť, takže k tomu patrí aj token do nej. Patrí to
+k epicu `ea4-aip` (zachovanie RAM medzi behmi): tam je to o prežití
+procesu, tu o prežití vypnutia, ale je to tá istá RAM a ten istý
+magický `55AAh` na `C45Bh`.
+
+Do tej chvíle platí: `Reset` je jediná cesta späť a je **studená**.
+README aj Pomocník to hovoria slovami o svete („začne odznova“), nie
+o kóde.
+
+#### Doplnené 9. 9. 2026: teplé zapnutie je v modeli a je odmerané
+
+Dva odseky vyššie prestali platiť: **sonda už stroj vypnúť a zapnúť vie**
+a teplé zapnutie nie je „na dosah“, je urobené. Neplatí ani veta, že
+`Reset` je jediná cesta späť — v modeli nie je; **v okne zatiaľ áno**, tá
+časť 6.31 zostáva otvorená a je to zvyšok `ea4-aip.1`.
+
+`EurekaMachine::Reset()` sa rozdelil na dve: `Reset()` zmaže RAM nad ROM,
+`rtcRam_` a počítadlo cyklov a potom zavolá `PowerOn()`; `PowerOn()` vráti
+do stavu po zapnutí všetko ostatné — MMU, časovače, periférie, CPU. Delí
+ich to, čo si **nechávajú**, nie to, čo robia, a preto je to druhý vstupný
+bod a nie parameter. Na skutočnom stroji je to hranica napájania: RAM aj
+hodiny majú vlastný zdroj, ktorý vypínač nepretína (`GLOSSARY.TXT`).
+
+**Odmerané sondou** (`diag_probe ROM DISK seq 60000000 . vypni zapni . .`),
+a je to presne to, čo 6.15 predpovedal:
+
+- `vypni` → `[vypnute, C45Ah=FF] konec`.
+- `zapni` → `[bezi, C45Ah=00]` a **ani slovo**. Studený štart na tom istom
+  mieste (`studeno`) povie `inicializace eureky`. Firmvér teda našiel
+  `magic` `55AAh` na `C45Bh`, nevymazal `C43Ch`–`C508h` (1805E) a hlásenie
+  z 18132 nespustil.
+- `C45Ah` je po teplom zapnutí `00`: boot ho zmazal na 180D6, teda šiel
+  vetvou „zapnuté rukou“. To je tá vetva, ktorou ísť má — pri bite 0
+  v `rtc_status` by šiel cez obsluhu budíka a hneď späť do vypnutia
+  (1D132). Preto `PowerOn()` `rtcStatus_` **nuluje**, aj keď hodiny inak
+  nechá na pokoji; čo firmvér urobí s budíkom, ktorý dopadol počas
+  vypnutia, je `ea4-oti` a musí sa to odmerať, nie dopísať sem.
+- Po teplom zapnutí stroj normálne reaguje: `kC3` povie `komunikace`.
+
+Drží to `integration_test … power`, ktorý po vypnutí zapne teplo a overí,
+že hlásenie **nezaznelo**, a hneď za tým studeno, že zaznelo — bez toho
+druhého by kontrola prešla aj strojom, ktorý sa vôbec nerozbehol. Overené
+mutáciou: `PowerOn()` doplnený o mazanie RAM zhodí režim `power`.
+
+Jedna vec, ktorá vyzerá ako drobnosť: `vypni` z **aplikácie** stroj
+nevypne, akord je vec hlavného menu. Sonda to nezakrýva — vypíše `[bezi]`
+a beží ďalej.
+
+#### Ešte v ten deň: okno to už vie tiež, 6.31 je celá zavretá
+
+Odsek vyššie napísal, že v okne je `Reset` stále jediná cesta späť. **Už
+nie je** a celá 6.31 je tým uzavretá; otvorené na epicu `ea4-aip` zostáva
+len prežitie **procesu**, teda snímka do súboru.
+
+Ponuka `Stroj` má tri položky: `Reset` (`Ctrl+R`), `Zapnúť Eureku`
+(`Ctrl+P`) a `Vypnúť Eureku` (`Ctrl+V`). Zapnutie a vypnutie sú **dva
+príkazy, nie jedna prepínacia položka** — rozhodol majiteľ 9. 9. 2026.
+Vždy je dostupný práve jeden z nich a druhý je zošedený, čo je ten istý
+vzor ako `Vysunúť disketu` alebo `Zamknúť`: zošedený prvok stojí sám
+a čítačka ho prečíta ako nedostupný. Položka, ktorá by menila názov pod
+rukami, by za tú istú skratku raz vypínala a raz zapínala. `Reset` je
+zapnutý v oboch stavoch, lebo je to studený štart, teda voľba v oboch,
+nie cesta von z jedného.
+
+`Ctrl+P` je v hostiteľskej tabuľke, takže Eureke neberie nič a vo
+vypnutom stave platí aj bez `F11` — `HostShortcutsActive()` je vtedy
+pravdivé. Jednorazovku míňa všeobecná vetva `WM_COMMAND`, nič zvláštne
+sa preň nepridávalo.
+
+Vlákno má `PostPowerOn` a príkaz `kPowerOn`. Na rozdiel od `kReset`
+**nesiaha na zvukové zariadenie**: vypnutie ho odtieklo a počkalo naň,
+a znovuotvorenie by len zahodilo, čo sa riadenie latencie naučilo.
+`guestClock` sa tiež neopravuje — počítadlo cyklov teplé zapnutie
+prežije a strop dlhu ho počas vypnutia držal štvrť sekundy pred hodinami,
+ktoré sa nehýbali. Tón, titulok aj návrat klávesnice Eureke robí ten istý
+`WM_EMU_POWERED_OFF`, ktorý 6.31 spravila obojsmerným; nepribudlo k tomu
+nič.
+
+README aj Pomocník hovoria oboje slovami o svete: zapnutie **nadviaže tam,
+kde ste skončili**, `Reset` **začne odznova, ako po prepnutí vypínača
+batérie**. To prirovnanie nie je ozdoba a nie je ani vymyslené: `INSTALL.2`
+opisuje „Power Cut-off Switch“, drobný prepínač v dierke na ľavej hrane,
+ktorý sa prepínal perom alebo skrutkovačom a odpájal batériu, a hovorí,
+že po ňom je pri ďalšom zapnutí **prázdna pamäť aj hodiny**. To je presne
+to, čo `Reset()` robí, a je to zároveň doloženie, prečo maže `rtcRam_`.
+Prvá verzia tohto textu hovorila o „vybratí batérií“ — Eureka má jednu
+batériu a tá sa nevyberá, opravil to majiteľ 9. 9. 2026 odkazom na
+`HARDWARE.1` a `INSTALL.2`. Obe miesta výslovne dodávajú, že zavretie
+emulátora je iná vec — pamäť sa zatiaľ nikam neukladá — aby sa „nadviaže“
+nečítalo ako sľub, ktorý platí aj cez reštart procesu.
+
+#### Titulok okna nemenuje klávesy — ani v jednej vetve
+
+Zamietnuté majiteľom 9. 9. 2026. Titulok mal do vtedy v dvoch stavoch
+z troch radu, ktorý kláves stav vráti: „vypnutá, **zapne ju Reset**“
+a „klávesnica uvoľnená, **vráti ju Shift+F11**“. Teraz znie
+`Eureka A4 — vypnutá — disketa: …`, resp.
+`Eureka A4 — klávesnica uvoľnená — režim: … — disketa: …`.
+
+Dôvod je ten istý ako pri zamietnutých popiskách z 31. 8. 2026, len
+o riadok vyššie: titulok sa číta **nahlas pri každom `Alt+Tab`
+a `NVDA+T`**, takže odpovedá na „čo to teraz je“ a každé slovo navyše
+platí tú cenu znovu a znovu. Kláves patrí do ponuky a do Pomocníka, kde
+sa prečíta raz a zámerne.
+
+Druhá polovica dôvodu je, že **rada v stavovom riadku ticho hnije**: to
+„zapne ju Reset“ prestalo byť pravdivé v tej istej hodine, keď pribudlo
+`Ctrl+P`, a nič na to neupozornilo. Vetva o klávesnici bola najprv
+opravená len tá prvá a druhá nechaná ako „mimo zadania“; majiteľ to
+zamietol tiež — dva rovnaké riadky, jeden opravený a druhý nie, sú
+horšie než tá pôvodná rada. Opravené sú obe.
