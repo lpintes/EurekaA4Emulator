@@ -303,7 +303,8 @@ priečinku. Pri vytiahnutí sa doň zapíše, pri vrátení sa z neho načíta �
 takže ak priečinok medzitým zmeníte zvonka, disketa príde zmenená, tak
 ako by prišla tá istá disketa.
 
-Čo je v ktorom slote, **je napísané priamo v ponuke Disketa**, takže sa to
+Čo je v ktorom slote, **je napísané priamo v ponuke Disketa**, na jej
+konci pod položkou `Spravovať sloty…`, takže sa to
 dá prečítať aj bez toho, aby ste si to pamätali: položka `3 Slovník`
 znamená, že `F11`, `Ctrl+3` vloží Slovník. Prázdny slot je označený ako
 `(prázdny)` a keď ho stlačíte, emulátor povie, kde sa napĺňa.

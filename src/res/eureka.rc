@@ -35,9 +35,25 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "&Uložiť disketu do priečinka…\tF11, Ctrl+U",  ID_FILE_EXPORT
         MENUITEM SEPARATOR
-        /* The nine slots.  Their text is rewritten at every WM_INITMENUPOPUP
-           from the settings file -- what stands here is only what an empty one
-           says, and the mnemonic, which is the slot number itself. */
+        /* Bez skratky, tak ako Spravovat sloty. Kazda hostitelska skratka je
+           kláves, ktory Eureka uz nikdy nedostane, a toto je ukon, ktory sa
+           robi raz za cas -- na taky sa ponuka otvori. */
+        MENUITEM "&Rozdeliť kolekciu na diskety…",              ID_DISK_SPLIT
+        MENUITEM SEPARATOR
+        MENUITEM "&Spravovať sloty…",                           ID_DISK_SLOTS
+        /* The nine slots, and they are last on purpose.  This menu is read
+           aloud item by item, so nine rows sitting in the middle of it are
+           nine rows to walk past on the way to everything else -- and they are
+           the rows a user needs least often, because Ctrl with the number
+           reaches them without opening anything.  Spravovat sloty stands just
+           above them: it is what the block is about, and putting it below
+           would bury it behind all nine.
+
+           Their text is rewritten at every WM_INITMENUPOPUP from the settings
+           file -- what stands here is only what an empty one says, and the
+           mnemonic, which is the slot number itself.  Nothing reads this menu
+           by position (RefreshSlotItems and RefreshShortcutText both go by
+           command id), so the order is free to serve the ear. */
         MENUITEM "&1 (prázdny)\tF11, Ctrl+1",                   ID_DISK_SLOT1
         MENUITEM "&2 (prázdny)\tF11, Ctrl+2",                   ID_DISK_SLOT2
         MENUITEM "&3 (prázdny)\tF11, Ctrl+3",                   ID_DISK_SLOT3
@@ -47,13 +63,6 @@ BEGIN
         MENUITEM "&7 (prázdny)\tF11, Ctrl+7",                   ID_DISK_SLOT7
         MENUITEM "&8 (prázdny)\tF11, Ctrl+8",                   ID_DISK_SLOT8
         MENUITEM "&9 (prázdny)\tF11, Ctrl+9",                   ID_DISK_SLOT9
-        MENUITEM SEPARATOR
-        MENUITEM "&Spravovať sloty…",                           ID_DISK_SLOTS
-        MENUITEM SEPARATOR
-        /* Bez skratky, tak ako Spravovat sloty. Kazda hostitelska skratka je
-           kláves, ktory Eureka uz nikdy nedostane, a toto je ukon, ktory sa
-           robi raz za cas -- na taky sa ponuka otvori. */
-        MENUITEM "&Rozdeliť kolekciu na diskety…",              ID_DISK_SPLIT
     END
     POPUP "&Stroj"
     BEGIN
