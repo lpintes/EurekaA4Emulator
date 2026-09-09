@@ -32,7 +32,8 @@ CFLAGS   := -std=c11 -O2 $(WARN) -Isrc
 # Necham to tak, aby sa spolu s prechodom na make nemenilo aj chovanie.
 TESTFLAGS := -std=c++20 -O2 $(WARN) -Isrc
 
-EMU_NAMES  := main machine virtual_disk cpm_disk disk_stash text_codec audio_player \
+EMU_NAMES  := main machine virtual_disk cpm_disk disk_stash disk_layout \
+              disk_split text_codec audio_player \
               diagnostics host_console emulator_thread main_window dialogs \
               settings
 # Nezavisle na emulatore, da sa vziat do ineho projektu tak ako je.
@@ -97,6 +98,7 @@ $(BIN)/codec_test.exe: $(BUILD)/test_codec_test.o $(BUILD)/text_codec.o | $(BIN)
 
 $(BIN)/disk_test.exe: $(BUILD)/test_disk_test.o $(BUILD)/virtual_disk.o \
                      $(BUILD)/cpm_disk.o $(BUILD)/disk_layout.o \
+                     $(BUILD)/disk_split.o $(BUILD)/text_codec.o \
                      $(BUILD)/disk_stash.o | $(BIN)
 	$(CXX) $(STATIC) -o $@ $^
 

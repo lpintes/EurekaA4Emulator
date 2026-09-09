@@ -27,7 +27,9 @@
 
 #include "cpm_disk.h"
 #include "disk_layout.h"
+#include "disk_split.h"
 #include "disk_stash.h"
+#include "text_codec.h"
 #include "virtual_disk.h"
 
 namespace fs = std::filesystem;
@@ -43,12 +45,16 @@ std::string Narrow(const std::wstring& text) {
   return result;
 }
 
-void Check(bool passed, const std::string& name, const std::string& detail = "") {
+// Vracia to, co dostala, aby sa dalo napisat `if (!Check(...)) return;` --
+// kontroly, ktore stoja na predoslej, inak merali pokracovanie po zlyhani a
+// hlasili druhu chybu, ktora je len nasledkom prvej.
+bool Check(bool passed, const std::string& name, const std::string& detail = "") {
   ++checks;
   if (!passed) ++failures;
   std::cout << (passed ? "  ok   " : "  CHYBA ") << name;
   if (!passed && !detail.empty()) std::cout << ": " << detail;
   std::cout << "\n";
+  return passed;
 }
 
 fs::path Root() {
@@ -1294,6 +1300,216 @@ void LayoutCountsTheCatalogueBeforeSplitting() {
     room = room && disk.blocks < cpm::kAvailableBlocks && disk.entries < cpm::kDirectoryEntries;
   Check(room, "layout_na_kazdej_diskete_zostalo_miesto_na_obsah");
 }
+
+// Vykonanie planu (src/disk_split.*).
+//
+// Toto je vrstva, ktora sa disku dotyka, takze na rozdiel od planovaca tu
+// priecinky naozaj vznikaju -- v %TEMP%, ako vsade inde v tomto teste. Drzi
+// to tri veci, ktore su o datach a nie o algoritme: ze sa ziadny subor
+// nestrati ani nezmeni, ze sa nic neprepise, a ze zdrojovy priecinok zostane
+// taky, aky bol -- SPOLU.txt je jedina vynimka a zapisuje sa len na vyzvu.
+
+// Kolekcia vacsia nez disketa: styri priecinky po 60 suboroch a 4 KiB, teda
+// 480 blokov, plus dva subory v koreni.
+fs::path MakeCollection(const std::string& name) {
+  const fs::path root = MakeFolder(name);
+  std::error_code ec;
+  unsigned seed = 0;
+  for (const char* group : {"HUDBA", "SLOVNIK", "PRIBEHY", "PROGRAMY"}) {
+    fs::create_directories(root / group, ec);
+    for (unsigned i = 0; i < 60; ++i) {
+      char leaf[24];
+      std::snprintf(leaf, sizeof leaf, "%c%03u.TXT", group[0], i);
+      MakeFile(root / group / leaf, 4096, seed++);
+    }
+  }
+  MakeFile(root / "KOREN.TXT", 2048, seed++);
+  MakeFile(root / "TURBO.COM", 2048, seed++);
+  MakeFile(root / "TURBO.MSG", 2048, seed++);
+  return root;
+}
+
+// Kolko suborov je v priecinku a v jeho podpriecinkoch. Zdroj sa porovnava
+// pred rozdelenim a po nom: vrstva doN nesmie zapisat nic.
+std::size_t CountFiles(const fs::path& root) {
+  std::size_t count = 0;
+  std::error_code ec;
+  for (const auto& entry : fs::recursive_directory_iterator(root, ec))
+    if (entry.is_regular_file(ec)) ++count;
+  return count;
+}
+
+void SplitScanReadsSubfoldersAndSpolu() {
+  const fs::path root = MakeCollection("split-scan");
+  {
+    std::ofstream spolu(root / "SPOLU.txt", std::ios::binary | std::ios::trunc);
+    const std::string text = "# poznamka\r\nTURBO.COM, TURBO.MSG\r\n";
+    spolu.write(text.data(), static_cast<std::streamsize>(text.size()));
+  }
+
+  disk_split::Collection collection;
+  std::wstring error;
+  Check(disk_split::Scan(root, collection, error), "split_scan_precital_kolekciu",
+        Narrow(error));
+  // 243 suborov kolekcie: SPOLU.txt medzi ne nepatri, je to jej navod.
+  Check(collection.files.size() == 243, "split_scan_spolu_txt_nie_je_subor_kolekcie",
+        std::to_string(collection.files.size()) + " suborov");
+  Check(collection.has_spolu && collection.spolu.size() == 1 &&
+            collection.spolu[0].size() == 2,
+        "split_scan_precital_jednotky_zo_spolu");
+
+  std::map<std::wstring, unsigned> groups;
+  for (const layout::SourceFile& file : collection.files) ++groups[file.group];
+  Check(groups.size() == 5, "split_scan_podpriecinok_je_skupina",
+        std::to_string(groups.size()) + " skupin");
+  Check(groups[L""] == 3 && groups[L"HUDBA"] == 60,
+        "split_scan_koren_aj_podpriecinok_maju_svoje_subory");
+}
+
+void SplitCopiesEveryFileExactlyOnce() {
+  const fs::path root = MakeCollection("split-kopia");
+  const fs::path target = Root() / "split-kopia-ciel";
+  const std::size_t before = CountFiles(root);
+
+  disk_split::Collection collection;
+  std::wstring error;
+  if (!Check(disk_split::Scan(root, collection, error), "split_kopia_scan",
+             Narrow(error)))
+    return;
+  const layout::Options options;
+  const layout::Plan plan = layout::Build(collection.files, options);
+  Check(PlanProblem(plan, collection.files).empty(), "split_kopia_plan_je_konzistentny",
+        PlanProblem(plan, collection.files));
+  Check(plan.diskettes.size() >= 2, "split_kopia_kolekcia_je_na_viac_diskiet",
+        std::to_string(plan.diskettes.size()) + " diskiet");
+
+  const disk_split::Outcome outcome =
+      disk_split::Execute(plan, collection.files, options, root, target);
+  Check(outcome.ok, "split_kopia_prebehla", Narrow(outcome.error));
+  Check(outcome.copied == collection.files.size(),
+        "split_kopia_skopirovala_kazdy_subor",
+        std::to_string(outcome.copied) + " z " +
+            std::to_string(collection.files.size()));
+
+  // Bajt na bajt, a pod menom, ktore slubil plan. Suborov je 243, takze
+  // pocitanie nestaci -- prehodena dvojica by presla.
+  std::string problem;
+  std::size_t compared = 0;
+  for (const layout::Diskette& diskette : plan.diskettes) {
+    for (const layout::Item& item : diskette.items) {
+      const fs::path copied = target / diskette.label / item.name;
+      if (!fs::exists(copied)) {
+        problem = "chyba " + item.name;
+        break;
+      }
+      if (ReadAll(copied) != ReadAll(collection.files[item.file].path)) {
+        problem = "lisi sa obsah " + item.name;
+        break;
+      }
+      ++compared;
+    }
+    if (!problem.empty()) break;
+  }
+  Check(problem.empty() && compared == collection.files.size(),
+        "split_kopia_kazdy_subor_sedi_bajt_na_bajt", problem);
+  Check(fs::exists(target / "OBSAH.txt"), "split_kopia_plan_je_v_obsah_txt");
+  // Do zdroja sa nesiaha. SPOLU.txt tu nie je, takze ani ta jedina vynimka
+  // nemohla nic pridat.
+  Check(CountFiles(root) == before, "split_kopia_zdroj_zostal_nedotknuty");
+}
+
+void SplitRefusesATargetItWouldOverwrite() {
+  const fs::path root = MakeCollection("split-ciel");
+  disk_split::Collection collection;
+  std::wstring error;
+  if (!Check(disk_split::Scan(root, collection, error), "split_ciel_scan",
+             Narrow(error)))
+    return;
+  const layout::Options options;
+  const layout::Plan plan = layout::Build(collection.files, options);
+
+  const fs::path obsadeny = MakeFolder("split-ciel-obsadeny");
+  MakeFile(obsadeny / "MOJE.TXT", 16, 1);
+  const disk_split::Outcome full =
+      disk_split::Execute(plan, collection.files, options, root, obsadeny);
+  Check(!full.ok && !full.error.empty(), "split_ciel_neprazdny_je_odmietnuty");
+  Check(fs::exists(obsadeny / "MOJE.TXT") && CountFiles(obsadeny) == 1,
+        "split_ciel_neprazdny_zostal_nedotknuty");
+
+  // Ciel v zdroji by diskety zamiesal medzi subory, z ktorych vznikli, a
+  // dalsie delenie tej istej kolekcie by ich vzalo za jej cast.
+  const disk_split::Outcome inside =
+      disk_split::Execute(plan, collection.files, options, root, root / "DISKETY");
+  Check(!inside.ok && !inside.error.empty(), "split_ciel_v_zdroji_je_odmietnuty");
+  Check(!fs::exists(root / "DISKETY"), "split_ciel_v_zdroji_nic_nevytvoril");
+}
+
+void SplitSpoluSurvivesTheRoundTrip() {
+  const fs::path root = MakeCollection("split-spolu");
+  disk_split::Collection first;
+  std::wstring error;
+  if (!Check(disk_split::Scan(root, first, error), "split_spolu_scan", Narrow(error)))
+    return;
+  layout::Options options;
+  options.group_by_stem = false;
+  const layout::Plan plan = layout::Build(first.files, options);
+  // Bez zhody mena stoji TURBO.COM sam, takze jednotku tu vyrabame my --
+  // presne to robi pouzivatel, ked ju v sprievodcovi opravi.
+  std::vector<std::vector<std::wstring>> groups = {{L"TURBO.COM", L"TURBO.MSG"}};
+  Check(disk_split::WriteSpolu(root, groups, error), "split_spolu_zapisany",
+        Narrow(error));
+
+  disk_split::Collection second;
+  if (!Check(disk_split::Scan(root, second, error), "split_spolu_druhy_scan",
+             Narrow(error)))
+    return;
+  Check(second.spolu == groups, "split_spolu_precitany_je_ten_isty");
+  Check(second.files.size() == first.files.size(),
+        "split_spolu_nepribudol_medzi_subory_kolekcie");
+
+  options.spolu = second.spolu;
+  const layout::Plan joined = layout::Build(second.files, options);
+  std::size_t together = 0;
+  for (const layout::Unit& unit : joined.units)
+    if (unit.files.size() == 2 && unit.source == layout::UnitSource::kSpolu) ++together;
+  Check(together == 1, "split_spolu_vyrobil_tu_istu_jednotku",
+        std::to_string(together) + " jednotiek");
+}
+
+void SplitCatalogueGivesWayToTheUsersFile() {
+  const fs::path root = MakeFolder("split-obsah");
+  MakeFile(root / "OBSAH.TXT", 64, 3);
+  for (unsigned i = 0; i < 5; ++i) {
+    char leaf[16];
+    std::snprintf(leaf, sizeof leaf, "D%03u.TXT", i);
+    MakeFile(root / leaf, 2048, i);
+  }
+  const fs::path target = Root() / "split-obsah-ciel";
+
+  disk_split::Collection collection;
+  std::wstring error;
+  if (!Check(disk_split::Scan(root, collection, error), "split_obsah_scan",
+             Narrow(error)))
+    return;
+  layout::Options options;
+  options.catalogue_on_diskette = true;
+  const layout::Plan plan = layout::Build(collection.files, options);
+  const disk_split::Outcome outcome =
+      disk_split::Execute(plan, collection.files, options, root, target);
+  if (!Check(outcome.ok, "split_obsah_prebehol", Narrow(outcome.error))) return;
+
+  const fs::path folder = target / plan.diskettes[0].label;
+  Check(ReadAll(folder / "OBSAH.TXT") == ReadAll(root / "OBSAH.TXT"),
+        "split_obsah_pouzivatelov_subor_si_meno_nechal");
+  // Nas zoznam sa uhol na OBSAH~1.TXT. Kamenicke kodovanie a koncove 1Ah:
+  // TXT je textovy typ, takze export ho na tom znaku oreze.
+  const std::vector<uint8_t> ours = ReadAll(folder / "OBSAH~1.TXT");
+  Check(!ours.empty() && ours.back() == 0x1a,
+        "split_obsah_zoznam_konci_znakom_1ah");
+  const std::wstring decoded = DecodeKamenicky(ours.data(), ours.size() - 1);
+  Check(Contains(decoded, L"OBSAH DISKETY") && Contains(decoded, L"D000.TXT"),
+        "split_obsah_zoznam_menuje_subory_diskety");
+}
 }  // namespace
 
 int main() {
@@ -1341,6 +1557,12 @@ int main() {
   LayoutIsDeterministic();
   LayoutModesPackDifferently();
   LayoutCountsTheCatalogueBeforeSplitting();
+
+  SplitScanReadsSubfoldersAndSpolu();
+  SplitCopiesEveryFileExactlyOnce();
+  SplitRefusesATargetItWouldOverwrite();
+  SplitSpoluSurvivesTheRoundTrip();
+  SplitCatalogueGivesWayToTheUsersFile();
 
   fs::remove_all(Root(), ec);
   std::cout << (failures == 0 ? "PASS" : "FAIL") << " mode=DISK kontrol=" << checks
