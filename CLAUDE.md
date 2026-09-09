@@ -4,6 +4,10 @@
 
 Robíš neakceptovateľne veľa chýb, heredoc to často kazí. Nevieš to, plytváš tokenmi a zdržuje to.
 
+## Spôsob práce
+
+Kvôli lepšiemu manažovaniu limitu postupuj inkrementálne. Najskôr spravíš časť práce, nejaký zmysluplný krok, zhrnieš čo si urobil a zastavíš sa. Po pokyne pokračuj alebo next urobíš ďalší krok.
+
 ## Najprv si prečítaj HANDOFF.md
 
 `HANDOFF.md` je nosič kontextu tohto projektu: čo je zistené, čím je to
