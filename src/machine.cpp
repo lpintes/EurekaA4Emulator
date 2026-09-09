@@ -87,8 +87,9 @@ bool EurekaMachine::LoadRom(const fs::path& path, std::wstring& error) {
   return true;
 }
 
-bool EurekaMachine::MountDisk(const fs::path& folder, std::wstring& error) {
-  if (!disk_.Mount(folder, error)) return false;
+bool EurekaMachine::MountDisk(const fs::path& folder, std::wstring& error,
+                              bool* tooBig) {
+  if (!disk_.Mount(folder, error, tooBig)) return false;
   ForgetFormattedTrack();
   return true;
 }

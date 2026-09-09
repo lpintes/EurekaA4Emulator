@@ -33,7 +33,10 @@ class EurekaMachine {
   static constexpr uint32_t kRamBase = 0x70000;
 
   bool LoadRom(const std::filesystem::path& path, std::wstring& error);
-  bool MountDisk(const std::filesystem::path& folder, std::wstring& error);
+  // tooBig is passed straight through to VirtualDisk::Mount: see there for
+  // why the one refusal the host can act on is a value and not a string.
+  bool MountDisk(const std::filesystem::path& folder, std::wstring& error,
+                 bool* tooBig = nullptr);
   void CreateEmptyDisk(bool formatted = true) {
     disk_.CreateEmpty(formatted);
     ForgetFormattedTrack();

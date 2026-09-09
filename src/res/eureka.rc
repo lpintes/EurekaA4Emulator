@@ -49,6 +49,11 @@ BEGIN
         MENUITEM "&9 (prázdny)\tF11, Ctrl+9",                   ID_DISK_SLOT9
         MENUITEM SEPARATOR
         MENUITEM "&Spravovať sloty…",                           ID_DISK_SLOTS
+        MENUITEM SEPARATOR
+        /* Bez skratky, tak ako Spravovat sloty. Kazda hostitelska skratka je
+           kláves, ktory Eureka uz nikdy nedostane, a toto je ukon, ktory sa
+           robi raz za cas -- na taky sa ponuka otvori. */
+        MENUITEM "&Rozdeliť kolekciu na diskety…",              ID_DISK_SPLIT
     END
     POPUP "&Stroj"
     BEGIN
@@ -326,6 +331,104 @@ BEGIN
                     7, 155, 286, 10, BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP
     DEFPUSHBUTTON   "OK", IDOK, 186, 169, 50, 14, WS_GROUP
     PUSHBUTTON      "Zrušiť", IDCANCEL, 243, 169, 50, 14
+END
+
+/////////////////////////////////////////////////////////////////////////////
+// Rozdeľovač kolekcie
+//
+// Two dialogs one after the other, and this time it really is two steps: the
+// second one shows a plan built out of the answers given in the first, so
+// there is nothing to put on one page.  Still two *dialogs* and not a property
+// sheet -- each is one role a screen reader announces, one tab order and one
+// Enter, where a wizard control is three of each and a "Back" that moves
+// focus somewhere the user did not ask for.
+//
+// The first page asks four things and no more: what to split, where to put it,
+// how to cut it, and what counts as belonging together.  Every one of them is
+// a decision the plan cannot make -- the rest the layer works out for itself.
+
+IDD_SPLIT DIALOGEX 0, 0, 320, 208
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Rozdeliť kolekciu na diskety"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "&Priečinok s kolekciou:", IDC_STATIC, 7, 9, 90, 9
+    EDITTEXT        IDC_SPLIT_SOURCE, 100, 7, 155, 14, ES_AUTOHSCROLL |
+                    WS_GROUP | WS_TABSTOP
+    PUSHBUTTON      "P&rehľadávať…", IDC_SPLIT_SOURCE_BROWSE, 260, 7, 53, 14
+    LTEXT           "&Cieľový priečinok:", IDC_STATIC, 7, 29, 90, 9
+    EDITTEXT        IDC_SPLIT_TARGET, 100, 27, 155, 14, ES_AUTOHSCROLL |
+                    WS_GROUP | WS_TABSTOP
+    PUSHBUTTON      "Prehľa&dávať…", IDC_SPLIT_TARGET_BROWSE, 260, 27, 53, 14
+
+    GROUPBOX        "Ako deliť", IDC_STATIC, 7, 48, 306, 62
+    /* Prepínače hovoria, čo z toho pre používateľa plynie, nie ako to je
+       vnútri urobené: „first-fit-decreasing“ je pravda o kóde a nič
+       nehovorí tomu, kto vyberá. */
+    CONTROL         "&Sekvenčne, abecedne — disketa 3 sú súbory od K po P",
+                    IDC_SPLIT_SEQUENTIAL, "Button",
+                    BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, 16, 61, 288, 12
+    CONTROL         "Podľa priečin&kov — priečinok zostane pokope, pokiaľ sa "
+                    "zmestí", IDC_SPLIT_BYFOLDER, "Button",
+                    BS_AUTORADIOBUTTON, 16, 76, 288, 12
+    CONTROL         "&Natesno — najmenej diskiet, priečinky sa rozsypú",
+                    IDC_SPLIT_TIGHT, "Button", BS_AUTORADIOBUTTON,
+                    16, 91, 288, 12
+
+    /* WS_GROUP tu skupinu prepínačov ukončuje, a je to to isté miesto, na
+       ktorom sa už raz popálil IDD_SETTINGS: skupina beží od prvku s WS_GROUP
+       po *ďalší* taký prvok, takže bez tohto by pokračovala do rámčeka pod
+       ňou a šípky by po prepínačoch prestali krúžiť (HANDOFF 6.27). */
+    GROUPBOX        "Čo patrí k sebe", IDC_STATIC, 7, 116, 306, 62,
+                    BS_GROUPBOX | WS_GROUP
+    CONTROL         "Súbory s rovnakým &menom — TURBO.COM a TURBO.MSG",
+                    IDC_SPLIT_STEM, "Button",
+                    BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP, 16, 129, 288, 12
+    CONTROL         "Sprievodné prípony k &jedinému programu v priečinku — "
+                    "WS.COM a WSMSGS.OVR", IDC_SPLIT_COMPANION, "Button",
+                    BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP, 16, 144, 288, 12
+    CONTROL         "&Zoznam súborov OBSAH.TXT na každej diskete",
+                    IDC_SPLIT_CATALOGUE, "Button",
+                    BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP, 16, 159, 288, 12
+
+    DEFPUSHBUTTON   "Ďa&lej…", IDOK, 206, 187, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 263, 187, 50, 14
+END
+
+/////////////////////////////////////////////////////////////////////////////
+// Plán rozdelenia
+//
+// Plán je viacriadkový editačný prvok len na čítanie, nie zoznam: čítačka ho
+// prejde revíznym kurzorom po riadkoch aj po slovách, kým položka zoznamu sa
+// číta celá naraz. Je to ten istý dôvod, pre ktorý je tak urobené O programe.
+//
+// Jednotky sú editačné pole a je to ich vlastný formát: to, čo v ňom stojí, je
+// presne obsah SPOLU.txt, takže sa nemá ako rozísť s tým, čo sa doň zapíše.
+// Popiska preto formát nevysvetľuje -- pole prichádza vyplnené, a tým je
+// povedané. ES_WANTRETURN, inak by Enter v ňom spustil kopírovanie namiesto
+// toho, aby odriadkoval.
+
+IDD_SPLITPLAN DIALOGEX 0, 0, 320, 240
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Plán rozdelenia"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "&Plán:", IDC_STATIC, 7, 7, 306, 9
+    EDITTEXT        IDC_SPLITPLAN_TEXT, 7, 19, 306, 120, ES_MULTILINE |
+                    ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL | WS_GROUP |
+                    WS_TABSTOP
+    LTEXT           "&Jednotky, ktoré patria k sebe:", IDC_STATIC, 7, 145,
+                    306, 9
+    EDITTEXT        IDC_SPLITPLAN_UNITS, 7, 157, 306, 40, ES_MULTILINE |
+                    ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL | WS_GROUP |
+                    WS_TABSTOP
+    PUSHBUTTON      "Prepočítať plá&n", IDC_SPLITPLAN_REBUILD, 7, 201, 80, 14,
+                    WS_GROUP
+    AUTOCHECKBOX    "&Zapísať ich do SPOLU.txt v priečinku s kolekciou",
+                    IDC_SPLITPLAN_SAVESPOLU, 95, 203, 218, 10,
+                    BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP
+    DEFPUSHBUTTON   "&Rozdeliť", IDOK, 206, 219, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 263, 219, 50, 14
 END
 
 IDD_ABOUT DIALOGEX 0, 0, 268, 156

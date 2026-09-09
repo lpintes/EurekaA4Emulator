@@ -46,7 +46,8 @@ std::wstring Count(uint64_t number, const wchar_t* one, const wchar_t* few,
 }
 }  // namespace
 
-bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
+bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error,
+                        bool* tooBig) {
   std::error_code ec;
   fs::path absolute = fs::weakly_canonical(folder, ec);
   if (ec || !fs::is_directory(absolute, ec)) {
@@ -61,7 +62,7 @@ bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
   // A host folder is a filesystem: it is formatted by definition, and there
   // is no state in which some of its tracks are missing.
   formatted_.set();
-  if (BuildImage(error)) return true;
+  if (BuildImage(error, tooBig)) return true;
   // A refused diskette leaves nothing behind: the half-built file list would
   // otherwise still be reported as if it were mounted.
   present_ = false;
@@ -252,17 +253,27 @@ bool VirtualDisk::CheckCapacity(const std::vector<SourceFile>& files,
              L". Viac súborov na jednu disketu nejde ani vtedy, keď sú maličké; "
              L"súbor nad 16 KiB si navyše vyžiada ďalšiu položku.\r\n";
   }
-  error += L"Rozdeľte priečinok na viac priečinkov a striedajte ich ako diskety.";
+  // The advice used to end here -- "split the folder into several folders and
+  // swap them like diskettes" -- and that is now a thing the emulator does
+  // rather than a thing it asks for (6.22).  Naming the menu item and nothing
+  // else on purpose: the window offers to open it straight away, and a
+  // sentence that promised the offer would be a lie everywhere else this
+  // message is shown.
+  error += L"Rozdeliť ho na diskety vie ponuka Disketa → Rozdeliť kolekciu "
+           L"na diskety.";
   return false;
 }
 
-bool VirtualDisk::BuildImage(std::wstring& error) {
+bool VirtualDisk::BuildImage(std::wstring& error, bool* tooBig) {
   image_.fill(0xe5);
   imported_.clear();
 
   std::vector<SourceFile> files;
   if (!ScanFolder(files, error)) return false;
-  if (!CheckCapacity(files, error)) return false;
+  if (!CheckCapacity(files, error)) {
+    if (tooBig) *tooBig = true;
+    return false;
+  }
 
   std::set<std::string> used;
   unsigned directoryIndex = 0;

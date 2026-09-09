@@ -1,7 +1,9 @@
 #include "dialogs.h"
 
 #include <filesystem>
+#include <system_error>
 
+#include "disk_split.h"
 #include "res/resource.h"
 
 bool SettingsDialog::OnInit() {
@@ -320,6 +322,120 @@ bool SlotsDialog::OnCommand(int id, int notification) {
     default:
       return false;
   }
+}
+
+bool SplitDialog::OnInit() {
+  SetText(IDC_SPLIT_SOURCE, source_);
+  SetChecked(IDC_SPLIT_SEQUENTIAL, true);
+  // The defaults of disk_layout::Options, read from it rather than repeated:
+  // which rules are guesses is that layer's judgement, not this dialog's.
+  SetChecked(IDC_SPLIT_STEM, options_.group_by_stem);
+  SetChecked(IDC_SPLIT_COMPANION, options_.group_by_companion);
+  SetChecked(IDC_SPLIT_CATALOGUE, options_.catalogue_on_diskette);
+  return false;
+}
+
+bool SplitDialog::OnCommand(int id, int notification) {
+  if (id == IDC_SPLIT_SOURCE_BROWSE) {
+    const std::wstring folder =
+        win::PickFolder(hwnd_, L"Vyberte priečinok s kolekciou");
+    if (!folder.empty()) SetText(IDC_SPLIT_SOURCE, folder);
+    return true;
+  }
+  if (id == IDC_SPLIT_TARGET_BROWSE) {
+    // The naming picker: the target is nearly always a folder that does not
+    // exist yet, and having to go and create it first would turn one act into
+    // two -- the same reason Ctrl+U uses it (6.22).
+    const std::wstring folder = win::PickFolderToCreate(
+        hwnd_, L"Kam sa majú diskety vytvoriť", L"Diskety");
+    if (!folder.empty()) SetText(IDC_SPLIT_TARGET, folder);
+    return true;
+  }
+  return false;
+}
+
+bool SplitDialog::OnOk() {
+  source_ = GetText(IDC_SPLIT_SOURCE);
+  target_ = GetText(IDC_SPLIT_TARGET);
+  options_.mode = IsChecked(IDC_SPLIT_BYFOLDER) ? disk_layout::Mode::kByFolder
+                  : IsChecked(IDC_SPLIT_TIGHT)  ? disk_layout::Mode::kTight
+                                                : disk_layout::Mode::kSequential;
+  options_.group_by_stem = IsChecked(IDC_SPLIT_STEM);
+  options_.group_by_companion = IsChecked(IDC_SPLIT_COMPANION);
+  options_.catalogue_on_diskette = IsChecked(IDC_SPLIT_CATALOGUE);
+
+  std::error_code ec;
+  if (source_.empty() || !std::filesystem::is_directory(
+                             std::filesystem::path(source_), ec)) {
+    MessageBoxW(hwnd_,
+                L"Zadajte priečinok s kolekciou, alebo ho vyberte tlačidlom "
+                L"Prehľadávať.",
+                L"Rozdeliť kolekciu", MB_OK | MB_ICONINFORMATION);
+    SetFocus(Item(IDC_SPLIT_SOURCE));
+    return false;
+  }
+  if (target_.empty()) {
+    MessageBoxW(hwnd_,
+                L"Zadajte cieľový priečinok, do ktorého sa diskety vytvoria.",
+                L"Rozdeliť kolekciu", MB_OK | MB_ICONINFORMATION);
+    SetFocus(Item(IDC_SPLIT_TARGET));
+    return false;
+  }
+  // Asked now and not after the plan is built: the same rule decides either
+  // way -- disk_split::TargetIsUsable is the only copy of it -- and hearing it
+  // after reading a plan of forty diskettes is hearing it too late.
+  std::wstring error;
+  if (!disk_split::TargetIsUsable(std::filesystem::path(source_),
+                                  std::filesystem::path(target_), error)) {
+    MessageBoxW(hwnd_, error.c_str(), L"Rozdeliť kolekciu",
+                MB_OK | MB_ICONWARNING);
+    SetFocus(Item(IDC_SPLIT_TARGET));
+    return false;
+  }
+  return true;
+}
+
+bool SplitPlanDialog::OnInit() {
+  SetText(IDC_SPLITPLAN_TEXT, plan_);
+  SetText(IDC_SPLITPLAN_UNITS, units_);
+  // The caret at the top rather than everything selected, which a screen
+  // reader reads out as a selection rather than as text.  Same as About.
+  SendMessageW(Item(IDC_SPLITPLAN_TEXT), EM_SETSEL, 0, 0);
+  // Nothing to write back when the collection has no units at all, and a tick
+  // box that would write an empty SPOLU.txt into the source folder is a write
+  // into the source for nothing.
+  SetEnabled(IDC_SPLITPLAN_SAVESPOLU, !units_.empty());
+  return false;
+}
+
+void SplitPlanDialog::Recount() {
+  units_ = GetText(IDC_SPLITPLAN_UNITS);
+  plan_ = rebuild_(units_);
+  SetText(IDC_SPLITPLAN_TEXT, plan_);
+  SendMessageW(Item(IDC_SPLITPLAN_TEXT), EM_SETSEL, 0, 0);
+  SetEnabled(IDC_SPLITPLAN_SAVESPOLU, !units_.empty());
+  SetFocus(Item(IDC_SPLITPLAN_TEXT));
+}
+
+bool SplitPlanDialog::OnCommand(int id, int notification) {
+  if (id == IDC_SPLITPLAN_REBUILD) {
+    Recount();
+    return true;
+  }
+  return false;
+}
+
+bool SplitPlanDialog::OnOk() {
+  saveSpolu_ = IsChecked(IDC_SPLITPLAN_SAVESPOLU);
+  // Edited and not recounted: recount instead of closing, so that what is
+  // about to be carried out is the plan the user has just heard.  Deliberately
+  // without a message box -- the new plan in the focused box *is* the answer,
+  // and Rozdeliť pressed a second time then means what it says.
+  if (GetText(IDC_SPLITPLAN_UNITS) != units_) {
+    Recount();
+    return false;
+  }
+  return true;
 }
 
 bool AboutDialog::OnInit() {

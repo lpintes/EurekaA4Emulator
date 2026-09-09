@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "dialogs.h"
+#include "disk_split.h"
 #include "host_console.h"
 #include "res/resource.h"
 #include "win/dialog.h"
@@ -404,6 +405,11 @@ void MainWindow::RegisterCommands() {
       emulator_.PostAssignSlot(dialog.assigned_current());
   });
 
+  // The diskette in the drive as the collection to split.  It is the folder
+  // the user is most likely to mean and it is only a suggestion: the field is
+  // editable and Prehľadávať is beside it.
+  OnCommand(ID_DISK_SPLIT, [this] { SplitCollection(disk_.home); });
+
   OnCommand(ID_TOOLS_SETTINGS, [this] {
     SettingsDialog dialog(emulator_.mode(), emulator_.diagnostics());
     if (dialog.ShowModal(hwnd_, IDD_SETTINGS) != IDOK) return;
@@ -484,6 +490,83 @@ void MainWindow::InsertSlot(int number) {
   // in which the guest could write to exactly what the lock is there to
   // protect.
   emulator_.PostInsertSlot(number, folder, settings_.disk_locked(folder));
+}
+
+// The whole splitter from the window's side: ask, plan, show, carry out.
+//
+// Everything that touches a file is in disk_split and everything that decides
+// what goes where is in disk_layout; this puts the two dialogs in front of
+// them and reports what happened.  The one thing worth watching here is the
+// order -- SPOLU.txt is written before the copying starts, because the copy
+// takes a while and a failure to write it has to be heard while the user is
+// still thinking about the units it came from.
+void MainWindow::SplitCollection(const std::wstring& source) {
+  SplitDialog dialog(source);
+  if (dialog.ShowModal(hwnd_, IDD_SPLIT) != IDOK) return;
+
+  const std::filesystem::path from(dialog.source());
+  const std::filesystem::path to(dialog.target());
+  disk_split::Collection collection;
+  std::wstring error;
+  if (!disk_split::Scan(from, collection, error)) {
+    MessageBoxW(hwnd_, error.c_str(), L"Rozdeliť kolekciu",
+                MB_OK | MB_ICONWARNING);
+    return;
+  }
+
+  disk_layout::Options options = dialog.options();
+  // SPOLU.txt is the collection's own answer to "what belongs together" and
+  // outranks both guessing rules, so it arrives from the folder and not from
+  // the dialog.
+  options.spolu = collection.spolu;
+  disk_layout::Plan plan = disk_layout::Build(collection.files, options);
+
+  // The plan and the units it was built from move together.  The dialog
+  // refuses to close on units it has not recounted, so `plan` here is always
+  // the plan that was on screen.
+  const auto rebuild = [&](const std::wstring& units) {
+    options.spolu = disk_layout::ParseSpolu(units);
+    plan = disk_layout::Build(collection.files, options);
+    return disk_split::Describe(plan, collection.files, options, from, to);
+  };
+
+  SplitPlanDialog preview(
+      disk_split::Describe(plan, collection.files, options, from, to),
+      disk_layout::FormatSpolu(
+          disk_layout::UnitsAsGroups(plan, collection.files)),
+      rebuild);
+  if (preview.ShowModal(hwnd_, IDD_SPLITPLAN) != IDOK) return;
+
+  // The only write into the collection there is, and only because the user
+  // ticked the box saying so.
+  if (preview.save_spolu() &&
+      !disk_split::WriteSpolu(from, disk_layout::ParseSpolu(preview.units()),
+                              error))
+    MessageBoxW(hwnd_, error.c_str(), L"Rozdeliť kolekciu",
+                MB_OK | MB_ICONWARNING);
+
+  const disk_split::Outcome outcome =
+      disk_split::Execute(plan, collection.files, options, from, to);
+  if (!outcome.ok) {
+    MessageBoxW(hwnd_,
+                (L"Rozdelenie sa nedokončilo:\r\n\r\n" + outcome.error).c_str(),
+                L"Rozdeliť kolekciu", MB_OK | MB_ICONERROR);
+    return;
+  }
+  // Counted, not spelled with a plural: Slovak has three shapes and this is
+  // read aloud, where a wrong ending is heard rather than skimmed.
+  std::wstring done = L"Kolekcia je rozdelená.\r\n\r\nDiskiet: " +
+                      std::to_wstring(outcome.diskettes) +
+                      L"\r\nSkopírovaných súborov: " +
+                      std::to_wstring(outcome.copied);
+  if (!plan.rejected.empty())
+    done += L"\r\nOdmietnutých súborov: " +
+            std::to_wstring(plan.rejected.size());
+  done += L"\r\n\r\nSú v priečinku:\r\n" + to.wstring() +
+          L"\r\n\r\nKaždý priečinok v ňom je jedna disketa. Celý plán aj "
+          L"s dôvodmi odmietnutia je v súbore OBSAH.txt.";
+  MessageBoxW(hwnd_, done.c_str(), L"Rozdeliť kolekciu",
+              MB_OK | MB_ICONINFORMATION);
 }
 
 // The .rc carries only what an empty slot says; the real names come from the
@@ -974,8 +1057,21 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       // of labour as the keyboard state, and for the same reason: there is
       // nothing on screen to look at.
       if (!change.ok) {
-        MessageBoxW(hwnd_, change.error.c_str(), L"Eureka A4",
-                    MB_OK | MB_ICONERROR);
+        // A folder that will not fit on one diskette is the one refusal with
+        // something to offer, and offering it here is what makes the splitter
+        // the deed that replaces the advice: the folder has just been chosen,
+        // so asking the user to find it again in a second dialog would be
+        // making them pay twice for one decision (6.22).
+        if (change.tooBig && !change.attempted.empty()) {
+          if (MessageBoxW(hwnd_,
+                          (change.error + L"\r\n\r\nChcete to urobiť teraz?")
+                              .c_str(),
+                          L"Eureka A4", MB_YESNO | MB_ICONQUESTION) == IDYES)
+            SplitCollection(change.attempted);
+        } else {
+          MessageBoxW(hwnd_, change.error.c_str(), L"Eureka A4",
+                      MB_OK | MB_ICONERROR);
+        }
       } else if (!change.swapped) {
         // Only the notch moved, so the diskette itself is unchanged and there
         // is nothing to remember about which one is in.  The lock, though, is

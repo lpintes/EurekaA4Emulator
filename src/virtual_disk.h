@@ -37,7 +37,15 @@ class VirtualDisk {
   static constexpr unsigned kLogicalTracks = kTracks;
 
   // Reads a host folder in and keeps it as this diskette's home.
-  bool Mount(const std::filesystem::path& folder, std::wstring& error);
+  //
+  // tooBig, when given, is set for the one refusal that has something to
+  // offer: the folder is a fine folder and simply will not fit on 792 KiB or
+  // in 256 directory entries.  The host turns that into the splitter (6.22),
+  // and it has to be able to tell it apart from a file it could not read
+  // without reading the message -- a message is text for the user, not a
+  // value to parse back.
+  bool Mount(const std::filesystem::path& folder, std::wstring& error,
+             bool* tooBig = nullptr);
   // A diskette with no home.  formatted false gives one that has never been
   // through a format: every track reads back Record Not Found until the
   // guest's own format routine lays it down.  Only worth doing here -- a
@@ -141,7 +149,7 @@ class VirtualDisk {
 
   using ImportedFiles = std::unordered_map<std::string, ImportedFile>;
 
-  bool BuildImage(std::wstring& error);
+  bool BuildImage(std::wstring& error, bool* tooBig = nullptr);
   bool ScanFolder(std::vector<SourceFile>& files, std::wstring& error);
   bool CheckCapacity(const std::vector<SourceFile>& files, std::wstring& error) const;
   // writeBack distinguishes the two directions: updating the home folder in

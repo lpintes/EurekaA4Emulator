@@ -129,6 +129,13 @@ struct DiskChange {
   // would be telling the user something that did not happen.
   bool swapped = true;
   std::wstring error;
+  // The one refusal the window can do something about: the folder is a folder
+  // and simply does not fit on one diskette.  `attempted` is then the folder
+  // that was asked for, so the splitter can be offered with it already filled
+  // in -- which is what makes it the deed replacing the advice in
+  // VirtualDisk::CheckCapacity rather than a menu item somewhere (6.22).
+  bool tooBig = false;
+  std::wstring attempted;
   // What is in the drive afterwards.  A refused mount leaves it empty --
   // VirtualDisk::Mount unwinds itself -- so this is always the truth about
   // now, error or not.

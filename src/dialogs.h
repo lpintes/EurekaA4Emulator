@@ -5,8 +5,10 @@
 // -- see win/dialog.h for why that matters and not merely how it looks.
 
 #include <array>
+#include <functional>
 #include <string>
 
+#include "disk_layout.h"
 #include "emulator_thread.h"
 #include "settings.h"
 #include "win/dialog.h"
@@ -135,6 +137,86 @@ class SlotsDialog : public win::Dialog {
   std::wstring currentDisk_;
   bool currentLocked_ = false;
   const Settings* settings_ = nullptr;
+};
+
+// Splitting a collection, first page: what is to be split, where it is to go,
+// and the two questions the plan cannot answer for itself -- how to cut, and
+// what counts as belonging together.
+//
+// It knows nothing about files.  Reading the collection and copying it out are
+// disk_split's, and the plan is disk_layout's; this asks and validates, which
+// is all a dialog should ever do.
+class SplitDialog : public win::Dialog {
+ public:
+  // source pre-fills the field.  It is what the window already knows: the
+  // folder whose diskette would not fit, or the one in the drive.  Being able
+  // to press Ďalej straight away is the difference between the splitter
+  // replacing the advice VirtualDisk::CheckCapacity gives and merely being
+  // mentioned by it (HANDOFF 6.22).
+  explicit SplitDialog(std::wstring source) : source_(std::move(source)) {}
+
+  const std::wstring& source() const { return source_; }
+  const std::wstring& target() const { return target_; }
+  // Everything but `spolu`, which comes from the collection itself.
+  const disk_layout::Options& options() const { return options_; }
+
+ protected:
+  bool OnInit() override;
+  bool OnCommand(int id, int notification) override;
+  bool OnOk() override;
+
+ private:
+  std::wstring source_;
+  std::wstring target_;
+  disk_layout::Options options_;
+};
+
+// Splitting a collection, second page: the plan, and the units it was built
+// from.  Counting diskettes says nothing about the risk, so the text names
+// what is worth overruling -- folders split across diskettes, units and the
+// rule that merged them, renames and refusals.
+class SplitPlanDialog : public win::Dialog {
+ public:
+  // Given the units as SPOLU.txt spells them, builds the plan again and hands
+  // back the text describing it.  A function rather than the layers
+  // themselves: this dialog is not to know what a diskette is.
+  using Rebuild = std::function<std::wstring(const std::wstring& units)>;
+
+  SplitPlanDialog(std::wstring plan, std::wstring units, Rebuild rebuild)
+      : plan_(std::move(plan)),
+        units_(std::move(units)),
+        rebuild_(std::move(rebuild)) {}
+
+  // The units as they stood when the plan last shown was built -- which, by
+  // the rule in OnOk, is always the plan the user has read.
+  const std::wstring& units() const { return units_; }
+  bool save_spolu() const { return saveSpolu_; }
+
+ protected:
+  bool OnInit() override;
+  bool OnCommand(int id, int notification) override;
+  bool OnOk() override;
+
+ private:
+  // Rebuilds the plan from the edited units and reads it out: the focus goes
+  // to the plan, because a read-only box that changed under a screen reader
+  // announces nothing at all, and the answer to "recount" is the plan itself.
+  void Recount();
+
+  // What the plan on screen was built from.  OK compares the box against it
+  // and recounts instead of closing when they differ: a plan carried out has
+  // to be a plan the user has been shown, and splitting on units nobody saw
+  // the consequences of is exactly the quiet kind of wrong this program keeps
+  // chasing.
+  //
+  // Compared rather than watched through EN_CHANGE, and that is not a matter
+  // of taste: WM_SETTEXT sends EN_CHANGE too, so filling the box in OnInit
+  // would arrive as "the user edited this" and the first Rozdeliť would
+  // recount instead of splitting.  The comparison cannot be wrong about that.
+  std::wstring plan_;
+  std::wstring units_;
+  Rebuild rebuild_;
+  bool saveSpolu_ = false;
 };
 
 class AboutDialog : public win::Dialog {

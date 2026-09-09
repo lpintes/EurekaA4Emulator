@@ -744,14 +744,16 @@ void EmulatorThread::Run() {
             else
               machine.CreateEmptyDisk(true);
           } else {
-            result.ok = machine.MountDisk(command.path, changeError);
+            result.ok =
+                machine.MountDisk(command.path, changeError, &result.tooBig);
             if (result.ok) machine.SetDiskWriteProtected(command.flag);
           }
           currentSlot = command.slot;
           break;
         }
         default:
-          result.ok = machine.MountDisk(command.path, changeError);
+          result.ok =
+              machine.MountDisk(command.path, changeError, &result.tooBig);
           // Set after the mount, which clears it: the notch belongs to the
           // medium, so Mount hands back an unprotected one and the slot's
           // wish is applied to the diskette that is now in.
@@ -762,6 +764,9 @@ void EmulatorThread::Run() {
     }
     publishStash();
     if (!result.ok) result.error = changeError;
+    // Only for the refusal the window can act on, so it cannot offer to split
+    // a folder that was refused for some other reason entirely.
+    if (result.tooBig) result.attempted = command.path;
     // Read after the change, so this is what is in the drive now.  A refused
     // mount leaves it empty, which the labels then say.
     result.state = DescribeDisk(machine.disk());

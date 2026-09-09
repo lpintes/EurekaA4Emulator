@@ -11,6 +11,11 @@
 #define IDD_ABOUT            201
 #define IDD_SLOTS            202
 #define IDD_NEWDISK          203
+// The splitter's two pages.  Two dialogs one after the other and not a
+// property sheet: each is one role, one tab order and one Enter, which is what
+// a screen reader deals with best -- see the comments in eureka.rc.
+#define IDD_SPLIT            204
+#define IDD_SPLITPLAN        205
 
 // Menu and accelerator commands.
 #define ID_FILE_EXPORT       40001
@@ -19,6 +24,7 @@
 #define ID_DISK_EJECT        40004
 #define ID_DISK_NEW          40005
 #define ID_DISK_PROTECT      40006
+#define ID_DISK_SPLIT        40007
 #define ID_MACHINE_RESET     40010
 #define ID_MACHINE_POWEROFF  40011
 #define ID_KEYBOARD_BRAILLE  40020
@@ -76,6 +82,24 @@
 #define IDC_NEW_PATH         1034
 #define IDC_NEW_BROWSE       1035
 #define IDC_NEW_SLOT         1036
+
+// Splitter, first page: what to split, where to, and how.
+#define IDC_SPLIT_SOURCE     1040
+#define IDC_SPLIT_SOURCE_BROWSE 1041
+#define IDC_SPLIT_TARGET     1042
+#define IDC_SPLIT_TARGET_BROWSE 1043
+#define IDC_SPLIT_SEQUENTIAL 1044
+#define IDC_SPLIT_BYFOLDER   1045
+#define IDC_SPLIT_TIGHT      1046
+#define IDC_SPLIT_STEM       1047
+#define IDC_SPLIT_COMPANION  1048
+#define IDC_SPLIT_CATALOGUE  1049
+
+// Splitter, second page: the plan, and the units it was built from.
+#define IDC_SPLITPLAN_TEXT   1050
+#define IDC_SPLITPLAN_UNITS  1051
+#define IDC_SPLITPLAN_REBUILD 1052
+#define IDC_SPLITPLAN_SAVESPOLU 1053
 
 // Slots dialog controls.
 #define IDC_SLOT_LIST        1020

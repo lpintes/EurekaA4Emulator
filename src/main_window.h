@@ -78,6 +78,12 @@ class MainWindow : public win::Window {
   // Puts the diskette from one of the nine slots in.  Numbered 1..9 the way
   // the menu and Ctrl+digit name them.
   void InsertSlot(int number);
+  // Splits a collection too big for one diskette into diskettes.  `source`
+  // pre-fills the field: from the menu that is whatever is in the drive, and
+  // from the box refusing an oversized folder it is that folder -- which is
+  // what makes this the deed replacing the advice, rather than a menu item
+  // the user has to find and then name the folder to a second time (6.22).
+  void SplitCollection(const std::wstring& source);
   // Rewrites the nine menu items from the settings, so the menu names what is
   // actually in each slot rather than what the .rc guessed.
   void RefreshSlotItems(HMENU menu) const;
