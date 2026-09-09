@@ -1,5 +1,9 @@
 # Pokyny pre agentov
 
+## Dôležité: NA EDITOVANIE A VYTVáRANIE SÚBOROV NEPOUŽÍVAJ PYTHON ANI INÉ NEŠTANDARDNÉ NÁSTROJE
+
+Robíš neakceptovateľne veľa chýb, heredoc to často kazí. Nevieš to, plytváš tokenmi a zdržuje to.
+
 ## Najprv si prečítaj HANDOFF.md
 
 `HANDOFF.md` je nosič kontextu tohto projektu: čo je zistené, čím je to
@@ -224,6 +228,15 @@ zozname stál dva roky a prezradil sa až zničenou zálohou (HANDOFF 6.23).
 Keď na `IsTextType` siahneš, zmenu musí prijať `klasifikacia_typov_je_pribita`
 — a nový typ patrí najprv overiť v `FILE-FMT.D`, nie odhadnúť podľa toho, ako
 koncovka vyzerá.
+
+Drží aj **rozdeľovač kolekcie** (`src/disk_layout.*`), teda vrstvu, ktorá
+z veľkého priečinka poskladá plán diskiet. Beží bez ROM aj bez jediného súboru
+na disku, lebo berie len mená a veľkosti a vracia plán — nekopíruje nič.
+Kapacitu ani mená si nepočíta sama: pýta sa `src/cpm_disk.h`, kde sú od
+9. 9. 2026 v jednej kópii aj pre `virtual_disk.cpp`. **Keď siahneš na kapacitu
+diskety alebo na skladanie 8.3 mena, patrí to tam.** Druhá kópia by dala plán,
+ktorý sľúbi disketu, akú obraz nepostaví, a obe polovice by sa ďalej prekladali
+aj testovali nazeleno.
 
 `settings_test` beží tiež bez ROM a v `%TEMP%`. Drží formát súboru
 s nastaveniami a hlavne to, že cesta s diakritikou prežije zápis aj čítanie.

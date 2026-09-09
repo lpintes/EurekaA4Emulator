@@ -1773,6 +1773,48 @@ medzi viac diskiet (v sekvenčnom režime bežné a presne tam to riziko
 dalo dohľadať o mesiac. Cieľ musí byť prázdny priečinok; nič sa
 neprepisuje a zdroj sa neotvára na zápis vôbec.
 
+**Vrstva `disk_layout` je hotová 9. 9. 2026, sprievodca nie.** Návrh vyššie
+platí celý; toto je to, čo sa rozhodlo až pri písaní a v ňom nestálo.
+
+- **Kapacita aj mená sú v `src/cpm_disk.h`, v jednej kópii.** Konštanty z DPB
+  stáli v anonymnom priestore mien vo `virtual_disk.cpp` a rozdeľovač ich
+  potrebuje tiež; s nimi sa presunulo aj skladanie 8.3 mena (`MakeName`,
+  `UniqueName`). Nie je to upratovanie: plán, ktorý sľúbi meno alebo kapacitu,
+  akú obraz nakoniec nedá, klame — a nezachytí to nič, lebo obe polovice by sa
+  ďalej prekladali aj testovali nazeleno.
+- **Jednotka nikdy nepresiahne priečinok.** `TURBO.COM` v jednom priečinku
+  a `TURBO.MSG` v druhom sú dve kópie od dvoch ľudí, nie jeden program. Všetky
+  tri pravidlá preto bežia vnútri každého priečinka zvlášť.
+- **Riadok v `SPOLU.txt` je pravidlo, nie zoznam konkrétnych súborov.** Uplatní
+  sa v každom priečinku samostatne, takže jeden riadok pokryje program, ktorý
+  leží v piatich. Práve preto spätný zápis (`UnitsAsGroups` → `FormatSpolu`)
+  prežije opakované delenie a `ParseSpolu` z neho vyrobí tie isté jednotky.
+  Meno v tom súbore sa navyše musí porovnávať po častiach, nie celé: skladanie
+  mena mení bodku na podtržník, takže `WS.COM` by ako jeden reťazec nesedelo
+  ani na vlastný súbor.
+- **Osamotený súbor sa premenuje na tej istej diskete, novú nezaloží.**
+  „Premenovanie je posledná záchrana“ znamená, že sa najprv skúsi disketa, kde
+  je meno voľné — nie že sa kvôli menu otvorí ďalšia disketa. Skrátenie na osem
+  znakov robí kolízie bežnými (`PRIBEHY-JAR.TXT` aj `PRIBEHY-LETO.TXT` sú
+  `PRIBEHY-.TXT`) a z diskety na súbor by bola nepoužiteľná hromada. Jednotka
+  o viac súboroch sa naopak posunie celá, a keď si dva jej súbory pýtajú jedno
+  meno, odmietne sa celá s dôvodom: premenovať sa v nej nesmie a rozdeliť ju
+  tiež nie.
+- **`OBSAH.TXT` na diskete sa započítava pri každom pridaní**, nie raz na konci
+  — rezervácia rastie s počtom položiek, takže sa nemôže stať, že posledný
+  súbor sadne presne na miesto katalógu.
+- **Meno diskety je poradové číslo a najväčšia skupina na nej** (`01-HUDBA`),
+  prehnaná tou istou funkciou, ktorá skladá 8.3 mená.
+
+Testy sú v `disk_test` (deväť skupín, spolu 185 kontrol v tom teste) a bežia
+bez ROM aj bez jediného súboru na disku. `PlanProblem` v nich prepočíta každú
+disketu zo vstupu a plán odmietne, keď je v ňom súbor dvakrát, ani raz, alebo
+na diskete, kde je jeho meno už obsadené — súčtom, nie vzorkou.
+
+Otvorené zostáva to, čo sa dotýka používateľa: sprievodca, ktorý plán ukáže,
+dá `SPOLU.txt` opraviť a plán vykoná. Vrstva sama nekopíruje nič a do
+zdrojového priečinka nesiaha vôbec.
+
 #### Výber priečinka: vybrať a pomenovať sú dva úkony
 
 **Doplnené 28. 8. 2026 po pripomienke majiteľa.** Uložiť disketu niekam
@@ -1802,7 +1844,8 @@ pustí ďalej.
    28. 8. 2026.**
 2. ~~Dialóg `Nová disketa` a nenaformátované médium~~ — **hotové
    28. 8. 2026**, aj s režimom `format` v `integration_test`.
-3. `disk_layout` a testy, ešte bez GUI.
+3. ~~`disk_layout` a testy, ešte bez GUI~~ — **hotové 9. 9. 2026**, aj
+   s `src/cpm_disk.h`, kam sa presťahovala kapacita a skladanie mien.
 4. Sprievodca rozdelenia nad hotovou vrstvou.
 
 Zámok proti zápisu je hotový celý, model aj hostiteľská strana.

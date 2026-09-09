@@ -1,75 +1,30 @@
 #include "virtual_disk.h"
 
 #include <algorithm>
-#include <cctype>
 #include <chrono>
 #include <fstream>
 #include <iomanip>
 #include <map>
+#include <set>
 #include <sstream>
 
 namespace fs = std::filesystem;
 
 namespace {
 
-// Straight out of the Disk Parameter Block the firmware hands back (technical
-// manual, appendix on BDOS service 31): BSH 4 and BLM 15 make a block 2 KiB,
-// DSM 399 means 400 of them, DRM 255 means 256 directory entries, ALL reserves
-// the first four blocks for the 8 KiB directory and OFF 0 leaves no system
-// tracks.  Chapter 9 states the same capacity the other way round: 800 K in
-// total, 8 K directory, "leaving 792K available for data storage".
-constexpr unsigned kBlockSize = 2048;
-constexpr unsigned kDirectoryBytes = 8192;
-constexpr unsigned kDirectoryEntries = 256;
-constexpr unsigned kFirstDataBlock = kDirectoryBytes / kBlockSize;
-constexpr unsigned kLastBlock = 399;
-constexpr unsigned kAvailableBlocks = kLastBlock + 1 - kFirstDataBlock;
-// One directory entry holds one extent because EXM is 0: eight 16-bit block
-// numbers, so 16 KiB or 128 records, whichever runs out first.
-constexpr unsigned kRecordsPerEntry = 128;
-constexpr unsigned kRecordSizeBytes = VirtualDisk::kRecordSize;
-
-wchar_t FoldLatin(wchar_t ch) {
-  switch (ch) {
-    case L'Á': case L'Ä': case L'á': case L'ä': return L'A';
-    case L'Č': case L'č': return L'C';
-    case L'Ď': case L'ď': return L'D';
-    case L'É': case L'Ě': case L'é': case L'ě': return L'E';
-    case L'Í': case L'í': return L'I';
-    case L'Ĺ': case L'Ľ': case L'ĺ': case L'ľ': return L'L';
-    case L'Ň': case L'ň': return L'N';
-    case L'Ó': case L'Ô': case L'Ö': case L'ó': case L'ô': case L'ö': return L'O';
-    case L'Ŕ': case L'Ř': case L'ŕ': case L'ř': return L'R';
-    case L'Š': case L'š': return L'S';
-    case L'Ť': case L'ť': return L'T';
-    case L'Ú': case L'Ů': case L'Ü': case L'ú': case L'ů': case L'ü': return L'U';
-    case L'Ý': case L'ý': return L'Y';
-    case L'Ž': case L'ž': return L'Z';
-    default: return ch;
-  }
-}
-
-std::string CpmPart(const std::wstring& source, std::size_t maximum) {
-  std::string result;
-  for (wchar_t original : source) {
-    wchar_t folded = FoldLatin(original);
-    if (folded >= L'a' && folded <= L'z') folded -= L'a' - L'A';
-    char out = '_';
-    if ((folded >= L'A' && folded <= L'Z') ||
-        (folded >= L'0' && folded <= L'9')) {
-      out = static_cast<char>(folded);
-    } else if (folded == L'_' || folded == L'-' || folded == L'$' ||
-               folded == L'#' || folded == L'@' || folded == L'!' ||
-               folded == L'%' || folded == L'&' || folded == L'~' ||
-               folded == L'^') {
-      out = static_cast<char>(folded);
-    }
-    if (result.empty() || result.back() != '_' || out != '_') result.push_back(out);
-    if (result.size() == maximum) break;
-  }
-  while (!result.empty() && (result.back() == '_' || result.back() == ' ')) result.pop_back();
-  return result.empty() ? "FILE" : result;
-}
+// The geometry below and the 8.3 names further down are cpm_disk.h's, not this
+// file's.  disk_layout.cpp plans against the very same numbers and the very
+// same naming, and a second copy of either would let a plan promise a diskette
+// that this file then cannot build -- silently, because both halves would go
+// on compiling and testing green.
+using cpm::BlocksFor;
+using cpm::EntriesFor;
+using cpm::kAvailableBlocks;
+using cpm::kBlockSize;
+using cpm::kDirectoryEntries;
+using cpm::kFirstDataBlock;
+using cpm::kLastBlock;
+using cpm::kRecordsPerEntry;
 
 std::string Trim(const uint8_t* begin, std::size_t length) {
   std::string value(reinterpret_cast<const char*>(begin), length);
@@ -89,17 +44,6 @@ std::wstring Count(uint64_t number, const wchar_t* one, const wchar_t* few,
   return std::to_wstring(number) + L" " +
          (number == 1 ? one : (number >= 2 && number <= 4 ? few : many));
 }
-
-unsigned BlocksFor(uint64_t size) {
-  return static_cast<unsigned>((size + kBlockSize - 1) / kBlockSize);
-}
-
-unsigned EntriesFor(uint64_t size) {
-  const uint64_t records = (size + kRecordSizeBytes - 1) / kRecordSizeBytes;
-  return static_cast<unsigned>(
-      std::max<uint64_t>(1, (records + kRecordsPerEntry - 1) / kRecordsPerEntry));
-}
-
 }  // namespace
 
 bool VirtualDisk::Mount(const fs::path& folder, std::wstring& error) {
@@ -192,28 +136,6 @@ std::size_t VirtualDisk::StoredFiles() const {
     if (!name.empty()) names[name] = true;
   }
   return names.size();
-}
-
-std::string VirtualDisk::MakeCpmName(const fs::path& path) {
-  const std::string stem = CpmPart(path.stem().wstring(), 8);
-  const std::string type = CpmPart(path.extension().wstring().substr(
-      path.extension().wstring().empty() ? 0 : 1), 3);
-  return type.empty() || path.extension().empty() ? stem : stem + "." + type;
-}
-
-std::string VirtualDisk::UniqueCpmName(
-    const std::string& requested, const std::unordered_map<std::string, bool>& used) {
-  if (!used.contains(requested)) return requested;
-  const std::size_t dot = requested.find('.');
-  std::string stem = requested.substr(0, dot);
-  const std::string type = dot == std::string::npos ? "" : requested.substr(dot);
-  for (unsigned number = 1; number < 1000; ++number) {
-    const std::string suffix = "~" + std::to_string(number);
-    const std::string candidate = stem.substr(0, 8 - std::min<std::size_t>(8, suffix.size())) +
-                                  suffix + type;
-    if (!used.contains(candidate)) return candidate;
-  }
-  return "COLLIDE.$$$";
 }
 
 uint64_t VirtualDisk::Hash(const uint8_t* data, std::size_t size) {
@@ -342,7 +264,7 @@ bool VirtualDisk::BuildImage(std::wstring& error) {
   if (!ScanFolder(files, error)) return false;
   if (!CheckCapacity(files, error)) return false;
 
-  std::unordered_map<std::string, bool> used;
+  std::set<std::string> used;
   unsigned directoryIndex = 0;
   unsigned nextBlock = kFirstDataBlock;
 
@@ -360,8 +282,8 @@ bool VirtualDisk::BuildImage(std::wstring& error) {
               L"nezostavil.";
       return false;
     }
-    std::string cpmName = UniqueCpmName(MakeCpmName(file.path), used);
-    used[cpmName] = true;
+    std::string cpmName = cpm::UniqueName(cpm::MakeName(file.path), used);
+    used.insert(cpmName);
 
     const unsigned records = static_cast<unsigned>((data.size() + kRecordSize - 1) / kRecordSize);
     const unsigned blocks = BlocksFor(data.size());

@@ -61,6 +61,21 @@ Four of its groups are worth knowing about before touching `VirtualDisk`:
   as a damaged file months later. `HANDOFF.md` section 6.23 has the whole
   measurement.
 
+The last group in that file is not about `VirtualDisk` at all: it covers
+`disk_layout`, the splitter that cuts a collection too big for one diskette
+into diskettes. It shares this test because it shares the numbers -- both ask
+`cpm_disk.h` what a block costs and what a file will be called -- and because
+it needs neither a folder nor the ROM: the input is a list of names and sizes,
+the output is a plan. Each of the three limits gets its own check (396 blocks,
+256 directory entries, unique 8.3 names within one diskette); `PlanProblem`
+re-derives every diskette from the input and refuses a plan in which a file
+turns up twice, in neither list, or on a diskette where its name is already
+taken. Two more pin the rules that make a plan usable rather than merely
+valid: `LayoutNeverSplitsAUnit`, because `TP.COM` without `TURBO.MSG` is a
+broken program, and `LayoutNeverRenamesInsideAUnit`, because a program whose
+companion file was renamed fails in a way nobody can read -- even with both of
+them on the same diskette.
+
 `integration_test.cpp` boots the real ROM and has several modes:
 
 - `format` boots with an unformatted unsaved diskette -- the only medium on which

@@ -10,12 +10,16 @@
 #include <unordered_map>
 #include <vector>
 
+#include "cpm_disk.h"
+
 class VirtualDisk {
  public:
   static constexpr std::size_t kSize = 800u * 1024u;
   static constexpr unsigned kTracks = 160;
   static constexpr unsigned kRecordsPerTrack = 40;
-  static constexpr unsigned kRecordSize = 128;
+  // The record the guest reads and writes.  One number, one place: cpm_disk.h
+  // is where the diskette's geometry is written down.
+  static constexpr unsigned kRecordSize = cpm::kRecordSize;
 
   // There is one kind of diskette and it always lives in this process's
   // memory: mounting a host folder reads it into the image below and Flush
@@ -130,9 +134,6 @@ class VirtualDisk {
     std::vector<Extent> extents;
   };
 
-  static std::string MakeCpmName(const std::filesystem::path& path);
-  static std::string UniqueCpmName(const std::string& requested,
-                                   const std::unordered_map<std::string, bool>& used);
   static std::string DirectoryName(const uint8_t* entry);
   static uint64_t Hash(const uint8_t* data, std::size_t size);
   static bool IsTextType(const std::string& cpmName);

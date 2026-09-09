@@ -17,12 +17,16 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
 #include <windows.h>
 
+#include "cpm_disk.h"
+#include "disk_layout.h"
 #include "disk_stash.h"
 #include "virtual_disk.h"
 
@@ -952,6 +956,344 @@ void EmptyFolderAndMissingFolder() {
         "neexistujuci_priecinok_odmietne");
 }
 
+// ---------------------------------------------------------------------------
+// Rozdelovac kolekcie (src/disk_layout.*).
+//
+// Nic sa tu nevyraba na disku: vrstva berie mena a cisla, takze test je cisty
+// vypocet. To je cely dovod, preco je rozdelovac vrstva a nie kus sprievodcu --
+// tri obmedzenia diskety sa daju pribit bez GUI, bez ROM a bez priecinka.
+
+namespace layout = disk_layout;
+
+layout::SourceFile Src(const std::wstring& name, std::uint64_t size,
+                       const std::wstring& group = L"") {
+  layout::SourceFile file;
+  file.path = fs::path(L"C:/kolekcia") / (group.empty() ? name : group + L"/" + name);
+  file.group = group;
+  file.size = size;
+  return file;
+}
+
+std::wstring Digits(unsigned index) {
+  std::wstring digits = std::to_wstring(index);
+  while (digits.size() < 3) digits.insert(digits.begin(), L'0');
+  return digits;
+}
+
+std::wstring Numbered(const std::wstring& prefix, unsigned index, const std::wstring& type) {
+  return prefix + Digits(index) + L"." + type;
+}
+
+// Co plati o kazdom plane bez ohladu na rezim a vstup. Vracia prazdny retazec,
+// ked je vsetko v poriadku, inak prvy najdeny rozpor -- vratane toho, ze sa
+// nesmie stratit ani jeden subor.
+std::string PlanProblem(const layout::Plan& plan,
+                        const std::vector<layout::SourceFile>& files) {
+  std::vector<unsigned> seen(files.size(), 0);
+  std::map<std::size_t, std::size_t> home;
+  for (std::size_t d = 0; d < plan.diskettes.size(); ++d) {
+    const layout::Diskette& disk = plan.diskettes[d];
+    unsigned blocks = 0;
+    unsigned entries = 0;
+    std::set<std::string> names;
+    for (const layout::Item& item : disk.items) {
+      ++seen[item.file];
+      home[item.file] = d;
+      blocks += cpm::BlocksFor(files[item.file].size);
+      entries += cpm::EntriesFor(files[item.file].size);
+      if (!names.insert(item.name).second) return "dve rovnake mena na diskete: " + item.name;
+    }
+    if (blocks != disk.blocks || entries != disk.entries) return "sucty diskety nesedia";
+    if (blocks > cpm::kAvailableBlocks) return "disketa ma vyse 396 blokov";
+    if (entries > cpm::kDirectoryEntries) return "disketa ma vyse 256 poloziek adresara";
+  }
+  for (const layout::Rejected& rejected : plan.rejected) {
+    ++seen[rejected.file];
+    if (rejected.detail.empty()) return "odmietnutie bez dovodu";
+  }
+  for (std::size_t i = 0; i < files.size(); ++i) {
+    if (seen[i] == 1) continue;
+    return Narrow(files[i].path.filename().wstring()) + " je v plane " +
+           std::to_string(seen[i]) + "-krat";
+  }
+  for (const layout::Unit& unit : plan.units) {
+    std::size_t where = static_cast<std::size_t>(-1);
+    bool first = true;
+    for (std::size_t file : unit.files) {
+      auto found = home.find(file);
+      const std::size_t disk = found == home.end() ? static_cast<std::size_t>(-1)
+                                                   : found->second;
+      if (first) where = disk;
+      else if (disk != where) return "jednotka je rozdelena medzi dve diskety";
+      first = false;
+    }
+  }
+  return "";
+}
+
+// Plan v jednom retazci, aby sa dva dali porovnat na zhodu. Mena suborov, nie
+// indexy: pri prehadzanom vstupe su indexy ine a plan ma byt ten isty.
+std::string Rendered(const layout::Plan& plan,
+                     const std::vector<layout::SourceFile>& files) {
+  std::string text;
+  for (const layout::Diskette& disk : plan.diskettes) {
+    text += Narrow(disk.label) + ":";
+    for (const layout::Item& item : disk.items) text += " " + item.name;
+    text += "\n";
+  }
+  for (const layout::Rejected& rejected : plan.rejected)
+    text += "-" + Narrow(files[rejected.file].path.filename().wstring()) + "\n";
+  return text;
+}
+
+// Obmedzenie prve: 396 blokov po 2 KiB. Subory su 4 KiB, teda dva bloky a
+// jedna polozka adresara, takze na strop poloziek sa tu narazit neda.
+void LayoutFillsToTheLastBlock() {
+  std::vector<layout::SourceFile> files;
+  for (unsigned i = 0; i < 198; ++i) files.push_back(Src(Numbered(L"F", i, L"BIN"), 4096));
+  layout::Plan full = layout::Build(files, {});
+  Check(PlanProblem(full, files).empty(), "layout_plan_je_konzistentny",
+        PlanProblem(full, files));
+  Check(full.diskettes.size() == 1 && full.diskettes[0].blocks == 396,
+        "layout_396_blokov_je_presne_jedna_disketa",
+        std::to_string(full.diskettes.size()) + " diskiet");
+
+  files.push_back(Src(Numbered(L"F", 198, L"BIN"), 4096));
+  layout::Plan over = layout::Build(files, {});
+  Check(PlanProblem(over, files).empty(), "layout_plan_je_konzistentny_aj_o_dva_bloky_dalej",
+        PlanProblem(over, files));
+  Check(over.diskettes.size() == 2 && over.diskettes[0].blocks == 396 &&
+            over.diskettes[1].items.size() == 1,
+        "layout_dva_bloky_navyse_su_druha_disketa",
+        std::to_string(over.diskettes.size()) + " diskiet");
+}
+
+// Obmedzenie druhe: 256 poloziek adresara. Tisic malych suborov narazi na
+// toto, nie na kapacitu -- 300 stobajtovych suborov ma dokopy 30 KiB.
+void LayoutStopsAtTwoHundredFiftySixEntries() {
+  std::vector<layout::SourceFile> files;
+  for (unsigned i = 0; i < 300; ++i) files.push_back(Src(Numbered(L"M", i, L"TXT"), 100));
+  layout::Plan plan = layout::Build(files, {});
+  Check(PlanProblem(plan, files).empty(), "layout_male_subory_nic_nestratia",
+        PlanProblem(plan, files));
+  Check(plan.diskettes.size() == 2 && plan.diskettes[0].items.size() == 256,
+        "layout_256_poloziek_je_strop",
+        plan.diskettes.empty() ? "ziadna disketa"
+                               : std::to_string(plan.diskettes[0].items.size()) + " poloziek");
+  Check(plan.diskettes.size() == 2 && plan.diskettes[0].blocks == 256,
+        "layout_kapacita_v_blokoch_este_zvysila",
+        "na kapacitu sa narazit nemalo, doslo miesto v adresari");
+}
+
+// Obmedzenie tretie sa meria nizsie (LayoutNeverRenamesInsideAUnit); tu je to,
+// co sa nezmesti nikam: subor nad 792 KiB a jednotka nad 256 poloziek.
+void LayoutRefusesWhatFitsNowhere() {
+  const std::uint64_t whole = static_cast<std::uint64_t>(cpm::kAvailableBlocks) * 2048;
+  std::vector<layout::SourceFile> files{Src(L"AKORAT.DAT", whole),
+                                        Src(L"OJEDEN.DAT", whole + 1)};
+  layout::Plan plan = layout::Build(files, {});
+  Check(PlanProblem(plan, files).empty(), "layout_odmietnuty_subor_sa_nestrati",
+        PlanProblem(plan, files));
+  Check(plan.diskettes.size() == 1 && plan.diskettes[0].items.size() == 1,
+        "layout_792_kib_sa_este_zmesti");
+  Check(plan.rejected.size() == 1 && plan.rejected[0].reason == layout::Reason::kTooManyBlocks,
+        "layout_subor_nad_792_kib_je_odmietnuty");
+  Check(plan.rejected.size() == 1 &&
+            plan.rejected[0].detail.find(L"397") != std::wstring::npos,
+        "layout_odmietnutie_povie_kolko_to_zabera",
+        plan.rejected.empty() ? "nic neodmietnute" : Narrow(plan.rejected[0].detail));
+
+  // Jedna jednotka, 257 poloziek adresara: rovnaky pen, iny limit. Spaja ich
+  // pravidlo zhody mena, takze staci 257 pripon k jednemu menu.
+  std::vector<layout::SourceFile> many;
+  for (unsigned i = 0; i < 257; ++i) many.push_back(Src(L"SPOLU." + Digits(i), 64));
+  layout::Plan entries = layout::Build(many, {});
+  Check(PlanProblem(entries, many).empty(), "layout_odmietnuta_jednotka_nic_nestrati",
+        PlanProblem(entries, many));
+  Check(entries.rejected.size() == 257 &&
+            entries.rejected[0].reason == layout::Reason::kTooManyEntries,
+        "layout_jednotka_nad_256_poloziek_je_odmietnuta_cela",
+        std::to_string(entries.rejected.size()) + " odmietnutych");
+}
+
+// Jednotka sa nikdy nerozdeli: ked sa nezmesti do zvysku, ide cela dalej.
+void LayoutNeverSplitsAUnit() {
+  std::vector<layout::SourceFile> files;
+  for (unsigned i = 0; i < 197; ++i) files.push_back(Src(Numbered(L"F", i, L"BIN"), 4096));
+  files.push_back(Src(L"TURBO.COM", 4096));
+  files.push_back(Src(L"TURBO.MSG", 4096));
+  layout::Plan plan = layout::Build(files, {});
+  Check(PlanProblem(plan, files).empty(), "layout_nedelitelna_jednotka_nic_nestrati",
+        PlanProblem(plan, files));
+  Check(plan.diskettes.size() == 2 && plan.diskettes[0].blocks == 394,
+        "layout_zvysok_diskety_zostal_prazdny_kvoli_jednotke",
+        plan.diskettes.empty() ? "ziadna disketa"
+                               : std::to_string(plan.diskettes[0].blocks) + " blokov");
+  Check(plan.diskettes.size() == 2 && plan.diskettes[1].items.size() == 2,
+        "layout_turbo_com_a_turbo_msg_su_na_jednej_diskete");
+  bool sameStem = false;
+  for (const layout::Unit& unit : plan.units)
+    if (unit.files.size() == 2) sameStem = unit.source == layout::UnitSource::kSameStem;
+  Check(sameStem, "layout_plan_povie_ktore_pravidlo_ich_spojilo");
+}
+
+// Vnutri jednotky sa nepremenovava. Kolizia posiela jednotku inam, aj ked na
+// diskete miesto je; osamoteny subor sa premenovat da a plan to povie.
+void LayoutNeverRenamesInsideAUnit() {
+  std::vector<layout::SourceFile> files{Src(L"TURBO.MSG", 2048),
+                                        Src(L"TURBO.COM", 2048, L"PROG"),
+                                        Src(L"TURBO.MSG", 2048, L"PROG")};
+  layout::Plan plan = layout::Build(files, {});
+  Check(PlanProblem(plan, files).empty(), "layout_kolizia_nic_nestrati",
+        PlanProblem(plan, files));
+  Check(plan.diskettes.size() == 2, "layout_kolizia_posiela_jednotku_na_dalsiu_disketu",
+        std::to_string(plan.diskettes.size()) + " diskiet");
+  bool renamed = false;
+  for (const layout::Diskette& disk : plan.diskettes)
+    for (const layout::Item& item : disk.items) renamed = renamed || item.renamed;
+  Check(!renamed, "layout_v_jednotke_sa_nepremenovalo");
+
+  std::vector<layout::SourceFile> lone{Src(L"PRIBEHY-JAR.TXT", 2048),
+                                       Src(L"PRIBEHY-LETO.TXT", 2048)};
+  layout::Plan second = layout::Build(lone, {});
+  Check(second.diskettes.size() == 1 && second.diskettes[0].items.size() == 2,
+        "layout_osamotene_subory_zostali_na_jednej_diskete");
+  Check(second.diskettes.size() == 1 && second.diskettes[0].items[1].renamed &&
+            second.diskettes[0].items[1].name != second.diskettes[0].items[0].name,
+        "layout_osamoteny_subor_sa_premenuje_a_plan_to_povie");
+
+  // A kolizia vnutri jednotky sa neda vyriesit nijako: premenovat sa nesmie,
+  // rozdelit sa nesmie. Odmietnu sa oba subory, s dovodom.
+  std::vector<layout::SourceFile> inside{Src(L"PRIBEHY-JAR.TXT", 2048, L"P"),
+                                         Src(L"PRIBEHY-LETO.TXT", 2048, L"P")};
+  layout::Options spolu;
+  spolu.spolu = {{L"PRIBEHY-JAR.TXT", L"PRIBEHY-LETO.TXT"}};
+  layout::Plan clash = layout::Build(inside, spolu);
+  Check(clash.rejected.size() == 2 &&
+            clash.rejected[0].reason == layout::Reason::kNameClashInsideUnit,
+        "layout_kolizia_vnutri_jednotky_odmietne_oboje",
+        std::to_string(clash.rejected.size()) + " odmietnutych");
+}
+
+// SPOLU.txt musi zniest spatnu cestu: sprievodca jednotku opravi a zapise ju
+// spat, a pri dalsom deleni musi z toho suboru vyjst ta ista jednotka.
+void LayoutUnitsSurviveSpoluRoundTrip() {
+  std::vector<layout::SourceFile> files{Src(L"WS.COM", 2048), Src(L"WSMSGS.OVR", 2048),
+                                        Src(L"WSOVLY1.OVR", 2048)};
+  layout::Options plain;
+  layout::Plan apart = layout::Build(files, plain);
+  Check(apart.units.size() == 3, "layout_bez_pravidla_su_to_tri_jednotky",
+        std::to_string(apart.units.size()) + " jednotiek");
+
+  layout::Options options;
+  options.spolu = layout::ParseSpolu(L"# skupiny\r\nWS.COM, WSMSGS.OVR, WSOVLY1.OVR\r\n");
+  layout::Plan joined = layout::Build(files, options);
+  Check(joined.units.size() == 1 && joined.units[0].files.size() == 3 &&
+            joined.units[0].source == layout::UnitSource::kSpolu,
+        "layout_spolu_txt_spoji_tri_subory",
+        std::to_string(joined.units.size()) + " jednotiek");
+
+  const std::wstring written = layout::FormatSpolu(layout::UnitsAsGroups(joined, files));
+  Check(written == L"WS.COM, WSMSGS.OVR, WSOVLY1.OVR\r\n", "layout_jednotka_sa_zapise_spat",
+        Narrow(written));
+  layout::Options again;
+  again.spolu = layout::ParseSpolu(written);
+  again.group_by_stem = false;
+  layout::Plan reread = layout::Build(files, again);
+  Check(reread.units.size() == 1 && reread.units[0].files.size() == 3,
+        "layout_zapisana_jednotka_sa_precita_ako_ta_ista");
+
+  // Pravidlo sprievodnych pripon je hadanie, preto je vypnute; ked sa zapne,
+  // musi WS.COM chytit tie iste tri subory a plan musi povedat, ze hadal.
+  layout::Options guess;
+  guess.group_by_companion = true;
+  layout::Plan guessed = layout::Build(files, guess);
+  Check(guessed.units.size() == 1 &&
+            guessed.units[0].source == layout::UnitSource::kCompanion,
+        "layout_sprievodne_pripony_hadaju_a_priznaju_sa",
+        std::to_string(guessed.units.size()) + " jednotiek");
+}
+
+// Ten isty vstup dava ten isty plan, aj ked pride v inom poradi. Bez toho by
+// sa druhe delenie tej istej kolekcie rozislo s prvym a nikto by nevedel preco.
+void LayoutIsDeterministic() {
+  std::vector<layout::SourceFile> files;
+  for (unsigned i = 0; i < 120; ++i)
+    files.push_back(Src(Numbered(L"S", i, L"BIN"), 3000 + i * 700,
+                        i % 3 == 0 ? L"HUDBA" : L""));
+  files.push_back(Src(L"OBRIA.DAT", 900u * 1024u));
+
+  const layout::Plan first = layout::Build(files, {});
+  const layout::Plan second = layout::Build(files, {});
+  Check(Rendered(first, files) == Rendered(second, files), "layout_dva_behy_daju_to_iste");
+
+  std::vector<layout::SourceFile> shuffled(files.rbegin(), files.rend());
+  const layout::Plan reversed = layout::Build(shuffled, {});
+  Check(Rendered(first, files) == Rendered(reversed, shuffled),
+        "layout_poradie_na_vstupe_nerozhoduje");
+  Check(PlanProblem(reversed, shuffled).empty(), "layout_prehadzany_vstup_nic_nestrati",
+        PlanProblem(reversed, shuffled));
+}
+
+// Tri rezimy delenia. Sekvencny plni po abecede a nikdy sa nevracia, natesno
+// bali od najvacsieho, podla priecinkov drzi priecinok pokope.
+void LayoutModesPackDifferently() {
+  const std::uint64_t big = 200u * 2048u;
+  const std::uint64_t small = 196u * 2048u;
+  std::vector<layout::SourceFile> files{Src(L"A.BIN", big), Src(L"B.BIN", big),
+                                        Src(L"C.BIN", small), Src(L"D.BIN", small)};
+  layout::Options sequential;
+  layout::Plan straight = layout::Build(files, sequential);
+  Check(PlanProblem(straight, files).empty(), "layout_sekvencny_plan_je_konzistentny",
+        PlanProblem(straight, files));
+  Check(straight.diskettes.size() == 3, "layout_sekvencny_nepreskakuje",
+        std::to_string(straight.diskettes.size()) + " diskiet");
+
+  layout::Options tight;
+  tight.mode = layout::Mode::kTight;
+  layout::Plan packed = layout::Build(files, tight);
+  Check(PlanProblem(packed, files).empty(), "layout_natesno_je_konzistentny",
+        PlanProblem(packed, files));
+  Check(packed.diskettes.size() == 2, "layout_natesno_usetri_disketu",
+        std::to_string(packed.diskettes.size()) + " diskiet");
+
+  std::vector<layout::SourceFile> tree{Src(L"P1.BIN", big, L"HUDBA"),
+                                       Src(L"P2.BIN", big, L"SLOVNIK"),
+                                       Src(L"P3.BIN", small, L"HUDBA")};
+  layout::Options folders;
+  folders.mode = layout::Mode::kByFolder;
+  layout::Plan grouped = layout::Build(tree, folders);
+  Check(PlanProblem(grouped, tree).empty(), "layout_podla_priecinkov_je_konzistentny",
+        PlanProblem(grouped, tree));
+  std::map<std::wstring, std::set<std::size_t>> spread;
+  for (std::size_t d = 0; d < grouped.diskettes.size(); ++d)
+    for (const layout::Item& item : grouped.diskettes[d].items)
+      spread[tree[item.file].group].insert(d);
+  bool whole = true;
+  for (const auto& group : spread) whole = whole && group.second.size() == 1;
+  Check(whole, "layout_podla_priecinkov_drzi_priecinok_pokope");
+  Check(!grouped.diskettes.empty() && grouped.diskettes[0].label == L"01-HUDBA",
+        "layout_disketa_je_pomenovana_podla_najvacsej_skupiny",
+        grouped.diskettes.empty() ? "ziadna disketa" : Narrow(grouped.diskettes[0].label));
+}
+
+// OBSAH.TXT na diskete stoji blok a polozku a musi sa zapocitat PRED delenim.
+// Zapocitany az po nom by sa uz na plnu disketu nemal kam vojst.
+void LayoutCountsTheCatalogueBeforeSplitting() {
+  std::vector<layout::SourceFile> files;
+  for (unsigned i = 0; i < 198; ++i) files.push_back(Src(Numbered(L"F", i, L"BIN"), 4096));
+  layout::Options options;
+  options.catalogue_on_diskette = true;
+  layout::Plan plan = layout::Build(files, options);
+  Check(PlanProblem(plan, files).empty(), "layout_s_obsahom_nic_nestrati",
+        PlanProblem(plan, files));
+  Check(plan.diskettes.size() == 2, "layout_obsah_txt_si_vypyta_dalsiu_disketu",
+        std::to_string(plan.diskettes.size()) + " diskiet");
+  bool room = true;
+  for (const layout::Diskette& disk : plan.diskettes)
+    room = room && disk.blocks < cpm::kAvailableBlocks && disk.entries < cpm::kDirectoryEntries;
+  Check(room, "layout_na_kazdej_diskete_zostalo_miesto_na_obsah");
+}
 }  // namespace
 
 int main() {
@@ -989,6 +1331,16 @@ int main() {
   RamDisketteKeepsBinaryFilesWhole();
   FileTypeClassificationIsPinned();
   EmptyFolderAndMissingFolder();
+
+  LayoutFillsToTheLastBlock();
+  LayoutStopsAtTwoHundredFiftySixEntries();
+  LayoutRefusesWhatFitsNowhere();
+  LayoutNeverSplitsAUnit();
+  LayoutNeverRenamesInsideAUnit();
+  LayoutUnitsSurviveSpoluRoundTrip();
+  LayoutIsDeterministic();
+  LayoutModesPackDifferently();
+  LayoutCountsTheCatalogueBeforeSplitting();
 
   fs::remove_all(Root(), ec);
   std::cout << (failures == 0 ? "PASS" : "FAIL") << " mode=DISK kontrol=" << checks
