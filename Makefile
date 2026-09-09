@@ -24,9 +24,19 @@ BIN   := bin
 WARN     := -Wall -Wextra -Wno-unused-parameter
 DEPFLAGS  = -MMD -MP
 STATIC   := -static -static-libgcc -static-libstdc++
+# Kazda funkcia a kazda premenna do vlastnej sekcie, aby linker vedel
+# zahodit tie, na ktore sa nikto neodkazuje (-Wl,--gc-sections nizsie).
+# Samo o sebe to nic nemeni, len rozdrobi objekty; zmysel to dostane az
+# tam. Odmerane: 2 032 128 -> 1 937 408 bajtov, teda o 4,7 % mensie EXE.
+#
+# -Os sa tu neskusaj. Pri nom prestane byt presuvaci konstruktor
+# std::string inlinovany a v libstdc++ ako samostatny symbol neexistuje,
+# takze settings.o, disk_split.o, virtual_disk.o aj disk_layout.o skoncia
+# na undefined reference. Nelinkuje sa to vobec.
+SECTIONS := -ffunction-sections -fdata-sections
 
-CXXFLAGS := -std=c++20 -O2 $(WARN) -Isrc -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00
-CFLAGS   := -std=c11 -O2 $(WARN) -Isrc
+CXXFLAGS := -std=c++20 -O2 $(WARN) $(SECTIONS) -Isrc -DWINVER=0x0A00 -D_WIN32_WINNT=0x0A00
+CFLAGS   := -std=c11 -O2 $(WARN) $(SECTIONS) -Isrc
 # Testy sa doteraz prekladali bez WINVER a nic sa tym nepokazilo: machine.h
 # ani virtual_disk.h windows.h netahaju, takze o tychto makrach nevedia.
 # Necham to tak, aby sa spolu s prechodom na make nemenilo aj chovanie.
@@ -61,16 +71,23 @@ tests: $(EMU) $(TEST_EXES)
 $(BUILD) $(BIN):
 	mkdir $@
 
-$(BUILD)/z80.o: src/z80.c | $(BUILD)
+# Kazde pravidlo si pyta aj tento subor. Su v nom prepinace prekladu, a bez
+# toho ich zmena objekty neprelozi: .d subory sleduju hlavicky, nie
+# Makefile, takze make vyhlasi za hotove nieco, co je prelozene inak, nez
+# hovoria pravidla. Prislo to hned pri prvom pokuse -- pridanie
+# -ffunction-sections nezmenilo velkost EXE ani o bajt, lebo sa nic
+# neprelozilo. Je to ta ista pasca ako davne "ak uz existuje, preskoc",
+# len tichsia.
+$(BUILD)/z80.o: src/z80.c Makefile | $(BUILD)
 	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD)/%.o: src/%.cpp | $(BUILD)
+$(BUILD)/%.o: src/%.cpp Makefile | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD)/win_%.o: src/win/%.cpp | $(BUILD)
+$(BUILD)/win_%.o: src/win/%.cpp Makefile | $(BUILD)
 	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
-$(BUILD)/test_%.o: tests/%.cpp | $(BUILD)
+$(BUILD)/test_%.o: tests/%.cpp Makefile | $(BUILD)
 	$(CXX) $(TESTFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Ponuka, akceleratory, sablony dialogov a manifest. --codepage=65001 preto,
@@ -78,7 +95,7 @@ $(BUILD)/test_%.o: tests/%.cpp | $(BUILD)
 # bajty ako ANSI a diakritika by sa do zdrojov dostala rozsypana -- a ticho.
 # --include-dir preto, aby "resource.h" aj "eureka.manifest" nasiel vedla .rc.
 $(BUILD)/eureka_res.o: src/res/eureka.rc src/res/resource.h \
-                       src/res/eureka.manifest | $(BUILD)
+                       src/res/eureka.manifest Makefile | $(BUILD)
 	$(RC) --codepage=65001 --include-dir src/res -I src -i $< -o $@
 
 # -mwindows robi z toho program GUI subsystemu, takze sa pri spusteni
@@ -87,9 +104,14 @@ $(BUILD)/eureka_res.o: src/res/eureka.rc src/res/resource.h \
 # a -municode zostava, lebo aj ten jeho startup je sirokoznakovy.
 #
 # Staticke runtime kniznice preto, aby EXE bezalo aj mimo msys2 shellu.
+#
+# -s zahodi symboly, --gc-sections zahodi kod, na ktory sa nikto
+# neodkazuje -- to druhe funguje len vdaka $(SECTIONS) pri preklade.
+# Obe su len na emulatore: testy a sonda si symboly nechavaju, lebo ked
+# spadnu, chce sa vediet kde.
 $(EMU): $(EMU_OBJS) | $(BIN)
-	$(CXX) -municode -mwindows $(STATIC) -s -o $@ $(EMU_OBJS) \
-	    -lwinmm -lole32 -lshell32 -luuid -lcomctl32
+	$(CXX) -municode -mwindows $(STATIC) -Wl,--gc-sections -s -o $@ \
+	    $(EMU_OBJS) -lwinmm -lole32 -lshell32 -luuid -lcomctl32
 
 # codec_test a disk_test maju obycajny main, preto bez -municode; s nim
 # linker spadne na chybajucom wWinMain.

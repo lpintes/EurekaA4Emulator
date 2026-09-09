@@ -193,6 +193,23 @@ neprekladá viac, než treba — po dotyku na `machine.h` sa preložia presne
 **Nepridávaj podmienky typu „ak už existuje, preskoč".** Sú zbytočné (od
 toho je make) a presne takto vznikla tá pôvodná pasca.
 
+Od 9. 9. 2026 má každé prekladové pravidlo aj **`Makefile` ako
+prerekvizitu**. `.d` súbory sledujú hlavičky, nie prepínače, takže zmena
+`CXXFLAGS` objekty nepreložila a `make` vyhlásil za hotové niečo, čo je
+preložené inak, než hovoria pravidlá. Chytilo sa to hneď pri pridaní
+`-ffunction-sections`: EXE nezmenilo veľkosť ani o bajt, lebo sa nič
+neprekladalo. Je to tá istá pasca ako to „ak už existuje, preskoč“, len
+tichšia — a udrie práve vtedy, keď sa meria dopad prepínača.
+
+Emulátor sa linkuje s `-s` a `-Wl,--gc-sections`: prvé zahodí symboly,
+druhé kód, na ktorý sa nikto neodkazuje (2 032 128 → 1 937 408 bajtov).
+To druhé funguje len vďaka `-ffunction-sections -fdata-sections` pri
+preklade — sú v premennej `SECTIONS`. Testy a sonda si symboly nechávajú
+zámerne: keď spadnú, chce sa vedieť kde. A **`-Os` neskúšaj** — pri ňom
+prestane byť presúvací konštruktor `std::string` inlinovaný a v libstdc++
+ako samostatný symbol neexistuje, takže sa štyri jednotky vôbec
+nezlinkujú.
+
 Pozor na jednu vec v `Makefile`: `make` si shell vyberá podľa PATH — z
 `cmd.exe` použije cmd, z bashu `sh.exe` z Gitu. Recepty preto nesmú
 používať `copy`, `if not exist` ani `mkdir -p`. `mkdir build` funguje v
