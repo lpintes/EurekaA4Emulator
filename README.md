@@ -104,6 +104,19 @@ podržte **všetky štyri kurzorové klávesy naraz**. Stroj zahlási „konec�
 a zhasne, disk sa pritom uloží. Vypne sa aj sám po piatich minútach
 nečinnosti a tridsať sekúnd vopred to ohlási tónmi.
 
+Vypnutý stroj **zostáva v okne**. Ohlásia to tri klesajúce tóny a stojí
+to v titulku, takže `NVDA+T` na to odpovie kedykoľvek.
+
+Klávesnicu vtedy dostane Windows, presne ako po `Shift+F11` — vypnutý
+stroj nemá kam prijať kláves a čítačka nad ním číta ako nad hociktorým
+iným oknom. `Shift+F11` preto v tom stave nerobí nič a v ponuke je
+zošedené; klávesnicu vráti až zapnutie.
+
+Späť ho zapne `Reset`, a keďže klávesnica je hosťova, stačí samotné
+`Ctrl+R` bez `F11`. Ohlásia to tri stúpajúce tóny a klávesnicu dostane
+zase Eureka. Zatiaľ však **začne odznova**: nenadviaže tam, kde ste
+skončili, tak ako by to urobil skutočný stroj.
+
 Emulátor má **len svoje okno**. Žiadna konzola pri spustení nevyskočí a
 nič vám nezoberie zameranie.
 

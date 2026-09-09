@@ -53,7 +53,12 @@ class MainWindow : public win::Window {
   // True when this key event belongs to the host rather than to Eureka.  Also
   // spends the one-shot, which is why it is not const.
   bool HostKeepsKey(WPARAM virtualKey, bool down);
-  void SetReleased(bool released);
+  // quiet is for the one caller that has already said what happened: the power
+  // switch.  Off and released are one state, so the power tone is the whole
+  // announcement and the keyboard pair on top of it would be a second answer
+  // to one event -- and two falling shapes in a row are harder to tell apart
+  // than either is on its own.
+  void SetReleased(bool released, bool quiet = false);
   void SetPassOnce(bool armed);
 
   // Remembers the diskette a swap put in, so the next start finds it.  Saved
@@ -105,6 +110,11 @@ class MainWindow : public win::Window {
   // Whether the press of that key has been seen yet.  See HostKeepsKey: the
   // release of F11 itself must not be mistaken for it.
   bool passOnceUsed_ = false;
+  // The machine has switched itself off and is sitting there switched off with
+  // the window still open.  The worker's copy is the truth; this one is here
+  // so that the title and the menu can be built on the window thread without
+  // asking across.
+  bool poweredOff_ = false;
 };
 
 #endif

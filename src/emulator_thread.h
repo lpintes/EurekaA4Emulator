@@ -63,6 +63,10 @@ HostKeyEvent SyntheticKey(bool down, WORD virtualKey, bool alt);
 // Messages the worker posts back to the window.  wParam carries the detail.
 enum : UINT {
   WM_EMU_STATE = WM_APP + 1,   // mode or diagnostics changed; refresh the UI
+  // The machine's own power switch went over, either way: wParam is 1 for off
+  // and 0 for on.  Both directions come through one message because for the
+  // window they are one thing -- the title has to say which state it is in and
+  // the tone has to say that it changed.
   WM_EMU_POWERED_OFF = WM_APP + 2,
   WM_EMU_DISK_ERROR = WM_APP + 3,
   // A Save As finished.  It carries the new state as well as the outcome: a
@@ -268,6 +272,13 @@ class EmulatorThread {
   InputMode mode() const { return mode_.load(std::memory_order_relaxed); }
   bool diagnostics() const { return diagnostics_.load(std::memory_order_relaxed); }
   bool running() const { return running_.load(std::memory_order_relaxed); }
+  // The machine has switched itself off and is sitting there switched off.
+  // The worker is still running -- that is the point: on the real Eureka the
+  // RAM and the clock keep their own supply, so the state has to be somewhere
+  // to come back from.  Reset is what starts it again.
+  bool powered_off() const {
+    return poweredOff_.load(std::memory_order_relaxed);
+  }
   // Last disk error the worker reported, for the WM_EMU_DISK_ERROR handler.
   std::wstring TakeDiskError();
   // What the last Save As did, for the WM_EMU_SAVED handler.
@@ -315,6 +326,7 @@ class EmulatorThread {
   std::atomic<InputMode> mode_{InputMode::kPc};
   std::atomic<bool> diagnostics_{false};
   std::atomic<bool> running_{false};
+  std::atomic<bool> poweredOff_{false};
   std::atomic<bool> stashHasFiles_{false};
   std::atomic<unsigned> stashHolds_{0};
   std::atomic<unsigned> stashLocked_{0};

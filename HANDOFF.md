@@ -567,6 +567,11 @@ práve preto vie firmvér nadviazať tam, kde používateľ skončil. `main.cpp`
 počká, kým dohrá „konec" (`AudioPlayer::Close()` volá `waveOutReset` a
 inak by koncovku odrezal), zapíše disk a skončí.
 
+**Posledná veta už neplatí (9. 9. 2026).** Emulátor po vypnutí
+neskončí: okno zostáva otvorené a vlákno stroja beží ďalej. Dôvod aj
+to, čo z toho zostalo otvorené, je v 6.31. Zvyšok odseku platí — o modeli
+sa nezmenilo nič, zmenilo sa len to, čo s ním robí hostiteľ.
+
 **Pozor pre každého, kto píše slučku okolo `Step()`.** Vypnutý stroj už
 neprikročí, takže `cycles()` ani `instructions()` sa nehýbu a slučka
 tvaru „bež, kým nevyprší rozpočet" sa **zacyklí**. `RunUntilPrompt`
@@ -2545,6 +2550,81 @@ odpovede podľa toho, odkiaľ sa na ňu siahne.
 **Neisté zostáva zamknutá disketa** — či „disk je chráněn proti zápisu“
 znie rovnako zo všetkých vstupných bodov, alebo sa tiež líši. Majiteľ si
 tým nie je istý (7. 9. 2026), takže sa to nesmie predpokladať.
+
+### 6.31 Vypnutá Eureka zostáva v okne — dialóg preč, studený štart otvorený
+
+**Rozhodnuté s majiteľom 9. 9. 2026.** Dovtedy vypnutie stroja zavrelo
+celý emulátor: `WM_EMU_POWERED_OFF` ukázal `MessageBox` a hneď za ním
+poslal `WM_CLOSE`.
+
+Boli to dve chyby v jednom mieste. Text dialógu znel „na skutočnom
+stroji by RAM aj hodiny zostali pod napätím a ďalšie zapnutie by
+pokračovalo tam, kde ste skončili“ — to je opis toho, čo **nemáme
+naprogramované**, teda implementačný detail v texte pre používateľa,
+a nedá sa naň nijako odpovedať. A `WM_CLOSE` za ním bral stavu možnosť
+byť stavom: vypnutie na tomto stroji **nie je koniec**, je to
+pohotovostný stav, v ktorom RAM aj hodiny žijú ďalej.
+
+Majiteľ k tomu pridal dôvod, ktorý siaha ďalej než pohodlie: keby sa
+okno dalo minimalizovať, vypnutá Eureka by mohla **budiť, reagovať na
+diár a odbíjať hodiny**. To sú veci, ktoré na skutočnom stroji vypnutie
+prežívajú a firmvér ich obsluhuje — alarm zobudí vypnutý stroj, firmvér
+ho obslúži a uloží ho späť (viď `power_down_marker` v `machine.h`).
+Zavretý proces ich obslúžiť nemá ako.
+
+Čo je spravené:
+
+- **Vlákno stroja slučku neopúšťa.** `EmulatorThread::Run` sleduje
+  prechod `machine.powered_off()` a hlási len zmenu; slučka beží ďalej
+  a obsluhuje príkazy. Odtok zvuku pred „konec“ zostal, len sa už
+  nerobí cestou von. Nič nemusí CPU zastavovať: `Step()` vráti `false`
+  sám a strop dlhu nad ním pripne `guestClock` štvrť sekundy pred
+  hodiny, ktoré sa nehýbu, takže zapnutie **nepreletí** čas strávený
+  vypnutím.
+- **Stav je počuť a stojí v titulku.** Tri klesajúce tóny na vypnutie,
+  tri stúpajúce na zapnutie — štvrtý tvar vedľa klávesnice, diskety
+  a zámku. Stroj síce povie „konec“ vlastným hlasom, ale to, čo za tým
+  nasleduje, je ticho, a ticho znie rovnako ako spadnutý emulátor.
+  Titulok odpovedá kedykoľvek potom a vypnutie v ňom **predbieha
+  všetko ostatné**, lebo režim klávesnice prestal byť otázkou.
+- **`Vypnúť Eureku` je vo vypnutom stave zošedené**, `Reset` vedľa neho
+  nie — inak by jediný stav v tomto okne nemal nikde pomenovanú cestu
+  von.
+- **Vypnuté a uvoľnená klávesnica je jeden stav, nie dva** (doplnené po
+  pripomienke majiteľa v ten istý deň). Vypnutý stroj nemá kam prijať
+  kláves, takže držať mu klávesnicu by znamenalo, že každý kláves na nej
+  je ticho — presne ten režim, ktorý nepočuť, okolo ktorého je celý
+  `main_window.cpp` postavený — a NVDA by navyše spalo nad oknom, v
+  ktorom nie je čo čítať. `SetReleased(true)` teda ide s vypnutím
+  a `SetReleased(false)` so zapnutím, oboje **bez vlastného tónu**:
+  hlási to tón napájania, lebo je to jedna udalosť, a dva klesajúce
+  tvary za sebou sa rozoznávajú horšie než ktorýkoľvek z nich sám.
+  `Shift+F11` v tom stave nerobí nič — `SetReleased` odmieta jediný
+  smer, teda vzatie klávesnice späť, a jeho položka je zošedená, aby to
+  čítačka povedala. Tiché odmietnutie je tu bezpečné len preto, že
+  klávesnica **už je tam, kam by ju ten kláves dal**; pasca, do ktorej
+  tento súbor padá, je kláves, ktorý zmení smer klávesov potichu, nie
+  kláves, ktorý potichu odmietne nezmeniť nič.
+  Vedľajší dôsledok, ktorý stojí za zapamätanie: `HostShortcutsActive()`
+  je vo vypnutom stave pravdivé, takže `Reset` je **samotné `Ctrl+R`**
+  bez `F11` a `RefreshShortcutText` prefix sníme sám. README aj Pomocník
+  to tak hovoria.
+
+Čo zostáva otvorené: **zapnutie je dnes studený štart.** `Reset()` maže
+RAM, takže sa stroj rozbehne odznova a nenadviaže tam, kde používateľ
+skončil. Na hardvéri je to naopak — a keďže objekt `EurekaMachine`
+v procese celý čas žije aj s RAM, teplé zapnutie je odtiaľto na dosah:
+nový vstupný bod, ktorý urobí to, čo `Reset()`, ale **nesiahne** na
+`memory_` nad ROM, na `rtcRam_` ani na hodiny. Čo firmvér potom naozaj
+urobí, sa **musí odmerať, nie odhadnúť** — sonda dnes nevie stroj
+vypnúť a znovu zapnúť, takže k tomu patrí aj token do nej. Patrí to
+k epicu `ea4-aip` (zachovanie RAM medzi behmi): tam je to o prežití
+procesu, tu o prežití vypnutia, ale je to tá istá RAM a ten istý
+magický `55AAh` na `C45Bh`.
+
+Do tej chvíle platí: `Reset` je jediná cesta späť a je **studená**.
+README aj Pomocník to hovoria slovami o svete („začne odznova“), nie
+o kóde.
 
 ## 7. Nástroje
 

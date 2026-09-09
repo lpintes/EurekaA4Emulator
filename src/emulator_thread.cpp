@@ -331,6 +331,7 @@ void EmulatorThread::Start(std::unique_ptr<EurekaMachine> machine, HWND notify,
   mode_.store(startMode, std::memory_order_relaxed);
   diagnostics_.store(diagnostics, std::memory_order_relaxed);
   running_.store(true, std::memory_order_relaxed);
+  poweredOff_.store(false, std::memory_order_relaxed);
   thread_ = std::thread([this] { Run(); });
 }
 
@@ -518,6 +519,9 @@ void EmulatorThread::Run() {
   long double guestClock = 0.0L;
   std::wstring error;
   bool running = true;
+  // What the worker last told the window about the power switch, so that only
+  // the change is reported and not every pass of a two-millisecond loop.
+  bool poweredOff = false;
 
   // One host key event, already off the queue.  Split out of the command loop
   // only because it is long; it runs on the worker like everything else.
@@ -1025,15 +1029,28 @@ void EmulatorThread::Run() {
     // Menu, or five minutes of nobody touching it.  It says "konec" first, and
     // that announcement is still inside the sound device when the strobe fires
     // -- AudioPlayer::Close() calls waveOutReset and would throw it away -- so
-    // wait for it to play out before leaving the loop.  Two seconds is a
-    // ceiling for a device that stops reporting progress, not a pause.
-    if (machine.powered_off()) {
-      const auto until = Clock::now() + std::chrono::seconds(2);
-      while (audio.Ready() && audio.QueuedMs() > 1.0 && Clock::now() < until)
-        timer.Wait(5.0);
-      running = false;
-      if (notify) PostMessageW(notify, WM_EMU_POWERED_OFF, 0, 0);
-      break;
+    // wait for it to play out.  Two seconds is a ceiling for a device that
+    // stops reporting progress, not a pause.
+    //
+    // The loop does not end here, and that is the change: switching off is a
+    // state the machine sits in, not the end of the run.  On the hardware the
+    // RAM and the clock keep a supply of their own, so the worker stays alive
+    // holding them and goes on serving commands -- Reset starts it again, and
+    // one day an alarm could too.  Nothing has to stop the CPU on the way:
+    // EurekaMachine::Step returns false while it is off, and the debt ceiling
+    // above pins guestClock to a quarter second ahead of a clock that is no
+    // longer moving, so switching on does not sprint through the time spent
+    // off.
+    if (machine.powered_off() != poweredOff) {
+      poweredOff = machine.powered_off();
+      poweredOff_.store(poweredOff, std::memory_order_relaxed);
+      if (poweredOff) {
+        const auto until = Clock::now() + std::chrono::seconds(2);
+        while (audio.Ready() && audio.QueuedMs() > 1.0 && Clock::now() < until)
+          timer.Wait(5.0);
+      }
+      if (notify)
+        PostMessageW(notify, WM_EMU_POWERED_OFF, poweredOff ? 1 : 0, 0);
     }
 
     // Written back once the guest has finished with the disk, not on a clock:

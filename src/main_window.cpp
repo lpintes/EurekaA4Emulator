@@ -59,6 +59,14 @@ void ToneEjected() { Tone(330, 90); }
 void ToneLocked() { Tone(400, 140); }
 void ToneUnlocked() { Tone(1000, 140); }
 
+// The power switch.  A fourth shape, and the only three-note one: the machine
+// says "konec" in its own voice on the way out, but what follows that is
+// silence, and silence is also what a crashed emulator sounds like.  These say
+// the host is still there and knows which state it is in.  Three notes down
+// for off, three up for on.
+void TonePoweredOff() { Tone(700, 100); Tone(500, 100); Tone(300, 150); }
+void TonePoweredOn() { Tone(300, 100); Tone(500, 100); Tone(700, 150); }
+
 
 // Kept in one place so the menu, the help text and this list cannot drift
 // apart.  A shortcut a screen reader never reads is a shortcut nobody has.
@@ -152,6 +160,11 @@ constexpr wchar_t kShortcutHelp[] =
     L"Eureku vypnete aj tak ako naozaj: v hlavnom menu podržte všetky\r\n"
     L"štyri kurzorové klávesy naraz. Vypne sa aj sama po piatich minútach\r\n"
     L"nečinnosti, tridsať sekúnd vopred to ohlási tónmi.\r\n"
+    L"\r\n"
+    L"Vypnutá zostane v okne, tromi klesajúcimi tónmi a v titulku.\r\n"
+    L"Klávesnicu vtedy dostane Windows a Shift+F11 ju nemá komu vrátiť.\r\n"
+    L"Späť ju zapne samotné Ctrl+R a klávesnicu dostane zase Eureka.\r\n"
+    L"Stroj však začne odznova.\r\n"
     L"\r\n"
     L"NVDA:\r\n"
     L"\r\n"
@@ -752,6 +765,14 @@ void MainWindow::RefreshTitle() const {
   // every ordinary diskette would spend a word on the usual case.
   const std::wstring diskette =
       disk_.labels.name + (disk_.writeProtected ? L", zamknutá" : L"");
+  // Switched off outranks everything else in the line.  Keys go nowhere and
+  // the diskette is not being read, so answering "režim: externá" first would
+  // be answering a question that has stopped being the one worth asking.  The
+  // way back is named, the way this window names every other way back.
+  if (poweredOff_) {
+    SetTitle(L"Eureka A4 — vypnutá, zapne ju Reset — disketa: " + diskette);
+    return;
+  }
   SetTitle(released_
                ? L"Eureka A4 — klávesnica uvoľnená, vráti ju Shift+F11 — "
                  L"režim: " + std::wstring(ModeName(emulator_.mode())) +
@@ -775,6 +796,12 @@ void MainWindow::RefreshMenu() const {
   // beside a working shortcut says two different things.
   CheckMenuItem(menu, ID_KEYBOARD_RELEASE,
                 MF_BYCOMMAND | (released_ ? MF_CHECKED : MF_UNCHECKED));
+  // While the machine is off the keyboard is released and cannot be taken
+  // back -- there is nothing on the other side to take it.  Ticked and greyed
+  // together is the honest pair: this is the state, and it is not yours to
+  // change from here.  Reset is.
+  EnableMenuItem(menu, ID_KEYBOARD_RELEASE,
+                 MF_BYCOMMAND | (poweredOff_ ? MF_GRAYED : MF_ENABLED));
   CheckMenuItem(menu, ID_KEYBOARD_PASSONCE,
                 MF_BYCOMMAND | (passOnce_ ? MF_CHECKED : MF_UNCHECKED));
   EnableMenuItem(menu, ID_KEYBOARD_PASSONCE,
@@ -802,6 +829,12 @@ void MainWindow::RefreshMenu() const {
   CheckMenuItem(menu, ID_DISK_PROTECT,
                 MF_BYCOMMAND |
                     (disk_.writeProtected ? MF_CHECKED : MF_UNCHECKED));
+  // A machine that is already off has nothing to switch off.  Reset stays
+  // enabled beside it, because that is what starts it again -- greying both
+  // would leave the one state in this window with no way out of it named
+  // anywhere.
+  EnableMenuItem(menu, ID_MACHINE_POWEROFF,
+                 MF_BYCOMMAND | (poweredOff_ ? MF_GRAYED : MF_ENABLED));
   // Before RefreshShortcutText, which reads the item text back and would
   // otherwise be working on the names this is about to replace.
   RefreshSlotItems(menu);
@@ -849,7 +882,15 @@ void MainWindow::RefreshShortcutText(HMENU menu) const {
   }
 }
 
-void MainWindow::SetReleased(bool released) {
+void MainWindow::SetReleased(bool released, bool quiet) {
+  // A switched-off machine has nothing to give the keyboard to, so the one
+  // direction that is refused here is taking it back.  That is what makes
+  // Shift+F11 do nothing while the machine is off, and the item for it is
+  // greyed out in RefreshMenu so a screen reader says so.  Refusing in
+  // silence is safe only because the keyboard is already where the key would
+  // put it: the trap this file keeps setting is a key that changes where the
+  // keys go without saying so, not one that declines to change nothing.
+  if (poweredOff_ && !released) return;
   if (released_ == released) return;
   released_ = released;
   // Arming one and then the other would leave the one-shot armed behind the
@@ -862,6 +903,7 @@ void MainWindow::SetReleased(bool released) {
   // title that already says the same thing.
   PublishKeyboardState();
   RefreshTitle();
+  if (quiet) return;
   if (released_) ToneLeaving(); else ToneReturning();
 }
 
@@ -1018,15 +1060,29 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       // C45Ah is FFh here: the firmware's own marker that this was a clean
       // power-down.  It is not what makes the next start a resume -- that is
       // RAM surviving with magic 55AAh at C45Bh, and the marker only stops an
-      // alarm from waking the machine for good (HANDOFF 6.15).  Once the host
-      // keeps RAM across runs, saving it here is what separates switching on
-      // from a hard reset.
-      MessageBoxW(hwnd_,
-                  L"Eureka sa vypla.\r\n\r\n"
-                  L"Na skutočnom stroji by RAM aj hodiny zostali pod napätím "
-                  L"a ďalšie zapnutie by pokračovalo tam, kde ste skončili.",
-                  L"Eureka A4", MB_OK | MB_ICONINFORMATION);
-      PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+      // alarm from waking the machine for good (HANDOFF 6.15).
+      //
+      // Neither a dialog nor a WM_CLOSE any more.  Switching off is a state
+      // the machine sits in, so it is said the way every other state on this
+      // machine is said -- a tone at the moment it changes, the title for any
+      // moment after that -- and the window stays open around it.  The dialog
+      // that stood here described what the host has not implemented yet, which
+      // is nothing the user can act on, and it did so in the one breath before
+      // taking the window away.
+      //
+      // Off and released are one state, not two.  A switched-off machine has
+      // nowhere to put a keystroke, so holding the keyboard would make every
+      // key on it silent -- the trap this whole file is built around -- and it
+      // would keep NVDA asleep over a window with nothing to read.  So the
+      // keyboard goes back to Windows on the way out and to Eureka on the way
+      // in, without a tone of its own: the power tone below is that
+      // announcement, and the title carries both halves afterwards.  The order
+      // matters, poweredOff_ first: SetReleased asks it before it decides.
+      poweredOff_ = wParam != 0;
+      SetReleased(poweredOff_, /*quiet=*/true);
+      RefreshMenu();
+      if (poweredOff_) TonePoweredOff(); else TonePoweredOn();
+      RefreshTitle();
       return 0;
 
     case WM_EMU_DISK_ERROR:
