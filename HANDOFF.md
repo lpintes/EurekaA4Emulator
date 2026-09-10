@@ -1391,8 +1391,19 @@ hotová (beady `ea4-aip.2`, `ea4-te9`, `ea4-9fq`).**
   `PowerOn` na obnovenej RAM nepovie „inicializace" a studený `Reset`
   áno, a všetky tri odmietnutia (`kMissing`, `kCorrupt`, `kRomMismatch`).
 
-Otvorené z 6.15 zostáva už len prepínač „ukladať RAM" v nastaveniach
-(`ea4-dh1`, P2) — dovtedy je ukladanie vždy zapnuté.
+**Doplnené v ten istý deň: prepínač je tiež hotový (`ea4-dh1`).** `Settings`
+nesie `keep_ram()` (kľúč `zachovat-ram` v `nastavenia.txt`, predvolene
+zapnuté; chýbajúci kľúč = zapnuté, aby starší súbor ticho neprestal
+uchovávať RAM). V dialógu Nastavenia je skupina „Pamäť" s jedným
+zaškrtávacím políčkom. `main.cpp` gejtuje načítanie aj zápis snímky týmto
+prepínačom; keď sa vypne — v dialógu alebo ručnou úpravou súboru —
+`main_window.cpp` aj `main.cpp` zmažú `pamat.bin`, aby zapnutie o mesiac
+neobnovilo dávny stav. Bez potvrdzovacieho dialógu: prepínač je dosť
+výslovný úkon (rozhodnuté 10. 9. 2026). Drží to `settings_test`
+(`KeepRamSwitchRoundTrips`).
+
+**Tým je 6.15 celá spravená.** Zostáva len doloženie: relogovanie disku po
+ceste „vypnutie a zapnutie" je overené len ručne (`ea4-rwe`).
 
 ### 6.16 Lupanie: chýbal väzobný kondenzátor — opravené
 
@@ -2240,11 +2251,12 @@ a nenačíta znovu (`NVDA+Ctrl+F3`).
    **Ten krok je hotový ešte v ten deň** — `EurekaMachine::PowerOn()`,
    tokeny sondy `vypni`/`zapni`/`studeno` a `Stroj` → `Zapnúť Eureku`
    v ponuke; odmerané je, že firmvér nadviaže.
-   **Doplnené 10. 9. 2026: prežitie procesu je tiež hotové** —
-   `SaveSnapshot`/`LoadSnapshot` so snímkou do `pamat.bin`, MD5 ROM
-   v hlavičke, osem bajtov `rtcRam_` v nej, a zmeškaný budík odmeraný
-   (`ea4-oti`). Podrobne v 6.15. Otvorené z 6.15 zostáva len prepínač
-   v nastaveniach (`ea4-dh1`, P2).
+   **Doplnené 10. 9. 2026: prežitie procesu je hotové, epic `ea4-aip`
+   uzavretý.** `SaveSnapshot`/`LoadSnapshot` so snímkou do `pamat.bin`,
+   MD5 ROM v hlavičke, osem bajtov `rtcRam_` v nej, zmeškaný budík
+   odmeraný (`ea4-oti`) a prepínač „Pamäť" v Nastaveniach (`ea4-dh1`,
+   kľúč `zachovat-ram`). Podrobne v 6.15. Otvorené zostáva len doloženie
+   relogovania po ceste vypnutie–zapnutie (`ea4-rwe`).
 5. **Správa diskiet** (6.22) — **celá spravená** 9. 9. 2026 a stiahnutá
    do archívu; čo sa kedy urobilo, je tam. Otvorené z nej zostalo len
    doloženie: že sa EurekaDOS po výmene preloguje sám, je odmerané

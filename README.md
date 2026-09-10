@@ -138,6 +138,11 @@ neuloží; to zodpovedá vypínaču batérie a ďalšie spustenie sa ohlási
 Uložený stav patrí k tej ROM, s ktorou vznikol. Ak emulátor spustíte
 s inou ROM, spýta sa, či začať odznova.
 
+Ukladanie sa dá vypnúť v **Nastaveniach**, v skupine „Pamäť“ (`F11`,
+`Ctrl+N`). Predvolene je zapnuté. Keď ho vypnete, uložený stav sa zmaže
+a ďalšie vypnutie ho už nevytvorí — každé spustenie potom začína „od
+nuly“.
+
 Emulátor má **len svoje okno**. Žiadna konzola pri spustení nevyskočí a
 nič vám nezoberie zameranie.
 
@@ -484,7 +489,8 @@ kopírovanie chránený zdroj priamo žiada.
 
 Diskety a stav stroja. Z diskiet **tú, ktorú ste mali naposledy**,
 **deväť slotov** a **zoznam diskiet zamknutých proti zápisu**; zo stavu
-stroja **obsah pamäte a hodín po riadnom vypnutí** (viď vyššie). Posledná
+stroja **obsah pamäte a hodín po riadnom vypnutí**, pokiaľ to
+v Nastaveniach nevypnete (viď vyššie). Posledná
 disketa sa vloží pri ďalšom štarte, takže sa program
 nepýta na priečinok pri každom spustení; zapíše sa vždy, keď disketu
 vložíte — pri štarte, pri výmene za behu aj zo slotu. Pamätá sa

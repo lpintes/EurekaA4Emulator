@@ -60,6 +60,14 @@ class Settings {
   const std::wstring& last_disk() const { return lastDisk_; }
   void SetLastDisk(std::wstring path);
 
+  // Whether the machine's RAM and clock are kept across a real power-down, so
+  // the next run resumes where the user stopped instead of initialising.
+  // Default on; the switch is in Nastavenia (ea4-dh1).  Turning it off is the
+  // user's word that they want a clean start, so the caller also drops any
+  // snapshot already on disk -- see SnapshotFile and HANDOFF 6.15.
+  bool keep_ram() const { return keepRam_; }
+  void SetKeepRam(bool keep) { keepRam_ = keep; }
+
   // An out-of-range number reads empty and writes nowhere, so a caller that
   // miscounts cannot corrupt the file or walk off the array.
   const std::wstring& slot(int number) const;
@@ -90,6 +98,7 @@ class Settings {
 
   std::filesystem::path file_;
   std::wstring lastDisk_;
+  bool keepRam_ = true;
   std::array<std::wstring, kSlots> slots_;
   // In the order they were locked, so the file stays diffable and a lock the
   // user set is not silently reordered under them.

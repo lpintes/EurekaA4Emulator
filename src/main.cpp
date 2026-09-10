@@ -299,7 +299,13 @@ int Run() {
   // next real power-down.
   bool warmResumed = false;
   const fs::path snapshotFile = Settings::SnapshotFile();
-  if (!snapshotFile.empty()) {
+  if (!settings.keep_ram()) {
+    // The switch is off (ea4-dh1).  Make sure nothing lingers to be loaded
+    // later -- the file may be left over from before it was turned off, or
+    // from a hand edit of nastavenia.txt.
+    std::error_code ec;
+    if (!snapshotFile.empty()) fs::remove(snapshotFile, ec);
+  } else if (!snapshotFile.empty()) {
     std::wstring snapError;
     std::error_code ec;
     switch (machine->LoadSnapshot(snapshotFile, snapError)) {
@@ -373,7 +379,7 @@ int Run() {
   // machine was switched off for real -- the cursor-key chord or the idle
   // timeout -- never on a bare window close: that is the battery cut-off
   // switch, after which the hardware initialises from scratch (HANDOFF 6.15).
-  if (machine && machine->powered_off()) {
+  if (machine && machine->powered_off() && settings.keep_ram()) {
     const fs::path snapFile = Settings::SnapshotFile();
     std::wstring snapError;
     if (snapFile.empty())

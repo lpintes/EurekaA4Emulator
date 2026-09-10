@@ -77,6 +77,44 @@ void MissingFileIsDefaults() {
   Check(settings.slot(1).empty(), "chybajuci subor nechava sloty prazdne");
 }
 
+void KeepRamSwitchRoundTrips() {
+  // Absent from the file means on: a settings file from a version that never
+  // knew the switch must not silently stop keeping the RAM (ea4-dh1).
+  {
+    Settings settings(FileNamed("neexistuje.txt"));
+    settings.Load();
+    Check(settings.keep_ram(), "chybajuci subor: zachovanie RAM je zapnute");
+  }
+  const fs::path file = FileNamed("zachovat-ram.txt");
+  std::wstring error;
+  {
+    Settings settings(file);
+    Check(settings.keep_ram(), "novy Settings ma zapnute");
+    settings.SetKeepRam(false);
+    Check(settings.Save(error), "ulozenie s vypnutym prejde", Narrow(error));
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(!loaded.keep_ram(), "vypnute prezije zapis aj citanie");
+  }
+  Check(ReadRaw(file).find("zachovat-ram=0") != std::string::npos,
+        "vypnutie je v subore ako zachovat-ram=0");
+  {
+    Settings settings(file);
+    settings.Load();
+    settings.SetKeepRam(true);
+    settings.Save(error);
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(loaded.keep_ram(), "zapnutie sa da vratit");
+  }
+  Check(ReadRaw(file).find("zachovat-ram=1") != std::string::npos,
+        "zapnutie je v subore ako zachovat-ram=1");
+}
+
 void RoundTripKeepsDiacritics() {
   const fs::path file = FileNamed("kolotoc.txt");
   std::wstring error;
@@ -371,6 +409,7 @@ int main() {
   }
 
   MissingFileIsDefaults();
+  KeepRamSwitchRoundTrips();
   RoundTripKeepsDiacritics();
   SaveOverwritesRatherThanAppends();
   ClearedSlotDisappears();

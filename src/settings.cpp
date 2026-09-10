@@ -17,6 +17,7 @@ namespace {
 // compared byte for byte, and a key the user retypes without diacritics would
 // otherwise stop matching.
 constexpr char kLastDiskKey[] = "posledna-disketa";
+constexpr char kKeepRamKey[] = "zachovat-ram";
 constexpr char kSlotPrefix[] = "slot";
 // A locked diskette, one per line: "zamok1=C:\Hry".  Numbered rather than
 // repeated under one key, because the parser here takes the last value for a
@@ -150,6 +151,12 @@ void Settings::Load() {
       lastDisk_ = std::move(value);
       continue;
     }
+    if (key == kKeepRamKey) {
+      // Absent means the default (on); only an explicit "0" turns it off, so a
+      // file written by a version that never knew this key keeps the RAM.
+      keepRam_ = value != L"0";
+      continue;
+    }
     // Before the slot test: "zamok" and "slot" do not overlap, but the lock
     // lines are the ones a hand-editing user is most likely to duplicate, and
     // reading them first keeps that path short.
@@ -185,6 +192,9 @@ bool Settings::Save(std::wstring& error) const {
       L"# Nastavenia emulátora Eureka A4.\r\n"
       L"# Súbor prepisuje emulátor, vlastné riadky v ňom neprežijú.\r\n"
       L"\r\n";
+  // Always written, even at its default, so the switch is visible to someone
+  // editing the file by hand.
+  text += std::wstring(L"zachovat-ram=") + (keepRam_ ? L"1" : L"0") + L"\r\n";
   if (!lastDisk_.empty()) text += L"posledna-disketa=" + lastDisk_ + L"\r\n";
   for (int number = 1; number <= kSlots; ++number) {
     const auto index = static_cast<std::size_t>(number - 1);

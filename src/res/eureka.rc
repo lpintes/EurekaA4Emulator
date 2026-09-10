@@ -194,7 +194,7 @@ END
 // runs, is the same question as keeping the RAM across runs and is decided
 // with it (HANDOFF 6.15, 6.18).
 
-IDD_SETTINGS DIALOGEX 0, 0, 232, 132
+IDD_SETTINGS DIALOGEX 0, 0, 232, 166
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Nastavenia"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
@@ -215,14 +215,22 @@ BEGIN
     // focus.  Measured on the built EXE through IsDialogMessage.  The same
     // three radios in IDD_NEWDISK cycle only because an LTEXT follows them and
     // windres gives LTEXT WS_GROUP by default; nothing here follows that rule.
+    // Every group box below carries WS_GROUP too, and the checkbox after it
+    // carries WS_GROUP | WS_TABSTOP, so each one-checkbox group ends before
+    // the box that follows.
     GROUPBOX        "Diagnostika", IDC_STATIC, 7, 65, 218, 40,
                     BS_GROUPBOX | WS_GROUP
     CONTROL         "&Zapnutá — záznam na konzolu, výpis v ponuke Nástroje",
                     IDC_DIAGNOSTICS, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
                     16, 79, 200, 12
 
-    DEFPUSHBUTTON   "OK", IDOK, 118, 111, 50, 14, WS_GROUP
-    PUSHBUTTON      "Zrušiť", IDCANCEL, 175, 111, 50, 14
+    GROUPBOX        "Pamäť", IDC_STATIC, 7, 111, 218, 28, BS_GROUPBOX | WS_GROUP
+    CONTROL         "&Po vypnutí pokračovať tam, kde ste prestali",
+                    IDC_KEEP_RAM, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
+                    16, 123, 200, 12
+
+    DEFPUSHBUTTON   "OK", IDOK, 118, 145, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 175, 145, 50, 14
 END
 
 /////////////////////////////////////////////////////////////////////////////

@@ -73,6 +73,7 @@
 #define IDC_MODE_BRAILLE     1001
 #define IDC_MODE_PC          1002
 #define IDC_DIAGNOSTICS      1003
+#define IDC_KEEP_RAM         1004
 
 // About dialog controls.
 #define IDC_ABOUT_TEXT       1010

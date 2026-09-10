@@ -15,11 +15,12 @@
 
 class SettingsDialog : public win::Dialog {
  public:
-  SettingsDialog(InputMode mode, bool diagnostics)
-      : mode_(mode), diagnostics_(diagnostics) {}
+  SettingsDialog(InputMode mode, bool diagnostics, bool keepRam)
+      : mode_(mode), diagnostics_(diagnostics), keepRam_(keepRam) {}
 
   InputMode mode() const { return mode_; }
   bool diagnostics() const { return diagnostics_; }
+  bool keep_ram() const { return keepRam_; }
 
  protected:
   bool OnInit() override;
@@ -28,6 +29,7 @@ class SettingsDialog : public win::Dialog {
  private:
   InputMode mode_;
   bool diagnostics_;
+  bool keepRam_;
 };
 
 // The nine quick-choice slots as the dialogs pass them around.

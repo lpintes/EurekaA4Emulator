@@ -279,6 +279,9 @@ priečinka, ručne napísaný slot a kanonická cesta z `VirtualDisk` sa líšia
 veľkosťou písmen, tvarom lomky a koncovou lomkou, a surové porovnanie by zámok
 stratilo potichu. Pravidlo je `Settings::SameDisk` a je len jedno — pýta sa naň
 aj dialóg slotov.
+Drží aj **prepínač zachovania RAM** (`zachovat-ram=`, `ea4-dh1`): že chýbajúci
+kľúč znamená zapnuté (starší súbor nesmie ticho prestať uchovávať RAM), že
+vypnuté aj zapnuté prežijú zápis a čítanie a že sa píšu ako `0`/`1`.
 Overené mutáciou: `CP_UTF8` → `CP_ACP` v `settings.cpp` zhodí tri kontroly.
 Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spúšťa.
 
