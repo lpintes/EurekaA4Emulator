@@ -7,8 +7,10 @@
 #include <cstring>
 #include <ctime>
 #include <fstream>
+#include <iterator>
 
 #include "eureka_io.h"
+#include "md5.h"
 
 namespace fs = std::filesystem;
 
@@ -226,6 +228,71 @@ void EurekaMachine::CopyStateFrom(const EurekaMachine& other) {
   // the other machine.  Left alone, every memory and port callback would run
   // against the machine we copied from.
   cpu_.userdata = this;
+}
+
+namespace {
+// The magic carries the format version: a layout change bumps the digits and
+// an older file simply reads back as kCorrupt.  Layout after it: 16 bytes ROM
+// MD5, then the 8 clock bytes, then kRamSnapshotBytes of RAM.
+constexpr char kSnapshotMagic[8] = {'E', 'A', '4', 'R', 'A', 'M', '0', '1'};
+constexpr std::size_t kSnapshotHeaderSize =
+    sizeof(kSnapshotMagic) + 16 + 8;
+}  // namespace
+
+bool EurekaMachine::SaveSnapshot(const fs::path& path,
+                                 std::wstring& error) const {
+  if (!romLoaded_) {
+    error = L"Snímku RAM nemožno zapísať: nie je načítaná ROM.";
+    return false;
+  }
+  const std::array<uint8_t, 16> romMd5 = Md5(memory_.data(), kRomSize);
+
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  if (out) {
+    out.write(kSnapshotMagic, sizeof(kSnapshotMagic));
+    out.write(reinterpret_cast<const char*>(romMd5.data()), romMd5.size());
+    out.write(reinterpret_cast<const char*>(rtcRam_.data()), rtcRam_.size());
+    out.write(reinterpret_cast<const char*>(memory_.data() + kRamBase),
+              kRamSnapshotBytes);
+  }
+  if (!out) {
+    error = L"Snímku RAM sa nepodarilo zapísať do súboru\r\n" +
+            path.wstring() +
+            L"\r\n\r\nStav tohto behu sa pri ďalšom štarte neobnoví.";
+    return false;
+  }
+  return true;
+}
+
+EurekaMachine::SnapshotResult EurekaMachine::LoadSnapshot(const fs::path& path,
+                                                          std::wstring& error) {
+  if (!romLoaded_) {
+    error = L"Snímku RAM nemožno načítať: nie je načítaná ROM.";
+    return SnapshotResult::kCorrupt;
+  }
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return SnapshotResult::kMissing;
+
+  std::vector<char> bytes((std::istreambuf_iterator<char>(in)),
+                          std::istreambuf_iterator<char>());
+  if (bytes.size() != kSnapshotHeaderSize + kRamSnapshotBytes ||
+      std::memcmp(bytes.data(), kSnapshotMagic, sizeof(kSnapshotMagic)) != 0) {
+    error = L"Snímka RAM je poškodená alebo je z inej verzie emulátora.";
+    return SnapshotResult::kCorrupt;
+  }
+
+  const std::array<uint8_t, 16> romMd5 = Md5(memory_.data(), kRomSize);
+  if (std::memcmp(bytes.data() + sizeof(kSnapshotMagic), romMd5.data(),
+                  romMd5.size()) != 0) {
+    error = L"Snímka RAM bola uložená pod inou ROM.";
+    return SnapshotResult::kRomMismatch;
+  }
+
+  const char* clock = bytes.data() + sizeof(kSnapshotMagic) + 16;
+  std::memcpy(rtcRam_.data(), clock, rtcRam_.size());
+  std::memcpy(memory_.data() + kRamBase, clock + rtcRam_.size(),
+              kRamSnapshotBytes);
+  return SnapshotResult::kOk;
 }
 
 uint32_t EurekaMachine::PhysicalAddress(uint16_t logical) const {

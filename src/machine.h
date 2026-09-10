@@ -31,6 +31,8 @@ class EurekaMachine {
   // layout: it loads bank values up to 70h and --diag reports no dropped
   // writes with RAM here, so RAM occupies the top 64K of the 19-bit space.
   static constexpr uint32_t kRamBase = 0x70000;
+  // How much of memory_ a snapshot carries: everything from kRamBase up.
+  static constexpr std::size_t kRamSnapshotBytes = kPhysicalSize - kRamBase;
 
   bool LoadRom(const std::filesystem::path& path, std::wstring& error);
   // tooBig is passed straight through to VirtualDisk::Mount: see there for
@@ -100,6 +102,29 @@ class EurekaMachine {
   // a boot to get there.  CheckKeyboard presses 38 keys and each one has to
   // start from the same place, which used to mean 38 boots.
   void CopyStateFrom(const EurekaMachine& other);
+
+  // How LoadSnapshot fared.  Only kOk means RAM and the clock bytes were put
+  // back and the caller should PowerOn(); on anything else the machine is
+  // untouched and the caller cold-starts, asking the user first for
+  // kRomMismatch and kCorrupt (ea4-9fq).
+  enum class SnapshotResult { kOk, kMissing, kCorrupt, kRomMismatch };
+
+  // Writes RAM (everything above kRamBase), the clock chip's eight bytes and an
+  // MD5 of the loaded ROM to path.  The host calls this once the machine has
+  // switched itself off: on the real Eureka that supply is never cut, so the
+  // state has to outlive the process too (HANDOFF 6.15).
+  bool SaveSnapshot(const std::filesystem::path& path,
+                    std::wstring& error) const;
+
+  // Reads one back.  On kOk memory_ above kRamBase and rtcRam_ hold the saved
+  // bytes; the caller should then PowerOn() rather than Reset(), so the boot
+  // finds magic 55AAh still at C45Bh, skips the wipe at 1805E and comes up
+  // where the user left it.  A snapshot written under a different ROM is
+  // refused: it is full of pointers into FCBs and the directory that would now
+  // aim elsewhere.  The clock's eight bytes ride along because they are not in
+  // memory_ and PowerOn would otherwise leave last boot's alarm in them.
+  SnapshotResult LoadSnapshot(const std::filesystem::path& path,
+                              std::wstring& error);
 
   // False only once the machine has switched itself off.  The CPU is never
   // parked otherwise: the ROM waits for a key by spinning in its own event

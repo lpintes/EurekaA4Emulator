@@ -42,7 +42,7 @@ CFLAGS   := -std=c11 -O2 $(WARN) $(SECTIONS) -Isrc
 # Necham to tak, aby sa spolu s prechodom na make nemenilo aj chovanie.
 TESTFLAGS := -std=c++20 -O2 $(WARN) -Isrc
 
-EMU_NAMES  := main machine virtual_disk cpm_disk disk_stash disk_layout \
+EMU_NAMES  := main machine md5 virtual_disk cpm_disk disk_stash disk_layout \
               disk_split text_codec audio_player \
               diagnostics host_console emulator_thread main_window dialogs \
               settings
@@ -53,8 +53,8 @@ EMU_OBJS   := $(addprefix $(BUILD)/,$(addsuffix .o,$(EMU_NAMES))) \
               $(BUILD)/z80.o $(BUILD)/eureka_res.o
 # Objekty, proti ktorym sa linkuju sonda a integracny test. Bez main.o
 # (ma vlastny wmain) a bez audio_player.o (testy nehraju).
-CORE_OBJS  := $(BUILD)/machine.o $(BUILD)/virtual_disk.o $(BUILD)/cpm_disk.o \
-              $(BUILD)/disk_stash.o \
+CORE_OBJS  := $(BUILD)/machine.o $(BUILD)/md5.o $(BUILD)/virtual_disk.o \
+              $(BUILD)/cpm_disk.o $(BUILD)/disk_stash.o \
               $(BUILD)/diagnostics.o $(BUILD)/text_codec.o $(BUILD)/z80.o
 
 EMU        := $(BIN)/EurekaA4Emulator.exe
