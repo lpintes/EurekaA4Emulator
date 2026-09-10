@@ -1237,6 +1237,51 @@ popisuje `schedule_alarm` slovami „process past due alarms". Čo urobí
 s budíkom starým týždeň, **nevieme a treba to odmerať sondou**, nie
 odhadnúť.
 
+**Odmerané 10. 9. 2026 — „nevieme" už neplatí.** Zmeškaný budík sa ani
+nezahodí, ani nezazvoní sedemkrát: pri zapnutí sa **prepíše na najbližší
+budúci výskyt**. Čas, mesiac a rok zostávajú, mení sa deň, a mení sa aj
+mesiac, keď treba. Stroj sa pritom nevypne — `C45Ah` je po štarte `00`, teda
+boot išiel vetvou „zapnuté rukou" (`180D2` → `schedule_alarm_addr`), presne
+ako hovorí podsekcia o značke vyššie.
+
+**Neozve sa ani nič, a to je merané reproduktorom, nie prepisom reči.** Po
+`zapni` príde 24 000 vzoriek s rozkmitom `0..0`, teda úplné ticho; pre
+porovnanie samotné vypnutie povie „konec" a dá rozkmit `−27789..29542`.
+Prepisom reči by sa to tvrdiť nedalo: ten berie len bajt, ktorý dostane
+rečový stroj na `0103h`, a oznámenie času tadiaľ nejde (bead ea4-l16), takže
+prázdny prepis nie je dôkaz ticha.
+
+Tri behy, budík vždy nastavený rukou cez F2 → Shift+F3, potom `vypni`,
+posun hodín a `zapni`:
+
+- hodiny o týždeň dopredu, denná doba **ešte len príde** (budík 09:04,
+  hodiny 17. 9. 09:01): `den` `0A` → `11`, teda **dnes** 17. 9.
+- hodiny o týždeň a dve hodiny (budík 09:05, hodiny 17. 9. 11:01):
+  `den` `0A` → `12`, teda **zajtra** 18. 9.
+- hodiny o štyridsať dní (budík 09:06, hodiny 20. 10. 11:03): `mes`
+  `09` → `0A` a `den` `0A` → `15`, teda **21. 10.** Prechod cez mesiac
+  firmvér zvláda sám.
+
+Maska `rtc_mask` zostáva vo všetkých troch `01`, `rtc_status` `00`.
+Pre uchovanie RAM z toho plynie, že snímka stará týždeň je v tejto veci
+verná: budík z nej ožije nastavený na najbližší termín, nie na dávny.
+
+**Pri tom meraní sa opravila aj jedna vec o pár riadkov vyššie.** Slot
+`CFEBh` nie je `.service_alarm`, ale **`.service_alarm1`** — „service alarm
+disregarding RTC status" (`SYSJUMPS.11`). Cieľ `1D365` platí ďalej, mení sa
+meno. Doložené odčítaním celej tabuľky SYSJUMPS z ROM: `SYSEQU.LIB` má
+`njumps = 32` a `jump_table = system_addr − 96`, teda základ `CFA0h`
+(fyz. `1D3A0`), a poradie slotov sedí s `SYSJUMPS.LIB` na troch kotvách —
+`CFC4` → `CF79` je `.schedule_alarm`, `CFD9` → `CD32` je `.go_to_sleep`
+a `CFDC` → `CEB8` je `.skssp`. `.service_alarm` je `CFD3h` → `CF54h`.
+Zmysel odseku sa nemení, skôr sa dopĺňa: boot si stav hodín prečítal už na
+`18011`, takže volá práve tú verziu, ktorá sa naň druhý raz nepýta.
+
+Merať sa to dá len sondou a len s dvoma vecami, ktoré predtým nemala:
+`cas:+7d` posunie hodiny, ktoré RTC hlási (skutočný týždeň sa vyčkať
+nedá), a `budik` vypíše hodiny vedľa alarmových registrov. Obe pribudli
+týmto meraním; podrobnosti sú v `tests/README.md`.
+
 #### Disketa je krytá — odsek vyššie je prísnejší, než treba
 
 Veta o ukazovateľoch do FCB a adresára je z 26. 8., teda spred uzavretia
