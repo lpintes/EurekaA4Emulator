@@ -13,6 +13,7 @@ inak na `C:\b\a4rom.dmp`.
 | `ports.py` | mapa I/O portov lineárnym rozmetaním inštrukcií |
 | `latches.py` | odkazy na tiene riadiacich latchov + súhrn po bitoch |
 | `melodies.py` | vyrenderuje melódie z ROM do `../audio/melodie/` |
+| `speech_wav.py [ROM] [LO] [HI] [RATE]` | dáta reči (`20000h–40000h`) do `../audio/` ako 8-bit WAV pri φ/(20·41) ≈ 7493 Hz |
 
 Adresy sú vždy **fyzické** (offset v dumpe), nie logické. Prepočet na
 logické závisí od stavu MMU: pri common area 1 s CBR=0Bh platí

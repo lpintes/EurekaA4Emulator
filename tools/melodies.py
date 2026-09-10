@@ -6,7 +6,12 @@ ROM_PATH = _os.environ.get('A4ROM', r'C:\b\a4rom.dmp')
 
 import re, wave, struct, os
 ROM = open(ROM_PATH, 'rb').read()
-SR  = 22050
+# Skutocny takt DAC pri hrani melodie: obsluha generatora tonov v RAM bezi
+# phi / (20 * (RLDR0 + 1)) = 6 144 000 / 540 = 11 377,8 Hz (RLDR0 = 26,
+# zmerane histogramom PC, HANDOFF 6.10). Do 23. 8. 2026 tu stalo 22050 ako
+# standardny nadvzorkovany takt; bead ea4-upc chce zmeranu frekvenciu.
+# Faza sa skaluje s SR, takze vyska tonu ostava, meni sa len vystupny takt.
+SR  = 11378
 OUT = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), "audio", "melodie")
 os.makedirs(OUT, exist_ok=True)
 WAVES = [[ROM[0x677+n*64+i]-0x20 for i in range(64)] for n in range(10)]

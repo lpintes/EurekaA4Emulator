@@ -138,8 +138,10 @@ Zabudovaný voltmeter a teplomer (`DVM`, `TIC`, `TIF` v BASICu).
   textu by kontrole typu „prepis obsahuje…“ vedela vyhovieť bez toho, aby
   stroj niečo povedal. Tabuľka je v `hardware-map.md` pri klikoch.
 
-Vyrenderované melódie z ROM sú v `audio/melodie/`, dáta reči ako WAV
-v `audio/` (štyri vzorkovacie frekvencie, lebo presná nie je známa).
+Vyrenderované melódie z ROM sú v `audio/melodie/` (`tools/melodies.py`,
+**11 378 Hz** — takt DAC pri melódii, φ/540, viď 6.10), dáta reči ako WAV
+v `audio/` (`tools/speech_wav.py`, **7493 Hz** = φ/(20·41), RLDR0=`28h`,
+viď 6.1). Celý `audio/` je mimo gitu — sú to prevedené dáta ROM.
 
 ---
 
@@ -692,8 +694,14 @@ témy zostáva len toto:
 
 #### Čo zostáva
 
-- **WAV-y v `audio/`** sú stále v štyroch hádaných frekvenciách;
-  prerenderovať podľa známych ~7,5 kHz.
+- ~~**WAV-y v `audio/`** sú stále v štyroch hádaných frekvenciách;
+  prerenderovať podľa známych ~7,5 kHz.~~ **Hotové 10. 9. 2026 (`ea4-upc`):**
+  pribudol `tools/speech_wav.py` — dáta reči `20000h–40000h` ako 8-bit WAV
+  pri **7493 Hz** = round(6 144 000 / (20·41)), teda RLDR0=`28h`, čo sú tie
+  „asi 7,5 kHz“ z manuálu (RLDR0=`15h` je dvojnásobok pre efekty).
+  `tools/melodies.py` prešiel z 22050 na **11 378 Hz** (φ/540, RLDR0=`26`,
+  6.10). Staré hádané súbory (`rec_*Hz.wav`, `ukazka_8000Hz.wav`) zmazané.
+  `audio/` je mimo gitu, takže commitovaný je len nástroj.
 - `pol_voice` (`A0h` bit 3) sa nemodeluje. Manuál píše, že býva trvalo
   zapnutý, takže hradenie zvuku naň by len riskovalo trvalé ticho.
 - Pod ~20 ms sa s `waveOut` ísť nedá. Ak by to niekedy bolo treba,
@@ -2274,8 +2282,10 @@ a nenačíta znovu (`NVDA+Ctrl+F3`).
    (koniec 6.17), zatiaľ ale len ručne (`ea4-rwe`), a chýba test cez ROM
    na hromadné kopírovanie, ktoré je najtvrdšia skúška celej správy
    diskiet (6.24, `ea4-442`).
-6. **Prerenderovať `audio/`** na správnu frekvenciu namiesto štyroch
-   hádaných; DAC beží asi 7,5 kHz (`tools/melodies.py` a export dát reči).
+6. **Prerenderovať `audio/`** — **hotové 10. 9. 2026 (`ea4-upc`)**:
+   `tools/speech_wav.py` renderuje dáta reči pri 7493 Hz (φ/(20·41),
+   RLDR0=`28h`) a `tools/melodies.py` prešiel na 11 378 Hz (φ/540, 6.10)
+   namiesto hádaného 22050. Podrobne v 6.1 „Čo zostáva“.
 7. **Formáty súborov z `FILE-FMT.D`** — telefónny zoznam, diár, melódie,
    databáza a texty sa dajú konvertovať do a z hostiteľských formátov.
    Doteraz to nešlo, lebo formáty neboli známe.
