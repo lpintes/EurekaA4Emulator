@@ -192,7 +192,14 @@ exercised in isolation. The function keys map as follows:
 | F9 | rezim | Shift+F9 | stav baterie |
 | F10 | kde jsem | Shift+F10 | sebekontrola |
 
-F2 announces nothing on entry; F10 is what says where you are.  F9, F10 and
+**"F2 announces nothing on entry" stood here until 10. 9. 2026 and was
+wrong.**  F2 announces the time, on the hardware and in the emulator alike.
+What is missing is the report, not the speech: the machine's capture takes
+the byte the speech engine gets at `0103h`, and the time does not travel that
+way.  Measured with the probe's `zvuk` token -- after F2 the loudspeaker
+delivers 48 000 samples swinging the whole range while the transcript stays
+empty, which is exactly what a hole in the capture looks like and exactly
+what "the application is silent" looked like from here.  F9, F10 and
 F11 are not keys of their own but chords of the space bar and braille dots --
 see the keyboard section of `hardware-map.md`.
 
@@ -229,8 +236,8 @@ comparator thresholds in `EurekaMachine::ReadInputBuffer`, not from anything
 in the ROM.
 
 Mode `seq` drives the machine with a scripted sequence. A token is either
-`kXX` (one key code in hex) or a literal string typed as text; `~` stands for
-Enter.  There are also tokens that change the medium -- `nova` puts in a
+`kXX` (one key code in hex), `sXX` (one PC scan code in hex, make and break)
+or a literal string typed as text; `~` stands for Enter.  There are also tokens that change the medium -- `nova` puts in a
 diskette that never was formatted and `vysun` empties the drive, the two the
 quick choice cannot produce and the two the firmware talks about differently
 (6.30).  Three tokens work the power switch: `vypni` presses the four cursor
@@ -239,7 +246,12 @@ keys from the Main Menu and runs on until the machine cuts its own power,
 cycle counter survive, as they do on the hardware -- and `studeno` is the cold
 start, `Reset()`, which wipes them.  Each prints whether the machine is running
 and what is in `C45Ah`, so the difference between the two ways back on is in
-the report and not in the reader's head (6.15, 6.31).  Text goes in on the
+the report and not in the reader's head (6.15, 6.31).  Two tokens are about
+the clock: `cas:+7d` moves the time the RTC answers with (`+2h`, `-30m`, a
+bare number is seconds) and `budik` prints that time beside the alarm the
+firmware armed, the mask and the status.  Between them they are the only way
+to ask what a week-old alarm does, and the answer is measured in 6.15: sitting
+out a real week is not a measurement.  Text goes in on the
 emulated PC keyboard, on the keys the ROM's own
 tables put those characters on, so a character that is on none of them is
 refused out loud instead of being typed as something near it.  Between tokens
@@ -254,6 +266,26 @@ diag_probe A4ROM.DMP disk-folder seq 15000000 kD7 Y
 Note that the yes/no prompt answers to `Y`, not to `a`: the check at physical
 19FD1h is `CP 59h`, twice over, which looks like a leftover from the English
 build even though the ROM speaks "ano".
+
+**`kXX` and `sXX` are not two spellings of the same key.** `kXX` drops a
+finished key code into the queue; `sXX` sends the PC scan code and lets the
+ROM's own delivery routine (`1DDB0` → `1DE47`) make the code out of it.  For
+most keys the two agree, and for Escape they do not: `k1B` inside the clock
+and calendar does nothing at all -- the machine stays in the read loop at
+`0DFB3`-`0DFB9` -- while `s01` says "ahoj" and lands back in the Main Menu,
+which is what the owner's machine does.  It matters because the power switch
+is only answered from the Main Menu (`18154`), so a sequence that leaves an
+application with `k1B` finds `vypni` does nothing and the machine still
+running.  When a key seems not to arrive, send it the other way before
+concluding anything about the firmware.
+
+**Half a second of quiet is not a pace at all where nothing writes to the
+console.**  "Quiet" is measured on console output, and the clock and calendar
+writes none -- it talks -- so `.` returns almost at once, the alarm dialogue
+never gets far enough to take the digits, the alarm registers stay at zero and
+nothing says why.  `spin:8000000` per step is what the sequence in 6.15 uses
+instead.  `zvuk` prints how many samples the loudspeaker got and how far they
+swung, which is the one report no hole in the speech capture can fool.
 
 Formatting cannot currently be driven to completion. The ROM answers "v
 jednotce neni disk", from the error dispatch at physical 13D08h, which decodes

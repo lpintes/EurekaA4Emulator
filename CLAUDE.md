@@ -317,6 +317,13 @@ diag_probe ROM DISK_FOLDER trace 20000000 formatovaci
 Tokeny sekvencie:
 
 - `kXX` — kód klávesu v šestnástkovej sústave.
+- `sXX` — scancode klávesnice PC, stlačenie aj pustenie. **Nie je to to isté
+  ako `kXX`:** ten vloží hotový kód do fronty, `sXX` ide doručovacou rutinou
+  ROM (`1DDB0` → `1DE47`). Pri Escape sa líšia — `k1B` v aplikácii hodín
+  neurobí nič, `s01` povie „ahoj“ a vráti do hlavného menu. A keďže vypínač
+  odpovedá len z hlavného menu, sekvencia s `k1B` potom nájde `vypni` bez
+  účinku. Keď kláves „nedôjde“, pošli ho druhou cestou skôr, než začneš
+  obviňovať firmvér.
 - text — napíše sa na klávesnici; `~` je Enter.
 - `.` — **čakanie bez klávesu**. Nie je to pohodlie: kláves poslaný len
   preto, aby sa čakalo, je odpoveď na otázku, ktorú stroj ešte nepoložil,
@@ -341,6 +348,15 @@ Tokeny sekvencie:
 - `stav` — vypíše, čo je naozaj na diskete v mechanike (médium, počet
   súborov, zámok). Reč hovorí, čo si stroj myslí; toto hovorí, čo je na
   médiu, a práve ten rozdiel odhalil 6.24.
+- `zvuk` — koľko vzoriek dostal reproduktor a aký majú rozkmit. **Prepis reči
+  nie je dôkaz ticha:** záznam berie bajt, ktorý dostane rečový stroj na
+  `0103h`, a oznámenie času tadiaľ nejde — po F2 je prepis prázdny, kým
+  reproduktor dostane 48 000 vzoriek na plný rozkmit (bead ea4-l16). Keď sa
+  zdá, že stroj mlčí, over to týmto.
+- `cas:+7d`, `budik` — hodiny a budík. `cas:` posunie čas, ktorý hlási RTC
+  (`+2h`, `-30m`, holé číslo sú sekundy), `budik` vypíše hodiny vedľa
+  alarmových registrov, masky a stavu. Bez nich sa zmeškaný budík odmerať
+  nedá: vyčkať skutočný týždeň nie je meranie (HANDOFF 6.15).
 - `spin:N` — prebehne N inštrukcií a vypíše histogram fyzického PC. Takto
   dostane zaseknutie adresu namiesto dohadu.
 - `trace` — od tejto chvíle sleduje porty radiča (`98h`–`9Bh`). Zámerne

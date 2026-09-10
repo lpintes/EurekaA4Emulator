@@ -195,6 +195,10 @@ class EurekaMachine {
   uint8_t debug_rtc_ram(unsigned index) const { return rtcRam_[index & 7]; }
   uint8_t debug_rtc_mask() const { return rtcMask_; }
   uint8_t debug_rtc_status() const { return rtcStatus_; }
+  // What the clock shows this instant, offset above included, in the same port
+  // order as the alarm registers.  The question of ea4-oti is the gap between
+  // the two, so whoever asks it has to be able to read both sides of it.
+  std::array<uint8_t, 8> debug_rtc_now() const { return CurrentRtcRegisters(); }
   uint8_t debug_io(uint8_t port) const { return io_[port]; }
   uint64_t debug_bios_reads() const { return biosReads_; }
   uint16_t debug_bios_track() const { return biosTrack_; }

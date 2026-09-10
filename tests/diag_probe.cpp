@@ -11,9 +11,12 @@
 //   diag_probe ROM DISK_FOLDER seq [budget] TOKEN...
 //
 // A sequence TOKEN is either "kXX" (one key code in hex, e.g. kD7 for
-// Shift+F8), "+wp"/"-wp" to set or clear the diskette's write protect notch,
+// Shift+F8), "sXX" (one PC scan code in hex, e.g. s3C for F2, taken through
+// the keyboard's own delivery path), "+wp"/"-wp" to set or clear the diskette's write protect notch,
 // "nova" for an unformatted diskette, "vysun" for an empty drive,
 // "vypni"/"zapni"/"studeno" for the power switch and the two ways back on,
+// "cas:+7d" to move the clock the RTC answers with, "budik" to print it
+// beside the alarm the firmware armed, "zvuk" for what the loudspeaker got,
 // or a literal string typed on the emulated PC keyboard.  Between
 // tokens the machine is run until it has been quiet for half a second, which
 // is what "ready for the next key" looks like now that the CPU is never parked
@@ -131,6 +134,10 @@ int wmain(int argc, wchar_t** argv) {
     // difference the bulk copy turns on.
     DiskStash probeStash;
     int currentSlot = 0;
+    // How far the sequence has pushed the clock, in seconds.  It is kept here
+    // rather than read back from the machine because "cas:" tokens add up:
+    // "cas:+7d cas:+1h" has to land a week and an hour on, not an hour on.
+    int64_t rtcShift = 0;
     for (int index = 5; index < argc; ++index) {
       const std::wstring token = argv[index];
       if (token == L".") {
@@ -242,6 +249,69 @@ int wmain(int argc, wchar_t** argv) {
                     disk.write_protected() ? "zamknuta" : "odomknuta");
         continue;
       }
+      if (token.starts_with(L"cas:")) {
+        // Moves the clock the RTC answers with, not the host's.  An alarm that
+        // fell due while the machine was off cannot be reached any other way:
+        // waiting out a week is not a measurement, and setting the alarm into
+        // the past is a different thing -- the firmware would then never have
+        // armed it for a time it believed was still ahead.
+        std::wstring spec = token.substr(4);
+        int64_t scale = 1;
+        if (!spec.empty()) {
+          switch (spec.back()) {
+            case L'd': scale = 86400; break;
+            case L'h': scale = 3600; break;
+            case L'm': scale = 60; break;
+            case L's': scale = 1; break;
+            default: scale = 0; break;  // no unit: the number is seconds
+          }
+          if (scale != 0) spec.pop_back();
+          else scale = 1;
+        }
+        rtcShift += _wtoi64(spec.c_str()) * scale;
+        machine->SetRtcOffset(rtcShift);
+        const auto now = machine->debug_rtc_now();
+        std::printf("%-10ls -> [hodiny %02u.%02u.%02u %02u:%02u:%02u, posun %lld s]\n",
+                    token.c_str(), unsigned(now[5]), unsigned(now[4]),
+                    unsigned(now[6]), unsigned(now[1]), unsigned(now[2]),
+                    unsigned(now[3]), static_cast<long long>(rtcShift));
+        continue;
+      }
+      if (token == L"zvuk") {
+        // Whether the loudspeaker moved at all since the last time this was
+        // asked.  Speech is captured at one entry point (0103h), so a routine
+        // that speaks by another road leaves the report silent while the
+        // machine is talking; the samples cannot be fooled that way.
+        const std::vector<int16_t> samples = machine->TakeAudio();
+        int32_t low = 0;
+        int32_t high = 0;
+        for (int16_t sample : samples) {
+          if (sample < low) low = sample;
+          if (sample > high) high = sample;
+        }
+        std::printf("%-10ls -> [vzoriek=%zu, rozkmit %d..%d]\n", token.c_str(),
+                    samples.size(), low, high);
+        continue;
+      }
+      if (token == L"budik") {
+        // Both sides of the alarm at once: what the clock shows and what the
+        // firmware last armed.  80h in an alarm register means "do not
+        // compare" (0DA5B), so an alarm reads as a time with holes in it.
+        const auto now = machine->debug_rtc_now();
+        std::printf("%-10ls -> [hodiny %02u.%02u.%02u %02u:%02u:%02u, budik ",
+                    token.c_str(), unsigned(now[5]), unsigned(now[4]),
+                    unsigned(now[6]), unsigned(now[1]), unsigned(now[2]),
+                    unsigned(now[3]));
+        static const char* kNames[8] = {"100", "hod", "min", "sek",
+                                        "mes", "den", "rok", "dtyz"};
+        for (unsigned reg = 0; reg < 8; ++reg)
+          std::printf("%s%s=%02X", reg != 0 ? " " : "", kNames[reg],
+                      unsigned(machine->debug_rtc_ram(reg)));
+        std::printf(", mask=%02X, status=%02X]\n",
+                    unsigned(machine->debug_rtc_mask()),
+                    unsigned(machine->debug_rtc_status()));
+        continue;
+      }
       // Waits for the drive the way the emulator's worker does before it
       // swaps: mid-sector is the one moment a swap tears the image, and a
       // probe that ignored that would be measuring a machine the user can
@@ -342,6 +412,17 @@ int wmain(int argc, wchar_t** argv) {
       if (token.size() == 3 && (token[0] == L'k' || token[0] == L'K')) {
         machine->QueueKey(static_cast<uint8_t>(HexValue(token[1]) * 16 +
                                                HexValue(token[2])));
+      } else if (token.size() == 3 && (token[0] == L's' || token[0] == L'S')) {
+        // The same key over the PC keyboard's own wire, make and break.  It is
+        // not the same thing as kXX: that one drops a finished key code into
+        // the queue, while a scan code goes through the delivery routine at
+        // 1DDB0/1DE47, which is also where speech is aborted (hardware-map).
+        // Anything that behaves differently for a real keyboard than for an
+        // injected code shows up as the difference between the two tokens.
+        const uint8_t code = static_cast<uint8_t>(HexValue(token[1]) * 16 +
+                                                  HexValue(token[2]));
+        machine->QueueScanCode(code);
+        machine->QueueScanCode(static_cast<uint8_t>(code | 0x80));
       } else {
         std::string text;
         for (wchar_t ch : token)
