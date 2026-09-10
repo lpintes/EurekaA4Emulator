@@ -258,6 +258,19 @@ vždy, keď sa kurzor nemá kam pohnúť (`!%e2 !%e7 !%e2` pri šípke vpravo na
 konci riadka). `E2` sedí na manuál presne: je to klik kurzorových
 klávesov. Čo presne je `E1` a `E7`, rozhodne až obsluha návestia v ROM.
 
+**V ROM sú tie kódy o desať nižšie a je ich deväť** (odčítané 10. 9. 2026,
+bead ea4-l16). `.spchar` (`0106h` → `00304`) použije každý bajt pod `09h`
+(`CP 09h` na `00307`) a aj medzeru ako index do tabuľky deviatich
+ukazovateľov na `00369`; reťazce sú hneď za ňou a posledný znak každého má
+bit 7. Na `C7E2h` z neho zloží `!%` a príkaz a pošle ho rečovému stroju.
+Bajt `00h` je teda kód 10 z tabuľky vyššie, `08h` kód 18, medzera kód 13
+a **kód 19 (chyba) v tabuľke nie je**. S meraním to sedí: pri každom otvorení
+aplikácie príde `07h`, teda kód 17 pre funkčné klávesy. Manuál ešte píše, že
+`0`–`3` nastavujú režim interpunkcie; v tejto ROM idú do tej istej vetvy ako
+kliky, takže ako sa tu interpunkcia pre `SPCHAR` nastavuje, overené nie je.
+
+Do prepisu reči sa `.spchar` nedáva; prečo, je v HANDOFF v sekcii 3.
+
 BASIC má aj kľúčové slovo `CLICK` (tabuľka kľúčových slov od `0C134`,
 `CLICK` na `0C1EF` v tvare `CLIC`+`CBh`, token `ADh`; vedľa neho `SOUND`
 `ABh`, `OFF` `ACh`, `PITCH` `AEh`). Či berie tie isté kódy 10–19, nie je

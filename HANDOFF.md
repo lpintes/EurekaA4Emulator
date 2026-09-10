@@ -112,6 +112,31 @@ Zabudovaný voltmeter a teplomer (`DVM`, `TIC`, `TIF` v BASICu).
   parser na `0x1636`. `:` sú súčasné hlasy (max 4), CR oddeľuje príkazy
   vnútri reťazca, prázdny reťazec ukončuje melódiu. `&` sa rozvinie na
   `!%T`, `$` na `!%T77:78`.
+- **Rečový modul má na `0100h` vlastnú tabuľku skokov.** Stuby SYSJUMPS od
+  `CECFh` (v ROM `1D2CF`) nastavia `L`, prepnú MMU a skočia na `0100h+L`:
+  `.speak` je `0103h` → `03C5`, `.spchar` `0106h` → `0304`, `.splush`
+  `0109h` → `03C4` a `.spconv` `010Fh` → `02D5`.
+- **Prepis reči (`TakeSpeechInput`) berie `.speak` aj `.spconv`** (od
+  10. 9. 2026, bead ea4-l16). Kým bral len `0103h`, chýbali v ňom celé vety:
+  oznámenie času po F2 („9 hodin“ a po nej „45 minut“) aj „diář“ po
+  `Shift+F2`. `.spconv` hovorí obsah konverznej pamäte `C7E2h` po nulový bajt
+  (kopírovacia slučka `002E3`) a za celý `sweep` sú cez neho práve tieto tri
+  vety — zmerané inštrumentáciou všetkých vstupov tabuľky. Drží to režim
+  `rtc` v `integration_test`, overené mutáciou: záznam bez `.spconv` dá
+  `cas=chyba`. Test žiada obe vety v poradí, lebo druhá je tá, ktorá visí na
+  časovaní: minúty prídu asi milión inštrukcií po hodinách, až keď prvá veta
+  dohovorí. Hodiny stroja si pritom nastaví na sedem minút po celej, lebo
+  **o celej hodine je minútová veta prázdna** — druhé `.spconv` príde, ale
+  v pamäti je len nulový bajt, a stroj povie iba „11 hodin“. ROM slová
+  skloňuje („1 HODINA“, „2 HODINY“, „0 HODIN“), preto sa porovnávajú len
+  kmene `HODIN` a `MINUT`.
+- **`.spchar` sa do prepisu zámerne nedáva.** Znak od `09h` vysloví ako
+  ozvenu klávesu (v BASICu „b“), bajt `00h`–`08h` a medzeru použije ako
+  index do tabuľky deviatich klikov na `00369` a na `C7E2h` z nej zloží `!%`
+  a príkaz. Počas `sweep` dostáva len `07h` pri každom otvorení aplikácie
+  a `08h`. Nie je v tom nič, čo by volajúci nevedel sám, a ozvena napísaného
+  textu by kontrole typu „prepis obsahuje…“ vedela vyhovieť bez toho, aby
+  stroj niečo povedal. Tabuľka je v `hardware-map.md` pri klikoch.
 
 Vyrenderované melódie z ROM sú v `audio/melodie/`, dáta reči ako WAV
 v `audio/` (štyri vzorkovacie frekvencie, lebo presná nie je známa).
@@ -151,7 +176,7 @@ Mapa funkčných klávesov:
 | kláves | aplikácia | kláves | aplikácia |
 |---|---|---|---|
 | F1 | záznamník | Shift+F1 | textový procesor |
-| F2 | hodiny a kalendár | Shift+F2 | (mlčí) |
+| F2 | hodiny a kalendár | Shift+F2 | diář |
 | F3 | kalkulátor | Shift+F3 | teplomer |
 | F4 | komunikácia | Shift+F4 | voltmeter |
 | F5 | telefónny zoznam | Shift+F5 | databáza |
@@ -162,6 +187,12 @@ Mapa funkčných klávesov:
 | F10 | kde som | Shift+F10 | sebekontrola |
 
 F2 sa pri otvorení neohlási — že to sú hodiny a kalendár, povie až F10.
+
+**Predošlá veta neplatí (10. 9. 2026), a neplatilo ani „(mlčí)“ pri
+`Shift+F2` v tabuľke.** F2 pri otvorení povie čas dvoma vetami — „9 hodin“
+a keď dohovorí, „45 minut“ — a `Shift+F2` povie „diář“. Obe tvrdenia vznikli
+z prepisu reči, ktorý tie vety nezachytával: idú cez `.spconv`, nie cez
+`.speak`. Rozpísané v sekcii 3 (bead ea4-l16).
 F9 a F10 nie sú klávesy, ale akordy medzerníka a braillových bodov; viď
 `hardware-map.md`.
 
@@ -1250,6 +1281,11 @@ porovnanie samotné vypnutie povie „konec" a dá rozkmit `−27789..29542`.
 Prepisom reči by sa to tvrdiť nedalo: ten berie len bajt, ktorý dostane
 rečový stroj na `0103h`, a oznámenie času tadiaľ nejde (bead ea4-l16), takže
 prázdny prepis nie je dôkaz ticha.
+
+**Doplnené v ten istý deň:** oznámenie času už v prepise je, záznam berie aj
+`.spconv` (sekcia 3). Reproduktor tým neprestáva byť správne meradlo: kliky
+cez `.spchar` do prepisu zámerne nejdú, takže prázdny prepis dôkaz ticha nie
+je ani teraz.
 
 Tri behy, budík vždy nastavený rukou cez F2 → Shift+F3, potom `vypni`,
 posun hodín a `zapni`:

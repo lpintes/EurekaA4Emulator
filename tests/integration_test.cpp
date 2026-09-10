@@ -857,6 +857,42 @@ void TypeDigit(EurekaMachine& machine, int value) {
   machine.QueueScanCode(0xaa);
 }
 
+// The clock and calendar application tells the time the moment it opens, in
+// two sentences: the hours, and about a million instructions later, once the
+// first has been said, the minutes.  Neither goes through .speak -- both are
+// spoken from the conversion buffer by .spconv, and while the capture took
+// .speak alone this looked exactly like an application that says nothing on
+// entry.  Both sentences are required, in order, because the second is the one
+// that hangs on timing.  The ROM declines the words ("1 HODINA", "2 HODINY",
+// "5 MINUT"), so only the stems are matched.
+//
+// The clock is put at seven minutes and twenty seconds past the hour: at a
+// full hour the minutes sentence is empty (the buffer holds a bare zero), and a
+// check on the host's own clock would fail once an hour.
+bool CheckAnnouncesTime(EurekaMachine& machine) {
+  const std::time_t now = std::time(nullptr);
+  std::tm local{};
+  localtime_s(&local, &now);
+  machine.Reset();
+  machine.SetRtcOffset(
+      static_cast<int64_t>((7 - local.tm_min) * 60 + (20 - local.tm_sec)));
+  Grind(machine, 12'000'000);
+  machine.QueueKey(0xc1);  // F2, clock and calendar
+  const std::vector<uint8_t> spoken = RunAndListen(machine, 8'000'000);
+  // The alarm check that follows types the host's own time.
+  machine.SetRtcOffset(0);
+  const std::string said(spoken.begin(), spoken.end());
+  const std::size_t hours = said.find("HODIN");
+  if (hours != std::string::npos &&
+      said.find("MINUT", hours) != std::string::npos)
+    return true;
+  std::cout << "  F2 neohlasil cas, prepis \"";
+  for (uint8_t byte : spoken)
+    std::cout << (byte >= 0x20 && byte < 0x7f ? static_cast<char>(byte) : '.');
+  std::cout << "\"\n";
+  return false;
+}
+
 // The alarm, end to end: set one in the clock and calendar application and
 // then let the clock reach it.
 //
@@ -1007,8 +1043,12 @@ int wmain(int argc, wchar_t** argv) {
   }
 
   if (std::wstring(argv[3]) == L"rtc") {
-    const bool passed = CheckAlarm(*machine);
+    const bool announces = CheckAnnouncesTime(*machine);
+    const bool alarm = CheckAlarm(*machine);
+    const bool passed = announces && alarm;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=RTC"
+              << " cas=" << (announces ? "ok" : "chyba")
+              << " budik=" << (alarm ? "ok" : "chyba")
               << " maska=" << std::hex
               << static_cast<unsigned>(machine->debug_rtc_mask()) << std::dec
               << "\n";

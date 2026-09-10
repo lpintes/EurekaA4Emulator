@@ -139,7 +139,13 @@ them on the same diskette.
   off through pwr_stb;
 - `dc` checks the output settles to silence after speech, whatever the DAC is
   left holding;
-- `rtc` sets an alarm in the clock and calendar application, checks it reached
+- `rtc` first checks that F2 announces the time: the hours, then the minutes
+  once the hours have been said.  Both are spoken from the conversion buffer
+  by `.spconv`, not by `.speak`, so a speech capture that loses that entry
+  fails here and nowhere else.  The clock is set to seven minutes past the
+  hour for it, because at a full hour the minutes sentence is empty.  Then it
+  sets an alarm in
+  the clock and calendar application, checks it reached
   the RTC alarm registers, then moves the clock into that minute and checks the
   firmware services it.  The RTC raises no interrupt on this machine, so an
   alarm is found only by polling rtc_status; while that port answered zero, the
@@ -182,7 +188,7 @@ exercised in isolation. The function keys map as follows:
 | key | application | key | application |
 |---|---|---|---|
 | F1 | zaznamnik | Shift+F1 | textovy procesor |
-| F2 | hodiny a kalendar | Shift+F2 | (silent) |
+| F2 | hodiny a kalendar | Shift+F2 | diar |
 | F3 | kalkulator | Shift+F3 | teplomer (TIC/TIF) |
 | F4 | komunikace | Shift+F4 | voltmeter (DVM) |
 | F5 | telefonni seznam | Shift+F5 | databaze |
@@ -193,13 +199,16 @@ exercised in isolation. The function keys map as follows:
 | F10 | kde jsem | Shift+F10 | sebekontrola |
 
 **"F2 announces nothing on entry" stood here until 10. 9. 2026 and was
-wrong.**  F2 announces the time, on the hardware and in the emulator alike.
-What is missing is the report, not the speech: the machine's capture takes
-the byte the speech engine gets at `0103h`, and the time does not travel that
-way.  Measured with the probe's `zvuk` token -- after F2 the loudspeaker
-delivers 48 000 samples swinging the whole range while the transcript stays
-empty, which is exactly what a hole in the capture looks like and exactly
-what "the application is silent" looked like from here.  F9, F10 and
+wrong**, and so was "(silent)" for Shift+F2.  F2 announces the time, in two
+sentences -- "9 hodin", then "45 minut" once the first has been said -- and
+Shift+F2 says "diar".  What was missing was the report, not the speech: the
+capture took only the byte the speech engine gets at `0103h` (`.speak`), and
+all three sentences are spoken from the conversion buffer by `.spconv`
+(`010Fh`).  It was found with the probe's `zvuk` token -- after F2 the
+loudspeaker delivered 48 000 samples swinging the whole range while the
+transcript stayed empty, which is exactly what a hole in the capture looks
+like and exactly what "the application is silent" looked like from here.  The
+capture takes `.spconv` too now, and mode `rtc` fails if it stops.  F9, F10 and
 F11 are not keys of their own but chords of the space bar and braille dots --
 see the keyboard section of `hardware-map.md`.
 

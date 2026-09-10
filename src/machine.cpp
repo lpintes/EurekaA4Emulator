@@ -1340,12 +1340,37 @@ void EurekaMachine::PowerDown() {
 bool EurekaMachine::Step() {
   if (poweredOff_) return false;
   if (!InterceptBios()) return false;
-  // The speech engine's entry point, taking the phoneme byte in A.  Both the
-  // logical and the physical address have to match, or an unrelated routine
-  // that happens to sit at 0103 in some other bank would be captured too.
-  constexpr uint16_t kSpeechEntry = 0x0103;
-  if (cpu_.pc == kSpeechEntry && PhysicalAddress(cpu_.pc) == kSpeechEntry)
-    speechInput_.push_back(cpu_.a);
+  // The speech module's own jump table at 0100h, which the SYSJUMPS stubs
+  // enter as 0100h + L (1D2CF).  Both the logical and the physical address
+  // have to match, or an unrelated routine that happens to sit there in some
+  // other bank would be captured too.
+  //
+  // .speak (0103h) takes one character in A.  .spconv (010Fh) speaks the
+  // conversion buffer up to its zero (copy loop at 002E3), and that is the road
+  // the clock's announcement takes: with .speak alone the transcript stayed
+  // empty while the machine told the time.  The zero is kept, so the sentence
+  // keeps its end.  .spchar (0106h) is left out on purpose -- it is a key's
+  // echo or an index into nine fixed click commands (00369), nothing the
+  // caller does not know already (HANDOFF section 3).
+  constexpr uint16_t kSpeak = 0x0103;
+  constexpr uint16_t kSpconv = 0x010f;
+  constexpr uint16_t kConversionBuffer = 0xc7e2;  // 002DD
+  // A buffer without its zero is not a sentence.  C835h is the next SYSRAM
+  // variable the firmware is known to use (braille table choice, 1D784).
+  constexpr uint16_t kConversionEnd = 0xc835;
+  if ((cpu_.pc == kSpeak || cpu_.pc == kSpconv) &&
+      PhysicalAddress(cpu_.pc) == cpu_.pc) {
+    if (cpu_.pc == kSpeak) {
+      speechInput_.push_back(cpu_.a);
+    } else {
+      for (uint16_t address = kConversionBuffer; address < kConversionEnd;
+           ++address) {
+        const uint8_t byte = Peek(address);
+        speechInput_.push_back(byte);
+        if (byte == 0) break;
+      }
+    }
+  }
   ScheduleInterrupt();
   const unsigned long before = cpu_.cyc;
   z80_step(&cpu_);

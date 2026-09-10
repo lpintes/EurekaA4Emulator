@@ -279,9 +279,10 @@ int wmain(int argc, wchar_t** argv) {
       }
       if (token == L"zvuk") {
         // Whether the loudspeaker moved at all since the last time this was
-        // asked.  Speech is captured at one entry point (0103h), so a routine
-        // that speaks by another road leaves the report silent while the
-        // machine is talking; the samples cannot be fooled that way.
+        // asked.  The transcript takes .speak and .spconv but leaves out the
+        // clicks and key echo of .spchar, and while it took .speak alone the
+        // clock's whole announcement was missing from it; the samples cannot
+        // be fooled that way.
         const std::vector<int16_t> samples = machine->TakeAudio();
         int32_t low = 0;
         int32_t high = 0;

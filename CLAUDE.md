@@ -349,10 +349,10 @@ Tokeny sekvencie:
   súborov, zámok). Reč hovorí, čo si stroj myslí; toto hovorí, čo je na
   médiu, a práve ten rozdiel odhalil 6.24.
 - `zvuk` — koľko vzoriek dostal reproduktor a aký majú rozkmit. **Prepis reči
-  nie je dôkaz ticha:** záznam berie bajt, ktorý dostane rečový stroj na
-  `0103h`, a oznámenie času tadiaľ nejde — po F2 je prepis prázdny, kým
-  reproduktor dostane 48 000 vzoriek na plný rozkmit (bead ea4-l16). Keď sa
-  zdá, že stroj mlčí, over to týmto.
+  nie je dôkaz ticha:** záznam berie `.speak` a `.spconv`, ale kliky a ozvenu
+  klávesu cez `.spchar` zámerne nie (HANDOFF sekcia 3). Kým bral len
+  `.speak`, bol po F2 prepis prázdny, hoci reproduktor dostal 48 000 vzoriek
+  na plný rozkmit. Keď sa zdá, že stroj mlčí, over to týmto.
 - `cas:+7d`, `budik` — hodiny a budík. `cas:` posunie čas, ktorý hlási RTC
   (`+2h`, `-30m`, holé číslo sú sekundy), `budik` vypíše hodiny vedľa
   alarmových registrov, masky a stavu. Bez nich sa zmeškaný budík odmerať
