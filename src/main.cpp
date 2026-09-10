@@ -289,7 +289,46 @@ int Run() {
     }
   }
   machine->diagnostics().set_enabled(diagnostics);
-  machine->Reset();
+
+  // Warm-resume from the RAM snapshot the last clean power-down left behind, so
+  // the machine comes up where the user stopped -- on the real Eureka the RAM
+  // and the clock sit on a supply that switching off never cuts (HANDOFF 6.15).
+  // The file is consumed here: read once and deleted, so a later bare window
+  // close (which on the hardware is the battery cut-off switch) comes up cold
+  // with "inicializace eureky", and a fresh snapshot is written only by the
+  // next real power-down.
+  bool warmResumed = false;
+  const fs::path snapshotFile = Settings::SnapshotFile();
+  if (!snapshotFile.empty()) {
+    std::wstring snapError;
+    std::error_code ec;
+    switch (machine->LoadSnapshot(snapshotFile, snapError)) {
+      case EurekaMachine::SnapshotResult::kOk:
+        fs::remove(snapshotFile, ec);
+        machine->PowerOn();
+        warmResumed = true;
+        break;
+      case EurekaMachine::SnapshotResult::kMissing:
+        break;  // first run, or nothing to resume -- cold start, nothing said
+      case EurekaMachine::SnapshotResult::kCorrupt:
+      case EurekaMachine::SnapshotResult::kRomMismatch: {
+        // The user's call, so a dialog and not host::Print -- the console may
+        // not exist.  Yes: hard start and drop the unusable file.  No: quit,
+        // leaving it for a run with the ROM it belongs to.
+        const std::wstring question =
+            snapError +
+            L"\r\n\r\nSpustiť Eureku na tvrdo, bez obnovy poslednej relácie?";
+        if (MessageBoxW(nullptr, question.c_str(), L"Eureka A4",
+                        MB_YESNO | MB_ICONWARNING) != IDYES) {
+          CoUninitialize();
+          return 0;
+        }
+        fs::remove(snapshotFile, ec);
+        break;
+      }
+    }
+  }
+  if (!warmResumed) machine->Reset();
 
   // Described by the same function the worker uses when a diskette is swapped
   // in later, so the drive cannot be named one way at start-up and another way
@@ -329,6 +368,20 @@ int Run() {
   if (machine && !machine->FlushDisk(error))
     MessageBoxW(nullptr, (L"Chyba pri ukladaní disku:\r\n\r\n" + error).c_str(),
                 L"Eureka A4", MB_OK | MB_ICONERROR);
+
+  // The RAM snapshot, written after the disk so the two agree.  Only when the
+  // machine was switched off for real -- the cursor-key chord or the idle
+  // timeout -- never on a bare window close: that is the battery cut-off
+  // switch, after which the hardware initialises from scratch (HANDOFF 6.15).
+  if (machine && machine->powered_off()) {
+    const fs::path snapFile = Settings::SnapshotFile();
+    std::wstring snapError;
+    if (snapFile.empty())
+      Warn(L"Stav pamäte sa nedá uložiť: systém nepovedal, kde je priečinok "
+           L"aplikačných dát. Ďalší štart začne inicializáciou.");
+    else if (!machine->SaveSnapshot(snapFile, snapError))
+      Warn(snapError);
+  }
 
   // Asked about what is actually in the drive now, not about how the run
   // started: a diskette can be swapped mid-run, so --ram-disk no longer means

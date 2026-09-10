@@ -128,9 +128,15 @@ zapnutí prázdna pamäť aj hodiny, presne ako po tomto resete. Zapnutie a rese
 to, čo v danom stave dáva zmysel — vypnutý stroj sa nedá vypnúť a bežiaci
 zapnúť.
 
-Jedno vypnutie tým však prežije len to, čo je v stroji. Zavretie
-emulátora je iná vec: obsah pamäte sa zatiaľ nikam neukladá, takže ďalšie
-spustenie začína odznova.
+Toto prežije aj **zavretie emulátora**, ale len po riadnom vypnutí. Keď
+Eureku vypnete — kurzorovým akordom, alebo ju po piatich minútach vypne
+nečinnosť — stav pamäte a hodín sa uloží a ďalšie spustenie ním nadviaže
+rovnako ako `Ctrl+P`. Keď okno len zavriete bez vypnutia, stav sa
+neuloží; to zodpovedá vypínaču batérie a ďalšie spustenie sa ohlási
+„inicializace eureky“.
+
+Uložený stav patrí k tej ROM, s ktorou vznikol. Ak emulátor spustíte
+s inou ROM, spýta sa, či začať odznova.
 
 Emulátor má **len svoje okno**. Žiadna konzola pri spustení nevyskočí a
 nič vám nezoberie zameranie.
@@ -476,8 +482,9 @@ kopírovanie chránený zdroj priamo žiada.
 
 ## Čo si emulátor pamätá
 
-Dve veci: **disketu, ktorú ste mali naposledy**, a **deväť slotov**, a
-k tomu **zoznam diskiet zamknutých proti zápisu**. Posledná
+Diskety a stav stroja. Z diskiet **tú, ktorú ste mali naposledy**,
+**deväť slotov** a **zoznam diskiet zamknutých proti zápisu**; zo stavu
+stroja **obsah pamäte a hodín po riadnom vypnutí** (viď vyššie). Posledná
 disketa sa vloží pri ďalšom štarte, takže sa program
 nepýta na priečinok pri každom spustení; zapíše sa vždy, keď disketu
 vložíte — pri štarte, pri výmene za behu aj zo slotu. Pamätá sa
@@ -497,7 +504,8 @@ otvoriť v poznámkovom bloku. Emulátor si ho hľadá na dvoch miestach:
 
 Priečinok `config` si emulátor nikdy nevytvorí sám; prenosný režim je tak
 vždy vaše rozhodnutie a nezapne sa omylom. Súbor emulátor prepisuje celý,
-takže vlastné poznámky v ňom neprežijú.
+takže vlastné poznámky v ňom neprežijú. Na tom istom mieste je aj uložený
+stav pamäte — vzniká pri vypnutí a ďalšie spustenie ho prečíta a zmaže.
 
 ## Spúšťanie súborov
 

@@ -97,16 +97,32 @@ fs::path ExecutableDirectory() {
   return fs::path(buffer).parent_path();
 }
 
-fs::path Settings::FindFile() {
+namespace {
+// The folder both the settings file and the RAM snapshot live in: a `config`
+// folder beside the EXE when one exists, %APPDATA%\EurekaA4 otherwise.  Empty
+// when the shell will not say where roaming data goes.  Never created here --
+// making it would turn portable mode on behind the user's back (see header).
+fs::path ConfigDirectory() {
   std::error_code ec;
   const fs::path portable = ExecutableDirectory() / L"config";
-  if (fs::is_directory(portable, ec)) return portable / L"nastavenia.txt";
+  if (fs::is_directory(portable, ec)) return portable;
   const fs::path roaming = RoamingFolder();
-  // Deliberately not falling back to the portable path: that folder exists
-  // only when the user made it, and creating it here would switch portable
-  // mode on behind their back.  An empty path means Save says why instead.
   if (roaming.empty()) return {};
-  return roaming / L"EurekaA4" / L"nastavenia.txt";
+  return roaming / L"EurekaA4";
+}
+}  // namespace
+
+fs::path Settings::FindFile() {
+  const fs::path dir = ConfigDirectory();
+  // An empty path means Save says why instead.
+  return dir.empty() ? fs::path{} : dir / L"nastavenia.txt";
+}
+
+// Where the RAM snapshot goes, by the same rule.  The name stays on disk in
+// existing installs, so treat it like the *pamat marker: settled.
+fs::path Settings::SnapshotFile() {
+  const fs::path dir = ConfigDirectory();
+  return dir.empty() ? fs::path{} : dir / L"pamat.bin";
 }
 
 void Settings::Load() {

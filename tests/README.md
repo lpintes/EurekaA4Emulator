@@ -137,6 +137,20 @@ them on the same diskette.
   'ě'; a stuck AltGr shows up as a second '@'.  Needs no files on the disk.
 - `power` presses all four cursor keys and checks the machine switches itself
   off through pwr_stb;
+- `snimka` covers the RAM snapshot (HANDOFF 6.15): it boots, arms an alarm so
+  `rtcRam_` carries something -- the one part of the snapshot that is not in
+  `memory_` -- and calls `SaveSnapshot` to a temp file.  A fresh machine
+  `LoadSnapshot`s it, and the check is threefold: the eight clock bytes come
+  back; a second save from the restored machine reproduces the file byte for
+  byte, which pins the RAM and the ROM MD5 without depending on the MMU state;
+  and `PowerOn` on the restored RAM comes up without "inicializace eureky"
+  while a cold `Reset` on the same machine still says it.  Then the three
+  refusals: a missing file is `kMissing`, a short/wrong-magic file is
+  `kCorrupt`, and a good file with one byte of the ROM MD5 flipped is
+  `kRomMismatch` -- none of them touch the machine.  It also checks `md5.cpp`
+  against two RFC 1321 vectors, so a broken hash fails here rather than
+  silently letting every mismatched snapshot load.  Needs no files on the
+  disk;
 - `dc` checks the output settles to silence after speech, whatever the DAC is
   left holding;
 - `rtc` first checks that F2 announces the time: the hours, then the minutes

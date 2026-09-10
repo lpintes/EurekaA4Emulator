@@ -1366,6 +1366,34 @@ s obnovenou RAM bude iná cesta než `Reset()`“ je **spravená** —
 Zvyšok tejto sekcie platí ďalej: snímka do súboru, MD5 ROM ani osem bajtov
 `rtcRam_` v nej zatiaľ nie sú.
 
+**Doplnené 10. 9. 2026: „zatiaľ nie sú" už neplatí — snímka do súboru je
+hotová (beady `ea4-aip.2`, `ea4-te9`, `ea4-9fq`).**
+
+- `EurekaMachine::SaveSnapshot` / `LoadSnapshot` (`machine.cpp`) serializujú
+  64 KiB RAM od `kRamBase`, osem bajtov `rtcRam_` a v hlavičke **MD5 ROM**
+  (`src/md5.*`, RFC 1321, overené proti trom štandardným vektorom). Formát
+  nesie verziu v magicu `EA4RAM01`; staršia alebo poškodená snímka sa číta
+  ako `kCorrupt`, snímka spod inej ROM ako `kRomMismatch` a v oboch
+  prípadoch sa **nič neobnoví**.
+- `LoadSnapshot` pri `kOk` naplní `memory_` aj `rtcRam_`; volajúci potom
+  volá `PowerOn()`, nie `Reset()`. Presne cesta z tejto sekcie: boot
+  prebehne celý, `magic` `55AAh` na `C45Bh` sedí, `1805E` sa preskočí,
+  stroj sa ohlási bez „inicializace eureky".
+- Hostiteľ (`main.cpp`): pri štarte skúsi `Settings::SnapshotFile()`
+  (`config/` vedľa EXE, inak `%APPDATA%\EurekaA4\pamat.bin`) a súbor
+  **skonzumuje** — prečíta a zmaže. Preto holé zavretie okna (na stroji
+  odpojenie batérie) nabehne na tvrdo a čerstvá snímka vzniká len ďalším
+  skutočným vypnutím. Zápis je pri ukončení, `iff machine->powered_off()`;
+  pri nezhode MD5 sa `main.cpp` pýta `MessageBox`-om (Áno = tvrdý štart,
+  Nie = koniec), lebo je to rozhodnutie používateľa a konzola nemusí byť.
+- Drží to `integration_test … snimka`: round-trip RAM aj `rtcRam_` (cez
+  bajtové porovnanie znovuuloženej snímky, teda nezávisle od MMU), že
+  `PowerOn` na obnovenej RAM nepovie „inicializace" a studený `Reset`
+  áno, a všetky tri odmietnutia (`kMissing`, `kCorrupt`, `kRomMismatch`).
+
+Otvorené z 6.15 zostáva už len prepínač „ukladať RAM" v nastaveniach
+(`ea4-dh1`, P2) — dovtedy je ukladanie vždy zapnuté.
+
 ### 6.16 Lupanie: chýbal väzobný kondenzátor — opravené
 
 **Uzavreté 26. 8. 2026, celé znenie v `HANDOFF-archiv.md`.** Držaná
@@ -2211,9 +2239,12 @@ a nenačíta znovu (`NVDA+Ctrl+F3`).
    toho, aby čokoľvek prežilo proces (`ea4-aip.1`).
    **Ten krok je hotový ešte v ten deň** — `EurekaMachine::PowerOn()`,
    tokeny sondy `vypni`/`zapni`/`studeno` a `Stroj` → `Zapnúť Eureku`
-   v ponuke; odmerané je, že firmvér nadviaže. Zostáva teda naozaj len
-   prežitie procesu: snímka do súboru, MD5 ROM, osem bajtov `rtcRam_`
-   a čo urobí zmeškaný budík.
+   v ponuke; odmerané je, že firmvér nadviaže.
+   **Doplnené 10. 9. 2026: prežitie procesu je tiež hotové** —
+   `SaveSnapshot`/`LoadSnapshot` so snímkou do `pamat.bin`, MD5 ROM
+   v hlavičke, osem bajtov `rtcRam_` v nej, a zmeškaný budík odmeraný
+   (`ea4-oti`). Podrobne v 6.15. Otvorené z 6.15 zostáva len prepínač
+   v nastaveniach (`ea4-dh1`, P2).
 5. **Správa diskiet** (6.22) — **celá spravená** 9. 9. 2026 a stiahnutá
    do archívu; čo sa kedy urobilo, je tam. Otvorené z nej zostalo len
    doloženie: že sa EurekaDOS po výmene preloguje sám, je odmerané
@@ -2247,12 +2278,13 @@ integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
 integration_test ROM DISK_FOLDER format-> PASS (Shift+F8 naformátuje prázdnu)
 integration_test ROM DISK_FOLDER wp    -> PASS (zámok číta, zápis odmietne)
 integration_test ROM DISK_FOLDER hlaseni -> PASS (tri stavy mechaniky, tri vety)
+integration_test ROM DISK_FOLDER snimka -> PASS (RAM do súboru a späť, tri odmietnutia)
 disk_test                              -> PASS (144 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 settings_test                          -> PASS (51 kontrol, bez ROM)
 ```
 
-Všetkých **trinásť** naraz spustí `run-tests.bat`: paralelne, s jedným
+Všetkých **štrnásť** naraz spustí `run-tests.bat`: paralelne, s jedným
 súhrnom na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
 diskety si pripraví sám, takže ručne netreba nič.
 
@@ -2260,7 +2292,7 @@ Ten počet je jediné miesto, kde sa tento zoznam dá overiť zvonka, a preto tu
 stojí číslom: keď režim pribudne do `MODES` v `Makefile` a sem nie, rozdiel
 nevidno inak než spočítaním riadkov `PASS`. Presne to sa aj stalo — `wp`
 tu chýbal a text hovoril „jedenásť“, kým `run-tests.bat` už dávno púšťal
-dvanásť procesov. Trinásty je `hlaseni` (6.30).
+dvanásť procesov. Trinásty je `hlaseni` (6.30), štrnásty `snimka` (6.15).
 
 Pozor: `com` potrebuje `READ.COM` v priečinku disku a bez neho zlyhá.
 Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`, a `run-tests.bat`

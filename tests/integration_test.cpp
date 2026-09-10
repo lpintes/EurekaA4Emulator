@@ -3,14 +3,19 @@
 #include <cmath>
 #include <ctime>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "machine.h"
+#include "md5.h"
 
 namespace {
+
+namespace fs = std::filesystem;
 
 bool Contains(const std::vector<uint8_t>& data, const std::string& needle) {
   return std::search(data.begin(), data.end(), needle.begin(), needle.end()) !=
@@ -383,6 +388,193 @@ bool CheckPowerOff(EurekaMachine& machine, PowerOffState& seen) {
     std::cout << "  studeny start nepovedal \"inicializace\"\n";
     ok = false;
   }
+  return ok;
+}
+
+// Defined below with the other typing helpers; CheckSnapshot arms an alarm the
+// same way CheckAlarm does, and that code sits further down the file.
+void Grind(EurekaMachine& machine, uint64_t instructions);
+void TypeScan(EurekaMachine& machine, uint8_t code);
+void TypeDigit(EurekaMachine& machine, int value);
+
+// The RAM snapshot at the machine level.  SaveSnapshot writes RAM, the clock
+// chip's eight bytes and an MD5 of the ROM to a file; a fresh machine loads it
+// and PowerOn() comes up where the first one stopped instead of saying
+// "inicializace eureky".  main.cpp only wires these two calls into start-up
+// and exit -- the contract they keep is here.  HANDOFF 6.15.
+bool CheckSnapshot(EurekaMachine& source, const wchar_t* romPath,
+                   const wchar_t* diskPath) {
+  bool ok = true;
+
+  // The hash the ROM fingerprint rides on.  A broken MD5 would not fail any
+  // round trip -- both sides compute it the same wrong way -- so it is pinned
+  // here against RFC 1321 instead.
+  const auto hex = [](const std::array<uint8_t, 16>& d) {
+    std::string s;
+    for (uint8_t b : d) {
+      const char* k = "0123456789abcdef";
+      s += k[b >> 4];
+      s += k[b & 15];
+    }
+    return s;
+  };
+  if (hex(Md5("", 0)) != "d41d8cd98f00b204e9800998ecf8427e" ||
+      hex(Md5("abc", 3)) != "900150983cd24fb0d6963f7d28e17f72") {
+    std::cout << "  md5 nesedi s RFC 1321\n";
+    ok = false;
+  }
+
+  std::error_code ec;
+  const fs::path dir = fs::temp_directory_path(ec);
+  const fs::path file = dir / L"ea4_snimka.bin";
+  const fs::path echo = dir / L"ea4_snimka_echo.bin";
+  const fs::path badMagic = dir / L"ea4_snimka_zle.bin";
+  const fs::path badRom = dir / L"ea4_snimka_rom.bin";
+  const fs::path missing = dir / L"ea4_snimka_niet.bin";
+  for (const fs::path& p : {file, echo, badMagic, badRom, missing})
+    fs::remove(p, ec);
+
+  // Cold boot, then arm an alarm so rtcRam_ carries something: it is the one
+  // part of the snapshot that is not in memory_, and only zeros travelling
+  // would not prove it moves.  This is the first half of CheckAlarm, stopping
+  // before the alarm fires.
+  source.Reset();
+  Grind(source, 12'000'000);
+  source.QueueKey(0xc1);   // F2, clock and calendar
+  Grind(source, 8'000'000);
+  source.QueueKey(0xd2);   // Shift+F3, "vlož čas buzení"
+  Grind(source, 8'000'000);
+  const std::time_t target = std::time(nullptr) + 120;
+  std::tm local{};
+  localtime_s(&local, &target);
+  if (local.tm_hour >= 10) TypeDigit(source, local.tm_hour / 10);
+  TypeDigit(source, local.tm_hour % 10);
+  TypeScan(source, 0x39);  // space between the two numbers
+  TypeDigit(source, local.tm_min / 10);
+  TypeDigit(source, local.tm_min % 10);
+  Grind(source, 8'000'000);
+  TypeScan(source, 0x1c);  // Enter
+  Grind(source, 20'000'000);
+
+  std::array<uint8_t, 8> armed{};
+  for (unsigned i = 0; i < 8; ++i) armed[i] = source.debug_rtc_ram(i);
+  if (armed[1] == 0 && armed[2] == 0) {
+    std::cout << "  budik sa nenastavil, rtcRam by v snimke bola sama nula\n";
+    ok = false;
+  }
+
+  std::wstring err;
+  if (!source.SaveSnapshot(file, err)) {
+    std::wcout << L"  SaveSnapshot zlyhal: " << err << L"\n";
+    return false;
+  }
+  if (!fs::exists(file, ec) ||
+      fs::file_size(file, ec) <= EurekaMachine::kRamSnapshotBytes) {
+    std::cout << "  snimka nie je vacsia nez samotna RAM\n";
+    ok = false;
+  }
+
+  // A fresh machine loads it back.  On the heap: EurekaMachine is half a
+  // megabyte of RAM array and two of them would overflow the stack.
+  auto restoredHolder = std::make_unique<EurekaMachine>();
+  EurekaMachine& restored = *restoredHolder;
+  if (!restored.LoadRom(romPath, err) || !restored.MountDisk(diskPath, err)) {
+    std::wcout << L"  druhy stroj sa nezostavil: " << err << L"\n";
+    return false;
+  }
+  if (restored.LoadSnapshot(file, err) !=
+      EurekaMachine::SnapshotResult::kOk) {
+    std::wcout << L"  LoadSnapshot nevratil kOk: " << err << L"\n";
+    return false;
+  }
+  for (unsigned i = 0; i < 8; ++i)
+    if (restored.debug_rtc_ram(i) != armed[i]) {
+      std::cout << "  rtcRam[" << i << "] sa neprenieslo\n";
+      ok = false;
+    }
+
+  // Every byte the snapshot carries, checked without depending on the MMU
+  // state: a second save from the restored machine has to reproduce the file
+  // exactly -- same ROM MD5, same clock bytes, same RAM.
+  if (!restored.SaveSnapshot(echo, err)) {
+    std::wcout << L"  druhy SaveSnapshot zlyhal: " << err << L"\n";
+    return false;
+  }
+  {
+    std::ifstream a(file, std::ios::binary);
+    std::ifstream b(echo, std::ios::binary);
+    const std::vector<char> ba((std::istreambuf_iterator<char>(a)),
+                               std::istreambuf_iterator<char>());
+    const std::vector<char> bb((std::istreambuf_iterator<char>(b)),
+                               std::istreambuf_iterator<char>());
+    if (ba != bb) {
+      std::cout << "  snimka sa po nacitani a znovuulozeni zmenila\n";
+      ok = false;
+    }
+  }
+
+  // Functional resume: PowerOn on the restored RAM must skip "inicializace",
+  // the one thing the firmware says when the user's state is gone.  The
+  // contrast is a cold Reset on the same machine, which must say it.
+  const auto bootOut = [](EurekaMachine& m) {
+    std::vector<uint8_t> said;
+    uint64_t lastOut = m.cycles() + EurekaMachine::kCpuHz * 3;
+    for (uint64_t step = 0; step < 40'000'000; ++step) {
+      m.TakeConsoleOutput();
+      const auto heard = m.TakeSpeechInput();
+      said.insert(said.end(), heard.begin(), heard.end());
+      if (m.cycles() > lastOut + EurekaMachine::kCpuHz / 2) break;
+      if (!m.Step()) break;
+    }
+    return said;
+  };
+  restored.PowerOn();
+  if (Contains(bootOut(restored), "inicializace")) {
+    std::cout << "  obnovena RAM aj tak povedala \"inicializace\"\n";
+    ok = false;
+  }
+  if (restored.powered_off()) {
+    std::cout << "  obnoveny stroj po PowerOn nebezi\n";
+    ok = false;
+  }
+  restored.Reset();
+  if (!Contains(bootOut(restored), "inicializace")) {
+    std::cout << "  studeny start druheho stroja nepovedal \"inicializace\"\n";
+    ok = false;
+  }
+
+  // The three refusals.  A missing file is a first run; a short or
+  // wrong-magic file is corruption; a good file whose ROM MD5 has been
+  // altered is a snapshot from another firmware.
+  auto probeHolder = std::make_unique<EurekaMachine>();
+  EurekaMachine& probe = *probeHolder;
+  if (!probe.LoadRom(romPath, err)) return false;
+  if (probe.LoadSnapshot(missing, err) !=
+      EurekaMachine::SnapshotResult::kMissing) {
+    std::cout << "  chybajuci subor nevratil kMissing\n";
+    ok = false;
+  }
+  { std::ofstream(badMagic, std::ios::binary) << "toto nie je snimka"; }
+  if (probe.LoadSnapshot(badMagic, err) !=
+      EurekaMachine::SnapshotResult::kCorrupt) {
+    std::cout << "  poskodeny subor nevratil kCorrupt\n";
+    ok = false;
+  }
+  {
+    std::ifstream in(file, std::ios::binary);
+    std::vector<char> bytes((std::istreambuf_iterator<char>(in)),
+                            std::istreambuf_iterator<char>());
+    bytes.at(8) ^= 0xff;  // first byte of the ROM MD5 in the header
+    std::ofstream(badRom, std::ios::binary)
+        .write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  }
+  if (probe.LoadSnapshot(badRom, err) !=
+      EurekaMachine::SnapshotResult::kRomMismatch) {
+    std::cout << "  cudzia ROM nevratila kRomMismatch\n";
+    ok = false;
+  }
+
+  for (const fs::path& p : {file, echo, badMagic, badRom}) fs::remove(p, ec);
   return ok;
 }
 
@@ -998,9 +1190,10 @@ int wmain(int argc, wchar_t** argv) {
        std::wstring(argv[3]) != L"dc" && std::wstring(argv[3]) != L"rtc" &&
        std::wstring(argv[3]) != L"hudba" &&
        std::wstring(argv[3]) != L"format" && std::wstring(argv[3]) != L"wp" &&
-       std::wstring(argv[3]) != L"hlaseni")) {
+       std::wstring(argv[3]) != L"hlaseni" &&
+       std::wstring(argv[3]) != L"snimka")) {
     std::wcerr << L"usage: integration_test ROM DISK_FOLDER "
-                  L"com|bas|kbd|power|dc|rtc|hudba|format|wp|hlaseni\n";
+                  L"com|bas|kbd|power|dc|rtc|hudba|format|wp|hlaseni|snimka\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -1067,6 +1260,12 @@ int wmain(int argc, wchar_t** argv) {
     std::cout << (passed ? "PASS" : "FAIL") << " mode=POWER"
               << " vypnute=" << (seen.off ? "ano" : "nie") << " C45A=" << std::hex
               << static_cast<unsigned>(seen.marker) << std::dec << "\n";
+    return passed ? 0 : 1;
+  }
+
+  if (std::wstring(argv[3]) == L"snimka") {
+    const bool passed = CheckSnapshot(*machine, argv[1], argv[2]);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=SNIMKA\n";
     return passed ? 0 : 1;
   }
 

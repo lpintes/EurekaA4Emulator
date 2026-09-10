@@ -42,6 +42,11 @@ class Settings {
   // instead of calling this.
   static std::filesystem::path FindFile();
 
+  // Where the RAM snapshot lives, by the same portable/roaming rule as
+  // FindFile.  Empty when there is nowhere to put it; the caller then just
+  // cold-starts and, at exit, says the state could not be kept.
+  static std::filesystem::path SnapshotFile();
+
   // A line that makes no sense is skipped rather than fatal: this file is
   // meant to be editable by hand, and one bad line must not cost the user
   // every slot in it.
