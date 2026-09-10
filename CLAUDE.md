@@ -466,8 +466,12 @@ v konflikte s hosťom. Platí:
   „komunikace“; samotné F4 do nej vojde — odmerané, viď nižšie). Je to
   nápoveda, po ktorej sa chodí, a diera v jej strede, ktorá zabije
   emulátor, stojí viac než štandardné zatváranie okna. Okno zatvára
-  `F12` → ponuka Súbor → Skončiť — tá cesta je bezpodmienečná — alebo
-  `F11`, `Ctrl+Q`; a po `F11` či `Shift+F11` funguje aj Alt+F4.
+  `F12` → ponuka Súbor → Skončiť — tú cestu Eureke nikdy neberie — alebo
+  `F11`, `Ctrl+Q`; a po `F11` či `Shift+F11` funguje aj Alt+F4. Keď je
+  zapnuté zachovanie pamäte (`zachovat-ram`) a stroj beží, každá z týchto
+  ciest sa najprv spýta, či zavrieť bez uloženia stavu — vypnutý stroj
+  ani vypnutý prepínač nie (`MainWindow::ConfirmClosingWithoutPowerDown`,
+  obídené len pri chybe disku cez `forceClose_`).
 - **F10 ani Shift+F10 nie sú voľné** — Eureka nimi hovorí, kde ste, a robí
   sebakontrolu. Ponuku preto otvára **F12**, uvoľnenie klávesnice **F11**.
 - **Voľný kláves neexistuje, ani F11 a F12.** Roky tu stálo, že sú to

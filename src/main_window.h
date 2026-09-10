@@ -78,6 +78,11 @@ class MainWindow : public win::Window {
   // False when the user backed out of losing a diskette that lives only in
   // memory; the caller then does nothing.  See the definition.
   bool ConfirmLosingDiskette();
+  // Asked on WM_CLOSE when "keep RAM" is on and the machine is still running:
+  // closing now is the battery cut-off, so the session is lost.  False means
+  // the user chose to stay.  Silent when the switch is off or the machine is
+  // already off -- then closing loses nothing.
+  bool ConfirmClosingWithoutPowerDown();
   void SaveSettings();
   void SaveSlot(int number, std::wstring value);
   // Puts the diskette from one of the nine slots in.  Numbered 1..9 the way
@@ -115,6 +120,9 @@ class MainWindow : public win::Window {
   // so that the title and the menu can be built on the window thread without
   // asking across.
   bool poweredOff_ = false;
+  // Set when the window is being torn down for a reason of its own -- a disk
+  // error -- so WM_CLOSE does not stop to ask about the RAM on the way out.
+  bool forceClose_ = false;
 };
 
 #endif

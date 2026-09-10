@@ -135,6 +135,10 @@ rovnako ako `Ctrl+P`. Keď okno len zavriete bez vypnutia, stav sa
 neuloží; to zodpovedá vypínaču batérie a ďalšie spustenie sa ohlási
 „inicializace eureky“.
 
+Preto keď je ukladanie zapnuté a Eureka ešte beží, zavretie okna sa
+najprv spýta, či to naozaj chcete bez uloženia stavu. Ak stroj najprv
+vypnete, otázka nepríde — vtedy sa stav uloží.
+
 Uložený stav patrí k tej ROM, s ktorou vznikol. Ak emulátor spustíte
 s inou ROM, spýta sa, či začať odznova.
 

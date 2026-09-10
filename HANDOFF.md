@@ -1405,6 +1405,17 @@ výslovný úkon (rozhodnuté 10. 9. 2026). Drží to `settings_test`
 **Tým je 6.15 celá spravená.** Zostáva len doloženie: relogovanie disku po
 ceste „vypnutie a zapnutie" je overené len ručne (`ea4-rwe`).
 
+**Doplnené (majiteľ): zavretie okna sa pýta, keď by stav zahodilo.** Keď je
+`keep_ram()` zapnuté a stroj beží, `WM_CLOSE` sa najprv spýta
+(`MainWindow::ConfirmClosingWithoutPowerDown`, `MB_YESNO`, predvolene Nie) —
+zavretie bez vypnutia je odpojenie batérie a snímka sa nezapíše. Vypnutý
+stroj sa nepýta (snímku zapíše ukončenie) ani vypnutý prepínač (niet čo
+strážiť). Cesta chyby disku ho obchádza cez `forceClose_`: worker už stojí,
+niet ako vypínať. Vypnutie prepínača v Nastaveniach potvrdenie **nemá** —
+je to dosť výslovný úkon (rozhodnuté s majiteľom). Tým prestala platiť veta
+v `CLAUDE.md`, že cesta `F12` → Súbor → Skončiť je „bezpodmienečná"; upravená
+je na to, že tú cestu Eureke nikdy neberie, ale otázku môže položiť.
+
 ### 6.16 Lupanie: chýbal väzobný kondenzátor — opravené
 
 **Uzavreté 26. 8. 2026, celé znenie v `HANDOFF-archiv.md`.** Držaná

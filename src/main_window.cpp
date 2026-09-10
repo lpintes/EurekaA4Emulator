@@ -129,10 +129,12 @@ constexpr wchar_t kShortcutHelp[] =
     L"F11, Ctrl+D — výpis diagnostiky na konzolu.\r\n"
     L"F11, Ctrl+N — nastavenia.\r\n"
     L"F11, Ctrl+H — toto okno.\r\n"
-    L"F11, Ctrl+Q — uloží disketu a skončí.\r\n"
+    L"F11, Ctrl+Q — uloží disketu a skončí. Ak stroj beží a je zapnuté\r\n"
+    L"      zachovanie pamäte, najprv sa spýta, či zavrieť bez uloženia\r\n"
+    L"      stavu — vypnite ju cez Ctrl+V, ak chcete nadviazať.\r\n"
     L"      Alt+F4 to už nerobí, ten patrí Eureke. Keď ho potrebujete pre\r\n"
     L"      Windows, stlačte najprv F11, tak ako tu.\r\n"
-    L"      Bezpodmienečná cesta von je F12, teda ponuka Súbor → Skončiť.\r\n"
+    L"      Cesta von, ktorú Eureke nikdy neberie, je F12 → Súbor → Skončiť.\r\n"
     L"\r\n"
     L"Všetko ostatné ide do Eureky:\r\n"
     L"\r\n"
@@ -740,6 +742,25 @@ bool MainWindow::ConfirmLosingDiskette() {
   }
 }
 
+// The RAM counterpart of ConfirmLosingDiskette.  When "keep RAM" is on, the
+// user has said they want to come back where they left off -- but that only
+// works after a real power-down, which writes the snapshot.  Closing the
+// window with the machine still running throws the session away, so this is
+// the one path where that is worth a question.  It is deliberately not asked
+// when the switch is off (nothing is being kept) or when the machine is
+// already off (exit writes the snapshot either way).
+bool MainWindow::ConfirmClosingWithoutPowerDown() {
+  const int answer = MessageBoxW(
+      hwnd_,
+      L"Eureka je stále zapnutá, takže sa stav pamäte pri zavretí neuloží "
+      L"a ďalšie spustenie začne od začiatku.\r\n\r\n"
+      L"Ak chcete pokračovať tam, kde ste skončili, najprv ju vypnite: "
+      L"Stroj → Vypnúť Eureku (F11, Ctrl+V).\r\n\r\n"
+      L"Zavrieť okno bez uloženia stavu?",
+      L"Eureka je zapnutá", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+  return answer == IDYES;
+}
+
 void MainWindow::RememberDisk(const std::wstring& folder) {
   // An unsaved diskette and an empty drive are both "nothing to put back":
   // neither is cleared here, so unplugging a diskette for one session does not
@@ -1074,6 +1095,19 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       RefreshMenu();
       break;
 
+    case WM_CLOSE:
+      // Every way out of the program lands here -- the menu's Skončiť posts it,
+      // and Alt+F4 or the close box reach it through WM_SYSCOMMAND.  If "keep
+      // RAM" is on and the machine is still running, closing now is the battery
+      // cut-off: the session is lost and the next start initialises.  Ask
+      // first.  Nothing to ask when the switch is off, when the machine is
+      // already switched off (exit will write the snapshot then), or when a
+      // disk error is taking the window down for its own reasons.
+      if (!forceClose_ && settings_.keep_ram() && !poweredOff_ &&
+          !ConfirmClosingWithoutPowerDown())
+        return 0;
+      break;
+
     case WM_NCDESTROY:
       // Windows keeps the property's atom alive until it is removed, so a
       // window that dies with it still set leaks it for the rest of the
@@ -1120,6 +1154,9 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                   (L"Chyba pri ukladaní disku:\r\n\r\n" +
                    emulator_.TakeDiskError()).c_str(),
                   L"Eureka A4", MB_OK | MB_ICONERROR);
+      // The worker has already stopped; there is no powering down from here,
+      // so WM_CLOSE must not stop to ask about the RAM.
+      forceClose_ = true;
       PostMessageW(hwnd_, WM_CLOSE, 0, 0);
       return 0;
 
