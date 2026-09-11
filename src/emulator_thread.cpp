@@ -1,6 +1,7 @@
 #include "emulator_thread.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <optional>
 
@@ -67,12 +68,14 @@ constexpr double kTargetLatencyMs = 22.0;
 // tables is currently selected, so this only presses keys.
 struct HostKeyboard {
   InputMode mode = InputMode::kPc;
-  uint8_t held = 0;   // dot keys physically down at this moment
-  uint8_t chord = 0;  // every dot pressed since the current chord began
-  bool chordShift = false;  // shift held at any point during that chord
-  uint8_t arrows = 0;       // cursor keys physically down at this moment
-  uint8_t arrowChord = 0;   // every cursor key pressed since the first went down
-  ULONGLONG arrowStamp = 0; // host time of the last cursor key event
+  // Every one of the machine's nineteen non-shift membrane keys the host
+  // currently believes is physically down, indexed by virtual key rather
+  // than by the row bit it contributes: Left and Home both set row2's bit
+  // 2 (see HoldableBit), and letting go of Home while Left is still held
+  // must not clear that bit out from under it.  Recomputed from scratch on
+  // every change for the same reason -- see RecomputeHeldMembrane.
+  std::array<bool, 256> heldKeys{};
+  ULONGLONG heldStamp = 0;  // host time of the last held-key event
   uint8_t mods = 0;         // modifiers the machine is being told are held
 };
 
@@ -132,37 +135,92 @@ uint8_t BrailleBit(WORD virtualKey) {
   }
 }
 
+// Which row of HoldMembrane's live matrix one physically held key of the
+// cursor keypad or the eight function keys contributes to, and what bit.
+// Dots and the space bar are not here -- BrailleBit already gives their row0
+// bit directly and every call site below reaches for that first.
+//
 // The four cursor keys are one keypad, not four keys: the ROM reads them as a
 // bit set on row 8Ch, so several held at once mean a chord of their own.  That
 // is why Home is up plus left (85h) and why all four together are a command --
 // 8Fh, k_udlr in KB.LIB, the one that switches the Eureka off from the Main
-// Menu (CP 8Fh at 18154).
-uint8_t ArrowBit(WORD virtualKey) {
+// Menu (CP 8Fh at 18154).  Home, End, PgUp, PgDn, Insert and Delete are each
+// their own physical key on a PC keyboard, not a chord of arrows, but the
+// nibble they need on row 8Ch is exactly the low nibble of the Eureka code
+// KB.LIB already gives them (kKeyHome = 85h = up|left), so this reads it off
+// those constants instead of inventing a second table that could disagree
+// with SpecialKey's.
+enum class MembraneRow { kNone, kRow1, kRow2 };
+struct MembraneKeyBit {
+  MembraneRow row = MembraneRow::kNone;
+  uint8_t bit = 0;
+};
+MembraneKeyBit HoldableBit(WORD virtualKey) {
+  if (virtualKey >= VK_F1 && virtualKey <= VK_F8)
+    return {MembraneRow::kRow1,
+            static_cast<uint8_t>(1u << (virtualKey - VK_F1))};
   switch (virtualKey) {
-    case VK_UP: return 1;
-    case VK_DOWN: return 2;
-    case VK_LEFT: return 4;
-    case VK_RIGHT: return 8;
-    default: return 0;
+    case VK_UP: return {MembraneRow::kRow2, hw::kKeyUp & hw::kKeyNumberMask};
+    case VK_DOWN: return {MembraneRow::kRow2, hw::kKeyDown & hw::kKeyNumberMask};
+    case VK_LEFT: return {MembraneRow::kRow2, hw::kKeyLeft & hw::kKeyNumberMask};
+    case VK_RIGHT: return {MembraneRow::kRow2, hw::kKeyRight & hw::kKeyNumberMask};
+    case VK_HOME: return {MembraneRow::kRow2, hw::kKeyHome & hw::kKeyNumberMask};
+    case VK_END: return {MembraneRow::kRow2, hw::kKeyEnd & hw::kKeyNumberMask};
+    case VK_PRIOR: return {MembraneRow::kRow2, hw::kKeyPgUp & hw::kKeyNumberMask};
+    case VK_NEXT: return {MembraneRow::kRow2, hw::kKeyPgDn & hw::kKeyNumberMask};
+    case VK_INSERT: return {MembraneRow::kRow2, hw::kKeyCtrlUp & hw::kKeyNumberMask};
+    case VK_DELETE: return {MembraneRow::kRow2, hw::kKeyCtrlDown & hw::kKeyNumberMask};
+    default: return {};
   }
 }
 
+// Rebuilds the three rows HoldMembrane wants from scratch out of host.heldKeys
+// and sends them.  Incremental add/remove of single bits cannot work here:
+// Left alone and Home both set row2's bit 2, so letting go of Home while Left
+// is still down must recompute to "just Left", not clear the bit Left is
+// still holding.  Two hundred and fifty-six iterations on every key event is
+// nothing next to the CPU cycles a single Step() burns; this is nowhere near
+// the DAC-rate keyboard poll inside the machine itself.
+void RecomputeHeldMembrane(EurekaMachine& machine, const HostKeyboard& host) {
+  uint8_t row0 = 0;
+  uint8_t row1 = 0;
+  uint8_t row2 = 0;
+  for (int vk = 0; vk < static_cast<int>(host.heldKeys.size()); ++vk) {
+    if (!host.heldKeys[vk]) continue;
+    if (const uint8_t dot = BrailleBit(static_cast<WORD>(vk))) {
+      row0 |= dot;
+      continue;
+    }
+    const MembraneKeyBit target = HoldableBit(static_cast<WORD>(vk));
+    if (target.row == MembraneRow::kRow1) row1 |= target.bit;
+    else if (target.row == MembraneRow::kRow2) row2 |= target.bit;
+  }
+  machine.HoldMembrane(row0, row1, row2);
+}
+
 // A key-up can go missing: let the window lose focus mid-press and the release
-// is delivered to whoever took the focus.  A cursor key left believed down
-// would then suppress every later single one -- and on this machine a key that
+// is delivered to whoever took the focus.  A key left believed down would
+// then jam whatever row it sits on for good -- and on this machine a key that
 // does nothing is indistinguishable from a key that never arrived, because
 // both are silence.  Windows repeats a held key about thirty times a second,
 // so anything not heard from for two seconds is not under a finger; two
 // seconds is also well above the longest first-repeat delay Windows offers, so
-// a slowly assembled chord is never mistaken for a stale one.
+// a slowly assembled chord is never mistaken for a stale one.  One shared
+// timestamp for all nineteen keys rather than one each: as long as any of
+// them is still genuinely held, its own repeats keep refreshing it, so the
+// slowest legitimate chord never goes stale just because a different key on
+// the matrix happened to sit still.
 //
 // The window now also reports WM_KILLFOCUS, which clears this outright and is
 // exact where the timer only guesses; the timer stays as the backstop for a
 // release lost some other way.
-void ForgetStaleArrows(HostKeyboard& host) {
+void ForgetStaleHeld(HostKeyboard& host, EurekaMachine& machine) {
   const ULONGLONG now = GetTickCount64();
-  if (now - host.arrowStamp > 2000) host.arrows = host.arrowChord = 0;
-  host.arrowStamp = now;
+  if (now - host.heldStamp > 2000) {
+    host.heldKeys.fill(false);
+    RecomputeHeldMembrane(machine, host);
+  }
+  host.heldStamp = now;
 }
 
 // Which modifiers the ROM is currently being told are held, one bit each so
@@ -191,8 +249,8 @@ constexpr uint8_t kScanAlt = 0x38;
 // key through the AltGr table until it is reset.
 //
 // Reconciling against the reported state also survives a key-up lost to a
-// focus change, which is the same trap ForgetStaleArrows exists for on the
-// cursor keypad.
+// focus change, which is the same trap ForgetStaleHeld exists for on the
+// braille keyboard's own held keys.
 uint8_t WantedModifiers(DWORD state) {
   uint8_t mods = 0;
   if ((state & SHIFT_PRESSED) != 0) mods |= kModShift;
@@ -541,50 +599,27 @@ void EmulatorThread::Run() {
       // would swallow the one event that lets it go.
       machine.HoldShift((key.modifiers & SHIFT_PRESSED) != 0);
       // Ctrl is not a key on the braille keyboard, so nothing pressed with it
-      // held ever became a dot -- either the down path below dropped it, or,
-      // while the host owns the keyboard, the accelerator table ate the press
-      // outright.  Either way its release must not land in the chord being
-      // built.
+      // held ever entered the live matrix -- either the down path below
+      // dropped it, or, while the host owns the keyboard, the accelerator
+      // table ate the press outright.  Either way its release must not touch
+      // held state that was never set.
       if ((key.modifiers & (LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED)) != 0 &&
           (key.modifiers & RIGHT_ALT_PRESSED) == 0)
         return;
-      // A braille chord is finished by letting go, not by pressing: the dots
-      // go down one at a time and only the whole pattern means anything, so
-      // it is sent when the last finger comes up.
-      if (const uint8_t dot = BrailleBit(key.virtualKey)) {
-        host.held &= static_cast<uint8_t>(~dot);
-        // Shift belongs to the chord and is collected the same way the dots
-        // are, on every event of it: let go of shift before the last dot comes
-        // up and this final event no longer carries it.
-        if ((key.modifiers & SHIFT_PRESSED) != 0) host.chordShift = true;
-        if (host.held == 0 && host.chord != 0) {
-          machine.PressBraille(host.chord, host.chordShift);
-          host.chord = 0;
-          host.chordShift = false;
-        }
+      // Letting go of a dot, the space bar, a function key or a cursor-pad
+      // key: the matrix loses that bit and the ROM's own scan decides what,
+      // if anything, that means.  There is no chord to finish here any more
+      // -- HoldMembrane already showed the ROM every state on the way up.
+      if (BrailleBit(key.virtualKey) != 0 ||
+          HoldableBit(key.virtualKey).row != MembraneRow::kNone) {
+        ForgetStaleHeld(host, machine);
+        host.heldKeys[key.virtualKey] = false;
+        RecomputeHeldMembrane(machine, host);
         return;
       }
-      if (const uint8_t arrow = ArrowBit(key.virtualKey)) {
-        ForgetStaleArrows(host);
-        host.arrows &= static_cast<uint8_t>(~arrow);
-        if (host.arrows != 0) return;  // fingers still on the keypad
-        const uint8_t chord = host.arrowChord;
-        host.arrowChord = 0;
-        // chord == 0 means ForgetStaleArrows just wiped the set, so this is a
-        // lone key however it got here.
-        if (chord == arrow || chord == 0) {
-          machine.ReleaseKey(SpecialKey(key));
-        } else {
-          // More than one cursor key was down: send the union, keeping only
-          // the modifier bits of the code the single keys would have used.
-          machine.QueueKey(static_cast<uint8_t>(
-              hw::kKeyKeypad | chord |
-              (SpecialKey(key) & (hw::kKeyShift | hw::kKeyAlt))));
-        }
-        return;
-      }
-      // Only the twenty-key keyboard has a released state worth reporting;
-      // text goes into a queue and has nothing to let go of.
+      // Only F9, F10 and F11 reach here: they are chords of the space bar and
+      // braille dots the ROM itself decodes as one key (1D541), not a state
+      // to hold, so they stay on the frame queue like Escape does.
       if (const uint8_t special = SpecialKey(key)) machine.ReleaseKey(special);
       return;
     }
@@ -615,16 +650,16 @@ void EmulatorThread::Run() {
     // capitals and Shift+Fn are unaffected, and space-bar chords like
     // Shift+F9 decode the same with it held (measured too).
     machine.HoldShift(shift);
-    // Auto-repeat resends key-down without a key-up, so a dot already in the
-    // chord must not count as a second finger.  Windows says so outright in
-    // lParam bit 30, which the console could not report at all; the old code
-    // had to infer it from the dot already being held.
-    // Ctrl is not a key on this keyboard, so Ctrl+letter is not a dot either.
-    if (const uint8_t dot = ctrl ? 0 : BrailleBit(key.virtualKey)) {
-      if (key.autoRepeat) return;
-      host.held |= dot;
-      host.chord |= dot;
-      if (shift) host.chordShift = true;
+    // Ctrl is not a key on this keyboard, so Ctrl+letter is not a dot either
+    // -- the accelerator table would have eaten it before this ran anyway,
+    // whenever the host owns the keyboard.  Auto-repeat needs no special
+    // case any more: setting a bit that is already set is a no-op, and
+    // ForgetStaleHeld still wants the timestamp refreshed so a key genuinely
+    // held this long is never mistaken for one whose release went missing.
+    if (ctrl ? 0 : BrailleBit(key.virtualKey)) {
+      ForgetStaleHeld(host, machine);
+      host.heldKeys[key.virtualKey] = true;
+      RecomputeHeldMembrane(machine, host);
       return;
     }
     // Escape has no key of its own on the twenty-key keyboard: the machine
@@ -640,20 +675,22 @@ void EmulatorThread::Run() {
       if (!key.autoRepeat) machine.PressBraille(hw::kBkbSpace, true);
       return;
     }
-    if (const uint8_t arrow = ArrowBit(key.virtualKey)) {
-      ForgetStaleArrows(host);
-      host.arrows |= arrow;
-      host.arrowChord |= arrow;
-      // One cursor key on its own goes down straight away, so navigation stays
-      // immediate and the ROM's own typematic keeps repeating it.  A second
-      // finger landing on top of it makes a chord, and a chord only means
-      // something whole, so it waits for the last finger to come up -- the way
-      // a braille chord does.  The single key that already went is not a bug:
-      // fingers landing more than one scan apart look exactly like that to the
-      // real machine too.
-      if (host.arrows == arrow) machine.QueueKey(SpecialKey(key));
+    // Function keys F1-F8 and the whole cursor pad -- arrows, Home, End,
+    // PgUp, PgDn, Insert, Delete -- are live matrix state now, exactly like
+    // the dots: pressing one no longer sends a finished key by itself, it
+    // sets a bit HoldMembrane presents to the ROM's own scan, which is what
+    // lets it combine with the space bar (ea4-cb4, ea4-e9k) the way the
+    // hardware does.  Not Ctrl-gated, the same as before this held layer
+    // existed: only dots were ever masked by Ctrl.
+    if (HoldableBit(key.virtualKey).row != MembraneRow::kNone) {
+      ForgetStaleHeld(host, machine);
+      host.heldKeys[key.virtualKey] = true;
+      RecomputeHeldMembrane(machine, host);
       return;
     }
+    // Only F9, F10 and F11 reach here now: chords of the space bar and
+    // braille dots the ROM decodes as one key (1D541), sent whole rather than
+    // held, exactly like Escape above.
     if (const uint8_t special = SpecialKey(key)) {
       machine.QueueKey(special);
       return;
@@ -802,9 +839,10 @@ void EmulatorThread::Run() {
       case Command::Type::kReset:
         machine.Reset();
         // The chosen writing mode is the user's, not the machine's, so it
-        // survives; a chord caught half-pressed does not.
-        host.held = host.chord = host.arrows = host.arrowChord = 0;
-        host.chordShift = false;
+        // survives; a key caught half-pressed does not.  Reset() already
+        // zeroed the machine's own live layer; this just keeps the host's
+        // bookkeeping from reintroducing a stale key on the next event.
+        host.heldKeys.fill(false);
         host.mods = 0;
         audio.Close();
         audio.Open(EurekaMachine::kAudioHz);
@@ -824,8 +862,11 @@ void EmulatorThread::Run() {
         // held for good: nothing in braille mode ever lets one go.
         if (host.mode == InputMode::kPc) SyncModifiers(machine, host, 0);
         host.mode = wanted;
-        host.held = host.chord = host.arrows = host.arrowChord = 0;
-        host.chordShift = false;
+        // A key held on the way out of braille mode would otherwise keep
+        // sitting on the live matrix -- switching to PC mode does not stop
+        // the ports reading it, only stops anything new from setting it.
+        host.heldKeys.fill(false);
+        RecomputeHeldMembrane(machine, host);
         // The same rule the other way round: in PC mode nothing ever lifts the
         // membrane's shift key, so it must not be left down on the way out.
         machine.HoldShift(false);
@@ -862,19 +903,18 @@ void EmulatorThread::Run() {
         // needs no correction: the debt ceiling in the run loop held it a
         // quarter second ahead of a clock that was not moving.
         machine.PowerOn();
-        // The user's writing mode is theirs and survives; a chord caught
+        // The user's writing mode is theirs and survives; a key caught
         // half-pressed does not.  Same reasoning as Reset above.
-        host.held = host.chord = host.arrows = host.arrowChord = 0;
-        host.chordShift = false;
+        host.heldKeys.fill(false);
         host.mods = 0;
         host::Print(L"\r\n[Eureka bola zapnutá]\r\n");
         break;
       case Command::Type::kFocusLost:
-        // Exact where ForgetStaleArrows only guesses: the releases for these
+        // Exact where ForgetStaleHeld only guesses: the releases for these
         // are about to be delivered to whoever took the focus.
         if (host.mode == InputMode::kPc) SyncModifiers(machine, host, 0);
-        host.held = host.chord = host.arrows = host.arrowChord = 0;
-        host.chordShift = false;
+        host.heldKeys.fill(false);
+        RecomputeHeldMembrane(machine, host);
         machine.HoldShift(false);
         break;
       case Command::Type::kSaveDiskAs: {
