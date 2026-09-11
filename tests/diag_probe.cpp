@@ -17,7 +17,15 @@
 // "vypni"/"zapni"/"studeno" for the power switch and the two ways back on,
 // "cas:+7d" to move the clock the RTC answers with, "budik" to print it
 // beside the alarm the firmware armed, "zvuk" for what the loudspeaker got,
-// or a literal string typed on the emulated PC keyboard.  A separate family
+// or a literal string typed on the emulated PC keyboard.  A switched-off
+// machine can wake itself on the alarm the same way it does on the hardware
+// (HANDOFF 6.32): "cas:" reports it right on the token that crossed the
+// alarm's minute, and every other token polls for it once before running, so
+// a sequence of "." waits for it the way an interactive session would.  Left
+// unanswered the machine rings, re-arms the alarm and goes back to sleep; a
+// key answers it and keeps it in the Main Menu.  "." stops on the gaps
+// between the rings, so waiting out the whole alarm takes "spin:", not dots.
+// A separate family
 // holds and releases one membrane key at a time, which "kXX" and "PressBraille"
 // cannot say because both send a finished chord: "+b1".."+b6" and "-b1".."-b6"
 // for the six dot keys, "+bs"/"-bs" for the space bar, "+bh"/"-bh" for shift,
@@ -89,6 +97,11 @@ bool RunUntilPrompt(EurekaMachine& machine, uint64_t budget) {
   // that for a prompt.
   const uint64_t booted = EurekaMachine::kCpuHz * 3;
   uint64_t lastOut = machine.cycles() > booted ? machine.cycles() : booted;
+  // The clock chip's own supply never cuts, so a switched-off machine can
+  // still wake itself: checked once per call, the same poll the run loop
+  // does every ~2ms, so a sequence of "." tokens (or "cas:" moving the RTC
+  // across the alarm) sees it the way an interactive session would.
+  if (machine.powered_off()) machine.WakeOnAlarm();
   while (machine.instructions() < deadline) {
     if (!machine.TakeConsoleOutput().empty()) lastOut = machine.cycles();
     if (machine.cycles() > lastOut + quiet) return true;
@@ -285,11 +298,17 @@ int wmain(int argc, wchar_t** argv) {
         }
         rtcShift += _wtoi64(spec.c_str()) * scale;
         machine->SetRtcOffset(rtcShift);
+        // A jump straight into the alarm's minute wakes the machine the same
+        // tick the strobe would on the hardware; report it here rather than
+        // silently, since a sequence measuring the alarm needs to know
+        // whether this token was the one that crossed it.
+        const bool woke = machine->powered_off() && machine->WakeOnAlarm();
         const auto now = machine->debug_rtc_now();
-        std::printf("%-10ls -> [hodiny %02u.%02u.%02u %02u:%02u:%02u, posun %lld s]\n",
+        std::printf("%-10ls -> [hodiny %02u.%02u.%02u %02u:%02u:%02u, posun %lld s%s]\n",
                     token.c_str(), unsigned(now[5]), unsigned(now[4]),
                     unsigned(now[6]), unsigned(now[1]), unsigned(now[2]),
-                    unsigned(now[3]), static_cast<long long>(rtcShift));
+                    unsigned(now[3]), static_cast<long long>(rtcShift),
+                    woke ? ", zobudilo budikom" : "");
         continue;
       }
       if (token == L"zvuk") {
