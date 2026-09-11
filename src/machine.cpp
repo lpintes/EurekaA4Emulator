@@ -194,16 +194,13 @@ void EurekaMachine::PowerOn() {
   csioPending_ = false;
   csioReadyAt_ = 0;
   rtcLatched_ = false;
-  rtcMask_ = 0;
-  rtcCommand_ = 0;
-  // The event latch is cleared even on a warm start, so 180C2 always takes the
-  // "switched on by hand" branch.  That is deliberate: with bit 0 set the boot
-  // code serves the alarm and jumps straight back to the power-down routine at
-  // 1D132 (HANDOFF 6.15), so a machine restored with an alarm pending would
-  // switch itself off again the moment it came up.  What the firmware really
-  // does with an alarm that fell due while it was off has to be measured, not
-  // guessed; that is ea4-oti.  The alarm registers themselves are in rtcRam_
-  // and a warm start leaves them alone.
+  // rtc_mask and rtc_command are NOT reset here: they live in the clock chip,
+  // on the supply that never cuts (GLOSSARY.TXT), same as rtcRam_.  A hand
+  // switch-on never needed them cleared -- it finds rtc_status clear and calls
+  // schedule_alarm at 180D2, which writes both.  A boot woken by the alarm
+  // calls service_alarm1 at 180C8 first, and measured 11.9.2026, zeroing them
+  // here left an alarm answered by a key disarmed for good (rtc_mask 00, date
+  // not moved on).  integration_test budik pins it (HANDOFF 6.32).
   rtcStatus_ = 0;
   rtcAlarmMatched_ = false;
   rtcEventsPrimed_ = false;
@@ -222,6 +219,24 @@ void EurekaMachine::PowerOn() {
   cpu_.port_in = ReadPort;
   cpu_.port_out = WritePort;
   cpu_.userdata = this;
+}
+
+bool EurekaMachine::WakeOnAlarm() {
+  if (!poweredOff_) return false;
+  if ((rtcMask_ & hw::kRtcEventAlarm) == 0) return false;
+  const std::array<uint8_t, 8> now = CurrentRtcRegisters();
+  const bool matched = RtcAlarmMatches(now);
+  const bool edge = matched && !rtcAlarmMatched_;
+  rtcAlarmMatched_ = matched;
+  if (!edge) return false;
+  PowerOn();
+  // PowerOn() just zeroed rtc_status so a hand-switched boot always takes the
+  // "no alarm pending" branch at 180C2; this is the one caller that has to
+  // put the bit back afterwards, so the boot this time finds it and serves
+  // the alarm instead.
+  rtcStatus_ = static_cast<uint8_t>(hw::kRtcEventAlarm | hw::kRtcInterrupted);
+  rtcAlarmMatched_ = true;
+  return true;
 }
 
 void EurekaMachine::CopyStateFrom(const EurekaMachine& other) {

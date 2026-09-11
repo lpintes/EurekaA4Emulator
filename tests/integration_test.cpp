@@ -1260,6 +1260,151 @@ bool CheckAlarm(EurekaMachine& machine) {
   return ok;
 }
 
+// The other half of the alarm: not a machine that is on and finds the time,
+// but one that is off and has to switch itself back on to find it -- the
+// whole point of HANDOFF 6.32.
+bool CheckAlarmWake(EurekaMachine& machine) {
+  machine.Reset();
+  Grind(machine, 12'000'000);
+  machine.QueueKey(0xc1);  // F2, clock and calendar
+  Grind(machine, 8'000'000);
+  machine.QueueKey(0xd2);  // Shift+F3, "vloz cas buzeni"
+  Grind(machine, 8'000'000);
+
+  // Two minutes ahead, same margin CheckAlarm uses and for the same reason:
+  // typing must not spill into the alarm's own minute.
+  const std::time_t target = std::time(nullptr) + 120;
+  std::tm local{};
+  localtime_s(&local, &target);
+  if (local.tm_hour >= 10) TypeDigit(machine, local.tm_hour / 10);
+  TypeDigit(machine, local.tm_hour % 10);
+  TypeScan(machine, 0x39);
+  TypeDigit(machine, local.tm_min / 10);
+  TypeDigit(machine, local.tm_min % 10);
+  Grind(machine, 8'000'000);
+  TypeScan(machine, 0x1c);  // Enter
+  Grind(machine, 20'000'000);
+
+  std::array<uint8_t, 8> armed{};
+  for (unsigned index = 0; index < 8; ++index)
+    armed[index] = machine.debug_rtc_ram(index);
+  if ((machine.debug_rtc_mask() & 0x01) == 0) {
+    std::cout << "  budik sa nenastavil, rtc_mask nema povoleny budik\n";
+    return false;
+  }
+
+  // Off the Main Menu, the only place 8Fh means anything (HANDOFF, "Vypinanie
+  // stroja"): the alarm just armed is still whatever left the clock and
+  // calendar application, so this is the same Escape CheckAlarm's own probe
+  // measurement needed to reach it.
+  machine.QueueScanCode(0x01);
+  machine.QueueScanCode(0x81);
+  Grind(machine, 8'000'000);
+  machine.PressPowerOffChord();
+  for (int slice = 0; slice < 20 && !machine.powered_off(); ++slice)
+    Grind(machine, 4'000'000);
+  if (!machine.powered_off()) {
+    std::cout << "  stroj sa nevypol, chord 8Fh nezabral z hlavneho menu\n";
+    return false;
+  }
+
+  // The alarm registers and the mask must have survived the power-down
+  // untouched: PowerDown() does not touch rtcRam_/rtcMask_/rtcCommand_, on
+  // the hardware because the clock chip's supply is separate (GLOSSARY.TXT).
+  bool ok = true;
+  std::array<uint8_t, 8> stillArmed{};
+  for (unsigned index = 0; index < 8; ++index)
+    stillArmed[index] = machine.debug_rtc_ram(index);
+  if (stillArmed != armed) {
+    std::cout << "  budik sa zmenil pocas vypnutia\n";
+    ok = false;
+  }
+  if ((machine.debug_rtc_mask() & 0x01) == 0) {
+    std::cout << "  rtc_mask nepreziva vypnutie\n";
+    ok = false;
+  }
+  if (!ok) return false;
+
+  // Ten seconds into the alarm's minute, exactly as CheckAlarm does it: the
+  // clock is the host's, so reaching that instant is a jump, not a wait.
+  machine.SetRtcOffset(static_cast<int64_t>(target - target % 60 + 10 -
+                                            std::time(nullptr)));
+  if (!machine.WakeOnAlarm()) {
+    std::cout << "  WakeOnAlarm() nezobudilo stroj na nastaveny cas\n";
+    return false;
+  }
+  if (machine.powered_off()) {
+    std::cout << "  stroj zostal vypnuty aj po WakeOnAlarm()==true\n";
+    return false;
+  }
+
+  // The mask must still be armed the instant the machine comes back --
+  // that is the bug this test exists to pin: PowerOn() used to zero
+  // rtc_mask/rtc_command on every call, which this path never re-arms the
+  // way a hand switch-on's schedule_alarm does, silently disarming the
+  // alarm after its first ring (HANDOFF 6.32).
+  if ((machine.debug_rtc_mask() & 0x01) == 0) {
+    std::cout << "  rtc_mask bolo vynulovane pri zobudeni budikom\n";
+    return false;
+  }
+
+  // Woken is heard, not just seen: the samples are what the test asserts on,
+  // the transcript is not proof of speech (HANDOFF section 3, "zvuk").
+  // Collected on the way rather than taken after Grind, which throws the
+  // samples away on every step.
+  machine.TakeAudio();
+  int32_t low = 0;
+  int32_t high = 0;
+  const uint64_t listenUntil = machine.instructions() + 8'000'000;
+  while (machine.instructions() < listenUntil) {
+    machine.TakeSpeechInput();
+    machine.TakeConsoleOutput();
+    for (int16_t sample : machine.TakeAudio()) {
+      if (sample < low) low = sample;
+      if (sample > high) high = sample;
+    }
+    if (!machine.Step() && machine.powered_off()) break;
+  }
+  if (high - low < 1000) {
+    std::cout << "  budik po zobudeni nebolo pocut, rozkmit len " << (high - low)
+              << "\n";
+    return false;
+  }
+
+  // No key is sent from here, and that is the case this pins: an alarm
+  // nobody answers.  service_alarm1 (CALL CFEBh at 180C8) rings, re-arms the
+  // alarm for its next occurrence and returns with C45Ah still FFh, so
+  // 180CB-180CF takes JP NZ,CFD9h back to .go_to_sleep.  Measured with the
+  // probe: off again within 150M instructions.  An answered alarm is the
+  // other branch -- the key clears C45Ah and the machine stays in the Main
+  // Menu -- which the owner confirmed by hand (HANDOFF 6.32).
+  for (int slice = 0; slice < 40 && !machine.powered_off(); ++slice)
+    Grind(machine, 8'000'000);
+  std::array<uint8_t, 8> rearmed{};
+  for (unsigned index = 0; index < 8; ++index)
+    rearmed[index] = machine.debug_rtc_ram(index);
+  bool served = true;
+  if (rearmed == armed) {
+    std::cout << "  budik po zobudeni sa neprestavil na dalsi vyskyt\n";
+    served = false;
+  }
+  if (!machine.powered_off()) {
+    std::cout << "  neodkliknuty budik stroj znovu neuspal\n";
+    served = false;
+  }
+  if (machine.power_down_marker() != 0xff) {
+    std::cout << "  C45Ah po uspati je " << std::hex
+              << static_cast<unsigned>(machine.power_down_marker())
+              << " namiesto ff\n" << std::dec;
+    served = false;
+  }
+  if ((machine.debug_rtc_mask() & 0x01) == 0) {
+    std::cout << "  po uspati nie je budik ozbrojeny na dalsi vyskyt\n";
+    served = false;
+  }
+  return served;
+}
+
 // Typing goes on the keys the ROM's own tables put the characters on, so a
 // character that is on none of them cannot be typed at all.  That has to be
 // said out loud: dropping it silently, or worse typing whatever is near it,
@@ -1288,10 +1433,11 @@ int wmain(int argc, wchar_t** argv) {
        std::wstring(argv[3]) != L"format" && std::wstring(argv[3]) != L"wp" &&
        std::wstring(argv[3]) != L"hlaseni" &&
        std::wstring(argv[3]) != L"snimka" &&
-       std::wstring(argv[3]) != L"akord")) {
+       std::wstring(argv[3]) != L"akord" &&
+       std::wstring(argv[3]) != L"budik")) {
     std::wcerr << L"usage: integration_test ROM DISK_FOLDER "
                   L"com|bas|kbd|power|dc|rtc|hudba|format|wp|hlaseni|snimka|"
-                  L"akord\n";
+                  L"akord|budik\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -1343,6 +1489,12 @@ int wmain(int argc, wchar_t** argv) {
               << " maska=" << std::hex
               << static_cast<unsigned>(machine->debug_rtc_mask()) << std::dec
               << "\n";
+    return passed ? 0 : 1;
+  }
+
+  if (std::wstring(argv[3]) == L"budik") {
+    const bool passed = CheckAlarmWake(*machine);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=BUDIK\n";
     return passed ? 0 : 1;
   }
 

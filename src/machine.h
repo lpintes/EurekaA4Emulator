@@ -92,6 +92,18 @@ class EurekaMachine {
   // differ in what they keep, not in what they do; see HANDOFF 6.15 and 6.31.
   void PowerOn();
 
+  // The clock chip's own interrupt pin closing the power switch: on the real
+  // hardware the RTC's line does not reach the CPU at all, it reaches pwr_stb,
+  // which is why .go_to_sleep programs the RTC before it cuts the supply and
+  // a switched-off machine can still be found by an alarm (HARDWARE.1.txt,
+  // GLOSSARY.TXT, SYSJUMPS.11).  A no-op while the machine is on or while the
+  // firmware never armed rtc_mask bit 0; otherwise the same edge test
+  // UpdateRtcEvents uses, so a comparator that stays true for a whole minute
+  // wakes the machine once, not every poll.  Returns true on the tick it
+  // switched the machine on, so the caller can keep whatever it announces
+  // quiet -- this is the Eureka speaking, not a mode change.
+  bool WakeOnAlarm();
+
   // Replaces this machine's whole state with a copy of another's: memory,
   // CPU, ports, disk, queues, everything.  Every member is a value type, so
   // the copy is memberwise; the one thing it cannot carry across is
@@ -141,7 +153,9 @@ class EurekaMachine {
   // 180CB only after finding an alarm event in rtc_status (bit 0, saved to
   // 0040h at 18011), and then JP NZ,CFD9h goes to the power-down routine again
   // -- an alarm wakes a switched-off machine, the firmware serves it and puts
-  // it back to sleep.  Switching on by hand takes the other branch and clears
+  // it back to sleep.  A key answering the alarm clears the byte first, so an
+  // answered alarm stays on (HANDOFF 6.32).  Switching on by hand takes the
+  // other branch and clears
   // the byte at 180D6.  What actually makes a machine resume where the user
   // was is RAM surviving with magic 55AAh intact at C45Bh; see HANDOFF 6.15.
   uint8_t power_down_marker() const { return Peek(0xc45a); }
