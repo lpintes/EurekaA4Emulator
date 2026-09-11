@@ -166,6 +166,9 @@ void EurekaMachine::PowerOn() {
   membraneMinUntil_ = 0;
   membraneHeldKey_ = 0;
   membraneShift_ = false;
+  holdQueue_.clear();
+  holdState_ = MembraneHold();
+  holdUntil_ = 0;
   poweredOff_ = false;
   consoleOutput_.clear();
   speechInput_.clear();
@@ -501,6 +504,14 @@ constexpr uint32_t kHoldMs = 100;
 // heartbeat that drives the scan at 1D1AE.  A host that reports key releases
 // cuts a press back to this, so a tap answers without waiting out kPressMs.
 constexpr uint32_t kMinPressMs = 40;
+// Minimum dwell time for one state of HoldMembrane's live layer, so two
+// finger movements inside one scan cannot pass the ROM a state it has no
+// chance of seeing -- the same debounce kMinPressMs gives a scripted tap.
+// TODO(ea4-v1j step 3): measured, not guessed yet; starts at kMinPressMs on
+// the strength of the same three-heartbeat-tick argument, but the owner's
+// partial-chord measurements (dot 1 -> "a", +2 -> "b", +4 -> "f") are what
+// this has to survive, and that has not been run against the model yet.
+constexpr uint32_t kHoldStepMs = kMinPressMs;
 
 // Two codes are the same physical key if they differ only in their modifiers;
 // the host may well have let go of Shift before the key it modified.
@@ -530,23 +541,54 @@ uint8_t EurekaMachine::ReadMembraneKeyboard(uint8_t port) {
         membraneState_.row2 == 0)
       membraneHeldKey_ = 0;
   }
+  // The live layer advances through the same gate, on the same read, but on
+  // its own clock: HoldMembrane's states are not a sequence being played out,
+  // they are fingers landing and lifting whenever they please, so nothing
+  // here waits for the frame queue and nothing in the frame queue waits for
+  // this.  The last state queued is left on the ports -- unlike a frame nothing
+  // ever pops it off on its own, because nobody presses "release" on a key
+  // that is simply not held any more; the next HoldMembrane call says so.
+  if (port == hw::kBkbDots && cycles_ >= holdUntil_ && !holdQueue_.empty()) {
+    holdState_ = holdQueue_.front();
+    holdQueue_.pop_front();
+    holdUntil_ = cycles_ + MsToCycles(kHoldStepMs);
+  }
   switch (port) {
-    case hw::kBkbDots: return membraneState_.row0;
-    case hw::kBkbFunction: return membraneState_.row1;
+    case hw::kBkbDots:
+      return static_cast<uint8_t>(membraneState_.row0 | holdState_.row0);
+    case hw::kBkbFunction:
+      return static_cast<uint8_t>(membraneState_.row1 | holdState_.row1);
     // Shift is ORed in rather than framed: it is held across whatever the
     // frame queue happens to be playing, exactly as a finger holds it.  A
     // frame that carries the bit itself -- a capital letter's chord -- still
     // reads the same, which is why nothing had to change in PressBraille.
     case hw::kBkbCursor:
-      return static_cast<uint8_t>(membraneState_.row2 |
+      return static_cast<uint8_t>(membraneState_.row2 | holdState_.row2 |
                                   (membraneShift_ ? hw::kBkbShift : 0));
     default: return 0;
   }
 }
 
 bool EurekaMachine::MembraneBusy() const {
-  return !membraneFrames_.empty() || membraneState_.row0 != 0 ||
-         membraneState_.row1 != 0 || membraneState_.row2 != 0;
+  return !membraneFrames_.empty() || !holdQueue_.empty() ||
+         membraneState_.row0 != 0 || membraneState_.row1 != 0 ||
+         membraneState_.row2 != 0;
+}
+
+// Sets the live matrix state for the nineteen non-shift membrane keys.  Queued
+// rather than written straight to holdState_, and through the same
+// hw::kBkbDots read that steps the frame queue, for the reason kHoldStepMs
+// documents: a state that came and went between two reads would otherwise be
+// invisible to the ROM's scan.  A call that repeats the state already at the
+// back of the queue (or, when the queue is empty, already on the ports) is
+// dropped rather than queued, so a key that keeps being reported down for
+// every host repeat does not grow the queue without bound.
+void EurekaMachine::HoldMembrane(uint8_t row0, uint8_t row1, uint8_t row2) {
+  const MembraneHold requested{row0, row1,
+                                static_cast<uint8_t>(row2 & ~hw::kBkbShift)};
+  const MembraneHold& last = holdQueue_.empty() ? holdState_ : holdQueue_.back();
+  if (requested == last) return;
+  holdQueue_.push_back(requested);
 }
 
 // Turns one Eureka key code into the physical presses that produce it.  The
@@ -635,9 +677,15 @@ void EurekaMachine::PressMembraneKey(uint8_t key) {
 // characters -- that is the machine's job and it does all three tables,
 // literary, computer and numeric, on its own.
 //
-// Unlike PressMembraneKey this keeps no held-key state.  A chord is one
-// deliberate act: the host collects the dots while the fingers are down and
-// calls once, when they come up, so there is no host repeat to swallow.
+// Unlike PressMembraneKey and HoldMembrane this keeps no held-key state of its
+// own.  A chord sent through this call is one deliberate act: the caller
+// collects the dots while the fingers are down and calls once, when they come
+// up, so there is no host repeat to swallow.  That is still the right call for
+// a fixed sequence -- a probe or test script that wants "press this chord" and
+// nothing else -- but a host that wants the ROM to see the chord being built,
+// dot by dot, and to fall silent again when a dot is let go without the whole
+// pattern coming up, uses HoldMembrane instead: that is the live matrix state,
+// this is a scripted press queued after whatever it is playing.
 //
 // Shift is the twentieth key and belongs to the chord, not beside it: the
 // decoder reads it off row 8Ch at 1D4F9 and 1D60C, so a shifted dot chord is
@@ -1402,6 +1450,9 @@ void EurekaMachine::PowerDown() {
   membraneState_ = MembraneFrame{};
   membraneHeldKey_ = 0;
   membraneShift_ = false;
+  holdQueue_.clear();
+  holdState_ = MembraneHold{};
+  holdUntil_ = 0;
 }
 
 bool EurekaMachine::Step() {

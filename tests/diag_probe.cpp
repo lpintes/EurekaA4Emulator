@@ -17,7 +17,13 @@
 // "vypni"/"zapni"/"studeno" for the power switch and the two ways back on,
 // "cas:+7d" to move the clock the RTC answers with, "budik" to print it
 // beside the alarm the firmware armed, "zvuk" for what the loudspeaker got,
-// or a literal string typed on the emulated PC keyboard.  Between
+// or a literal string typed on the emulated PC keyboard.  A separate family
+// holds and releases one membrane key at a time, which "kXX" and "PressBraille"
+// cannot say because both send a finished chord: "+b1".."+b6" and "-b1".."-b6"
+// for the six dot keys, "+bs"/"-bs" for the space bar, "+bh"/"-bh" for shift,
+// "+f1".."+f8"/"-f1".."-f8" for the function keys, "+ku"/"+kd"/"+kl"/"+kr"
+// (and the matching "-...") for the four cursor keys, and "-b" on its own to
+// let go of everything at once.  Between
 // tokens the machine is run until it has been quiet for half a second, which
 // is what "ready for the next key" looks like now that the CPU is never parked
 // at console input, so the sequence follows the ROM's own pacing instead of a
@@ -34,6 +40,7 @@
 #include <vector>
 
 #include "disk_stash.h"
+#include "eureka_io.h"
 #include "machine.h"
 #include "virtual_disk.h"
 
@@ -138,6 +145,14 @@ int wmain(int argc, wchar_t** argv) {
     // rather than read back from the machine because "cas:" tokens add up:
     // "cas:+7d cas:+1h" has to land a week and an hour on, not an hour on.
     int64_t rtcShift = 0;
+    // What the "+bN"/"-bN" family below has told HoldMembrane the fingers are
+    // doing.  Kept here, across tokens, because each of those tokens only
+    // flips one bit and HoldMembrane wants the whole row every time -- the
+    // same reason rtcShift is kept here rather than read back from the
+    // machine.
+    uint8_t heldRow0 = 0;
+    uint8_t heldRow1 = 0;
+    uint8_t heldRow2 = 0;
     for (int index = 5; index < argc; ++index) {
       const std::wstring token = argv[index];
       if (token == L".") {
@@ -409,6 +424,64 @@ int wmain(int argc, wchar_t** argv) {
         std::printf("%-10ls -> [zamok proti zapisu %s]\n", token.c_str(),
                     token[0] == L'+' ? "zapnuty" : "vypnuty");
         continue;
+      }
+      // Fingers landing on, and lifting off, one key of the membrane
+      // keyboard at a time -- what kXX and PressBraille cannot say, because
+      // both of those are a finished chord.  "+b1".."+b6" and "-b1".."-b6"
+      // hold or release one dot on row 89h, "+bs"/"-bs" the space bar
+      // (89h bit 7), "+bh"/"-bh" shift (8Ch bit 6, through HoldShift --
+      // shift is not part of HoldMembrane's own state, see machine.h),
+      // "+f1".."+f8"/"-f1".."-f8" one function key on row 8Ah, and
+      // "+ku"/"+kd"/"+kl"/"+kr" (and the matching "-...") one cursor bit on
+      // row 8Ch.  "-b" on its own releases everything at once -- dots,
+      // space, function keys, cursors and shift -- the way a hand lifting
+      // off the whole keyboard would.  Falls through to the same
+      // run-and-report tail as kXX below, so what the ROM says as the chord
+      // is built is exactly what a real "seq" run hears.
+      if (token.size() >= 2 &&
+          (token[0] == L'+' || token[0] == L'-')) {
+        const bool down = token[0] == L'+';
+        const std::wstring rest = token.substr(1);
+        bool matched = true;
+        if (rest.size() == 2 && rest[0] == L'b' && rest[1] >= L'1' &&
+            rest[1] <= L'6') {
+          static const uint8_t kDots[] = {hw::kBkbDot1, hw::kBkbDot2,
+                                          hw::kBkbDot3, hw::kBkbDot4,
+                                          hw::kBkbDot5, hw::kBkbDot6};
+          const uint8_t bit = kDots[rest[1] - L'1'];
+          if (down) heldRow0 |= bit;
+          else heldRow0 &= static_cast<uint8_t>(~bit);
+        } else if (rest == L"bs") {
+          if (down) heldRow0 |= hw::kBkbSpace;
+          else heldRow0 &= static_cast<uint8_t>(~hw::kBkbSpace);
+        } else if (rest == L"bh") {
+          machine->HoldShift(down);
+        } else if (rest.size() == 2 && rest[0] == L'f' && rest[1] >= L'1' &&
+                  rest[1] <= L'8') {
+          const uint8_t bit = static_cast<uint8_t>(1u << (rest[1] - L'1'));
+          if (down) heldRow1 |= bit;
+          else heldRow1 &= static_cast<uint8_t>(~bit);
+        } else if (rest == L"ku" || rest == L"kd" || rest == L"kl" ||
+                  rest == L"kr") {
+          const uint8_t bit = rest == L"ku" ? 1 : rest == L"kd" ? 2
+                                              : rest == L"kl"    ? 4
+                                                                  : 8;
+          if (down) heldRow2 |= bit;
+          else heldRow2 &= static_cast<uint8_t>(~bit);
+        } else if (!down && rest == L"b") {
+          heldRow0 = heldRow1 = heldRow2 = 0;
+          machine->HoldShift(false);
+        } else {
+          matched = false;
+        }
+        if (matched) {
+          machine->HoldMembrane(heldRow0, heldRow1, heldRow2);
+          const bool blocked = RunUntilPrompt(*machine, budget);
+          std::printf("%-10ls -> %s%s\n", token.c_str(),
+                      Readable(machine->TakeSpeechInput()).c_str(),
+                      blocked ? "" : "  [nezastavil sa na vstupe]");
+          continue;
+        }
       }
       if (token.size() == 3 && (token[0] == L'k' || token[0] == L'K')) {
         machine->QueueKey(static_cast<uint8_t>(HexValue(token[1]) * 16 +

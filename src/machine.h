@@ -168,6 +168,19 @@ class EurekaMachine {
   // chord: it capitalises a letter and turns the bare space bar into Escape.
   // The machine turns the pattern into a character itself.
   void PressBraille(uint8_t dots, bool shift = false);
+  // Sets which of the nineteen non-shift membrane keys the host currently
+  // believes are physically down, as the port rows they read as: row0 is
+  // 89h's six dots plus the space bar in bit 7, row1 is 8Ah's eight function
+  // keys, row2 is 8Ch's four cursor bits.  Unlike PressMembraneKey and
+  // PressBraille this is not a deliberate act with a beginning and an end --
+  // it is the matrix state itself, generalising what membraneShift_ has
+  // always done for the twentieth key: ORed onto the ports at read time
+  // rather than played out as a scripted press and release, because the ROM's
+  // own scan at 1D1AE is what decides what a live matrix state means, not
+  // this call.  Queued through the same debounce gate as the frame queue --
+  // see the implementation -- so a state that lasted less than one scan is
+  // never dropped, only made to last exactly one.
+  void HoldMembrane(uint8_t row0, uint8_t row1, uint8_t row2);
   // Holds the shift key down, or lets it go.  It is a key of its own and the
   // machine watches it as one: the speech sample loop at 0063D compares all
   // three rows against their shadows on every DAC sample and aborts the
@@ -176,7 +189,11 @@ class EurekaMachine {
   // the word processor works out from it which word it had reached when
   // "continuous speak" was stopped.  A shift that only ever rides along inside
   // a chord never makes that edge, so pausing speech with it needs the key to
-  // be held, not passed as a flag.
+  // be held, not passed as a flag.  Kept as its own bit, ORed onto row 8Ch
+  // beside HoldMembrane's queue rather than folded into it, because nothing
+  // above debounces it: shift has never needed the minimum-dwell queue the
+  // other nineteen keys do, and giving it one would only add a step between a
+  // press and the ROM noticing it stopped speech.
   void HoldShift(bool down) { membraneShift_ = down; }
   // Hands one IBM PC scan code to the optional QWERTY keyboard on the clocked
   // serial port: XT set 1, so a make code is below 80h, a break code is the
@@ -206,7 +223,10 @@ class EurekaMachine {
   uint8_t a() const { return cpu_.a; }
   bool zero_flag() const { return cpu_.zf; }
   std::size_t queued_keys() const {
-    return membraneFrames_.size() + csioRx_.size();
+    // holdState_ itself does not count: a finger resting on a key is not
+    // something still in flight, it is the matrix sitting in a steady state,
+    // and a "run until idle" loop must be able to see that state as idle.
+    return membraneFrames_.size() + holdQueue_.size() + csioRx_.size();
   }
   // Moves the clock the RTC reports, in seconds, without touching the host's.
   // The Eureka's clock is the host clock, which is what a user wants and what
@@ -339,11 +359,36 @@ class EurekaMachine {
   std::deque<MembraneFrame> membraneFrames_;
   MembraneFrame membraneState_;
   uint64_t membraneUntil_ = 0;
+  // One requested state of HoldMembrane's live layer: the same three rows as
+  // MembraneFrame, minus the fields that only mean something for a scripted
+  // press (cycles, key).  A separate type rather than reusing MembraneFrame
+  // so the two layers cannot be confused at a call site.
+  struct MembraneHold {
+    uint8_t row0 = 0;
+    uint8_t row1 = 0;
+    uint8_t row2 = 0;
+    bool operator==(const MembraneHold&) const = default;
+  };
   uint64_t membraneMinUntil_ = 0;
   uint8_t membraneHeldKey_ = 0;
   // Outside the frame queue on purpose: the frames are a sequence the machine
   // plays out, shift is a key the user is holding across all of them.
   bool membraneShift_ = false;
+  // The live matrix state HoldMembrane sets, for the nineteen keys that are
+  // not shift.  Only row0 and row1 and the low nibble of row2 are ever
+  // written here -- HoldMembrane never touches row2 bit 6, which is
+  // membraneShift_'s alone.  A small queue rather than one variable, because
+  // a state change can arrive faster than the ROM's own scan: two changes
+  // inside one heartbeat tick would otherwise let the ROM see only the
+  // second, exactly the debounce problem the frame queue's kMinPressMs
+  // already solves for scripted presses.  Ungrouped: this is the fingers on
+  // the matrix right now, not a sequence the machine is playing out, so
+  // MembraneBusy and queued_keys count the queue, never holdState_ itself --
+  // a finger left resting on a key must not stall a test's "run until idle"
+  // loop the way a key actually in flight does.
+  std::deque<MembraneHold> holdQueue_;
+  MembraneHold holdState_;
+  uint64_t holdUntil_ = 0;
   bool poweredOff_ = false;
   std::vector<uint8_t> consoleOutput_;
   std::vector<uint8_t> speechInput_;
