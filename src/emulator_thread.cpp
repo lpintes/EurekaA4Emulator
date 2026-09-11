@@ -582,6 +582,14 @@ void EmulatorThread::Run() {
   // What the worker last told the window about the power switch, so that only
   // the change is reported and not every pass of a two-millisecond loop.
   bool poweredOff = false;
+  // Set the tick WakeOnAlarm() switches the machine on.  An alarm nobody
+  // answers rings, re-arms itself and puts the machine back to sleep on its
+  // own (HANDOFF 6.32): both power changes are the Eureka speaking for
+  // itself, not a mode change, so neither gets the host's tone.  Cleared once
+  // that power-off is reported, by the first key -- answering the alarm
+  // clears C45Ah and keeps the machine on, so whatever switches it off later
+  // is the user's own -- and by any power command the host sends.
+  bool alarmWake = false;
 
   // One host key event, already off the queue.  Split out of the command loop
   // only because it is long; it runs on the worker like everything else.
@@ -832,12 +840,18 @@ void EmulatorThread::Run() {
     switch (command.type) {
       case Command::Type::kKey:
         applyKey(command.key, trace);
+        // A key means someone is there: an answered alarm stays on, and the
+        // next power change is theirs (see alarmWake).
+        alarmWake = false;
         break;
       case Command::Type::kQuit:
         running = false;
         break;
       case Command::Type::kReset:
         machine.Reset();
+        // The host reached for the switch itself; whatever the alarm was
+        // doing is no longer the reason for the tone that follows.
+        alarmWake = false;
         // The chosen writing mode is the user's, not the machine's, so it
         // survives; a key caught half-pressed does not.  Reset() already
         // zeroed the machine's own live layer; this just keeps the host's
@@ -893,6 +907,8 @@ void EmulatorThread::Run() {
         // test's power mode presses it too -- this used to be spelled out here
         // and the release that followed it silently disarmed the whole thing.
         machine.PressPowerOffChord();
+        // The host reached for the switch itself; see kReset above.
+        alarmWake = false;
         break;
       case Command::Type::kPowerOn:
         // Warm: the RAM, the clock and the eight bytes of alarm survive, so the
@@ -907,6 +923,8 @@ void EmulatorThread::Run() {
         // half-pressed does not.  Same reasoning as Reset above.
         host.heldKeys.fill(false);
         host.mods = 0;
+        // The host reached for the switch itself; see kReset above.
+        alarmWake = false;
         host::Print(L"\r\n[Eureka bola zapnutá]\r\n");
         break;
       case Command::Type::kFocusLost:
@@ -1058,6 +1076,15 @@ void EmulatorThread::Run() {
     }
     guestClock += static_cast<long double>(rate) * delta;
 
+    // The clock chip's own supply never cuts (GLOSSARY.TXT), so a switched-off
+    // machine keeps comparing against the alarm it armed on the way down and
+    // can close the power switch again on its own -- checked once per pass of
+    // this loop, the same poll UpdateRtcEvents does while the machine is on.
+    // A machine that just woke this way runs the loop below like any other:
+    // the firmware rings and, unless a key answers it, re-arms the alarm and
+    // puts itself back to sleep, all through the ordinary paths (HANDOFF 6.32).
+    if (machine.powered_off() && machine.WakeOnAlarm()) alarmWake = true;
+
     const uint64_t target = static_cast<uint64_t>(guestClock);
     // The CPU is never parked, so it always runs the cycles the wall clock has
     // earned: the ROM waits for a key by spinning in its own dispatcher, and
@@ -1094,8 +1121,8 @@ void EmulatorThread::Run() {
     // state the machine sits in, not the end of the run.  On the hardware the
     // RAM and the clock keep a supply of their own, so the worker stays alive
     // holding them and goes on serving commands -- kPowerOn starts it again
-    // warm and kReset cold, and one day an alarm could do it too.  Nothing has
-    // to stop the CPU on the way:
+    // warm, kReset cold, and the alarm poll above does it on its own.  Nothing
+    // has to stop the CPU on the way:
     // EurekaMachine::Step returns false while it is off, and the debt ceiling
     // above pins guestClock to a quarter second ahead of a clock that is no
     // longer moving, so switching on does not sprint through the time spent
@@ -1109,7 +1136,12 @@ void EmulatorThread::Run() {
           timer.Wait(5.0);
       }
       if (notify)
-        PostMessageW(notify, WM_EMU_POWERED_OFF, poweredOff ? 1 : 0, 0);
+        PostMessageW(notify, WM_EMU_POWERED_OFF, poweredOff ? 1 : 0,
+                     alarmWake ? 1 : 0);
+      // An unanswered alarm -- wake, ring, go back to sleep -- is one story
+      // with two power changes in it; both stay quiet, but only both.  Once
+      // the second is reported the story is over.
+      if (poweredOff) alarmWake = false;
     }
 
     // Written back once the guest has finished with the disk, not on a clock:

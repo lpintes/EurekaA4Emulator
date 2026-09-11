@@ -1145,7 +1145,18 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       poweredOff_ = wParam != 0;
       SetReleased(poweredOff_, /*quiet=*/true);
       RefreshMenu();
-      if (poweredOff_) TonePoweredOff(); else TonePoweredOn();
+      // lParam is set for both halves of an unanswered alarm: it woke the
+      // machine and, once served, put it back to sleep again on its own
+      // (HANDOFF 6.32).  That is the Eureka speaking for itself, the way a
+      // chime or a diary message would be, not a mode change -- ringing every
+      // hour with a rising-then-falling pair around each chime would be
+      // exactly the noise this file's tones exist to avoid.  A switch-on or
+      // switch-off the host itself commanded, from the menu or a shortcut,
+      // still gets the tone; the title carries the state either way, so
+      // NVDA+T answers it whenever asked.
+      if (lParam == 0) {
+        if (poweredOff_) TonePoweredOff(); else TonePoweredOn();
+      }
       RefreshTitle();
       return 0;
 
