@@ -107,6 +107,11 @@ nečinnosti a tridsať sekúnd vopred to ohlási tónmi.
 Vypnutý stroj **zostáva v okne**. Ohlásia to tri klesajúce tóny a stojí
 to v titulku, takže `NVDA+T` na to odpovie kedykoľvek.
 
+Kým je okno otvorené, vypnutá Eureka sa **zobudí na budík aj na diár**, ako
+to robila naozaj. Keď na budík odpoviete klávesom, zostane zapnutá v hlavnom
+menu. Keď neodpoviete, dozvoní a sama sa znova vypne. Toto zobudenie
+a uspatie hostiteľské tóny neohlasujú — ozve sa samotná Eureka.
+
 Klávesnicu vtedy dostane Windows, presne ako po `Shift+F11` — vypnutý
 stroj nemá kam prijať kláves a čítačka nad ním číta ako nad hociktorým
 iným oknom. `Shift+F11` preto v tom stave nerobí nič a v ponuke je

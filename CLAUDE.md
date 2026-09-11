@@ -287,14 +287,14 @@ Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spú�
 
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých pätnásť naraz — tri
-samostatné testy a dvanásť režimov `integration_test`. Sú to nezávislé
+`run-tests.bat` zostaví testy a pustí všetkých šestnásť naraz — tri
+samostatné testy a trinásť režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `eurekatech\TECHMAN1\READ.COM`, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`.
 
-Výstup drží pohromade `--output-sync=target`; bez neho sa riadky pätnástich
+Výstup drží pohromade `--output-sync=target`; bez neho sa riadky šestnástich
 procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
 
 **Pasca, do ktorej som už spadol:** režimy sa v `Makefile` generujú ako
@@ -303,7 +303,7 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť pätnásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
+byť šestnásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
 
 ## Diagnostická sonda
 
@@ -365,6 +365,14 @@ Tokeny sekvencie:
   (`+2h`, `-30m`, holé číslo sú sekundy), `budik` vypíše hodiny vedľa
   alarmových registrov, masky a stavu. Bez nich sa zmeškaný budík odmerať
   nedá: vyčkať skutočný týždeň nie je meranie (HANDOFF 6.15).
+  Vypnutý stroj sa na budík **zobudí sám** (HANDOFF 6.32): `cas:` to
+  ohlási na tokene, ktorý minútu budíka trafil, a každý ďalší token sa na to
+  pred behom spýta. Trafiť treba **do** minúty budíka, nie za ňu — je to
+  hrana. Značky `?text` rozlišujú veľké písmená a prepis je veľkými
+  (`?DOBR`, nie `?dobr`); nechytená značka prebehne celý rozpočet a meranie
+  potom ukazuje päťminútové vypnutie namiesto toho, čo sa meralo.
+  Neodkliknutý budík dozvoní a stroj zaspí, lenže `.` sa zastaví na tichu
+  medzi zvoneniami — dočkať sa ho dá `spin:`.
 - `spin:N` — prebehne N inštrukcií a vypíše histogram fyzického PC. Takto
   dostane zaseknutie adresu namiesto dohadu.
 - `trace` — od tejto chvíle sleduje porty radiča (`98h`–`9Bh`). Zámerne
@@ -668,7 +676,7 @@ toto je jedno z miest, ktoré by ho zaseklo.
 Kým toto neplatí, nehlás hotovo — a nehlás ani „malo by to fungovať“:
 
 1. `build.bat` prejde bez jediného varovania.
-2. `run-tests.bat` dá **štrnásť** riadkov `PASS`. Že sa to preložilo, nie je
+2. `run-tests.bat` dá **šestnásť** riadkov `PASS`. Že sa to preložilo, nie je
    výsledok merania.
 3. Dokumentácia dobehla **v tom istom kroku**, nie „potom“. README, keď sa
    zmenilo správanie; HANDOFF, keď v ňom niečo prestalo platiť — ten odsek sa

@@ -176,6 +176,18 @@ them on the same diskette.
   What lands in the text once 1 and 2 also let go is checked by reading the
   line back with Home: "f", the union of every dot the fingers reached during
   the one continuous press. Needs no files on the disk.
+- `budik` pins waking a switched-off machine on its alarm (HANDOFF 6.32).  It
+  arms an alarm through F2 and Shift+F3, leaves to the Main Menu with Escape
+  and switches off with the cursor chord, then moves the clock ten seconds
+  into the alarm's minute and calls `WakeOnAlarm()`.  It checks that the
+  alarm registers and `rtc_mask` survive switching off, that the machine
+  wakes and `rtc_mask` is still armed afterwards -- the bug it exists for,
+  `PowerOn()` used to zero it -- that the loudspeaker moves, and that the
+  alarm nobody answers re-arms itself for its next occurrence and puts the
+  machine back to sleep with `C45Ah` still `FFh`.  Audio is collected while
+  it runs, because `Grind` throws samples away.  Verified by mutation: a
+  `WakeOnAlarm()` that never wakes and a `PowerOn()` that zeroes the mask
+  each fail it.  Needs no files on the disk.
 - `hudba` opens the music composer, which plays its jingle on entry, and checks
   that the space bar stops it.  The player's own stop test reads the keyboard
   rows directly (8Ch at 10F13, 89h at 10F1C) and never looks at the ROM's key
@@ -284,7 +296,13 @@ the clock: `cas:+7d` moves the time the RTC answers with (`+2h`, `-30m`, a
 bare number is seconds) and `budik` prints that time beside the alarm the
 firmware armed, the mask and the status.  Between them they are the only way
 to ask what a week-old alarm does, and the answer is measured in 6.15: sitting
-out a real week is not a measurement.  Text goes in on the
+out a real week is not a measurement.  A switched-off machine wakes on its
+alarm (6.32): `cas:` says so on the token that landed in the alarm's minute,
+and every token polls for it before it runs.  Land inside that minute, not
+past it -- the alarm is an edge.  An alarm left unanswered rings and goes back
+to sleep, but `.` stops on the gaps between the rings, so wait it out with
+`spin:`.  And `?text` is case-sensitive while the transcript is upper case:
+`?DOBR` matches, `?dobr` never does and runs the whole budget.  Text goes in on the
 emulated PC keyboard, on the keys the ROM's own
 tables put those characters on, so a character that is on none of them is
 refused out loud instead of being typed as something near it.  Between tokens

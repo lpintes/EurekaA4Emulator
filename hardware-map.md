@@ -155,6 +155,9 @@ ním `JR $-2` — firmvér čaká, kým napájanie naozaj zhasne. Cesta k nemu:
   budík**, a vtedy `JP NZ,CFD9h` vedie cez SYSJUMPS (`1D3D9`) na `CD32h`
   = fyz. 1D132, teda **na tú istú rutinu vypnutia**. Budík zobudí vypnutý
   stroj, firmvér ho obslúži a stroj zase zaspí.
+  **Len ak nikto neodpovie** (zmerané 11. 9. 2026, HANDOFF 6.32): značka
+  sa číta až po `CALL CFEBh` na 180C8, a kláves, ktorý budík odklikne, ju
+  vynuluje — boot potom ide na 180D2 a stroj zostane v hlavnom menu.
   Rozhoduje o tom bit 0 bajtu, ktorý si boot odloží na 0040h už na 18011
   (`IN A,(C)` s `BC=0290h`, teda `rtc_status`); bit 0 je `kRtcEventAlarm`.
   Pri zapnutí rukou je nula, ide sa na 180D2 (`schedule_alarm`) a značka
@@ -429,6 +432,10 @@ napájania: studený štart číta `rtc_status` na `18000`, odloží ho do
 vypnutý stroj. Kým stroj beží, budík sa hľadá **pollovaním** v
 heartbeate na `PRT1` (`1D0FB` → `.service_alarm`, čítanie na `CF61`).
 Emulátor to modeluje v `UpdateRtcEvents()`; podrobnosti v HANDOFF 6.13.
+
+Vypnutý stroj modeluje `WakeOnAlarm()` (HANDOFF 6.32). Z toho plynie aj to,
+že `rtc_mask` a `rtc_command` prežijú vypnutie aj zapnutie rovnako ako
+alarmové registre — sú v tom istom obvode na tom istom napájaní.
 
 ### Prečo pôvodné odvodenie vyšlo prehodené
 

@@ -1299,6 +1299,11 @@ bez „inicializace eureky". Značku netreba ošetrovať — ale treba vedieť,
 čo robí: keby sa RAM obnovila v okamihu, keď `rtc_status` hlási budík,
 stroj by sa po nej hneď vypol.
 
+**Doplnené 11. 9. 2026 (6.32):** výklad „obslúži a zase vypne“ platí len
+pre budík, na ktorý nikto neodpovie. `JP NZ,CFD9h` na `180CF` číta `C45Ah`
+až **po** obsluhe, a kláves, ktorý budík odklikne, značku vynuluje — stroj
+potom zostane v hlavnom menu. Zmerané sondou aj ručne.
+
 Odtiaľ je aj samotná veta: `18132` volá `CFDCh` (`.skssp`) s reťazcom
 `inicializace eureky` na `18135`. Spúšťa ju jediná podmienka — `18126`
 porovná `(C45Bh)` s `55AAh`. Pri nezhode navyše `1805E` vymaže
@@ -2249,6 +2254,96 @@ hovoria jej dva vlastné dodatky z toho istého dňa.
 Otvorené zostáva len prežitie **procesu**, a to nikdy do 6.31 nepatrilo:
 je to 6.15 a epic `ea4-aip`.
 
+### 6.32 Vypnutá Eureka sa budí sama — spravené
+
+**11. 9. 2026, bead `ea4-b41`.** Kým beží emulátor, vypnutá Eureka sa zobudí na budík a diár
+presne tak, ako to robil stroj. Majiteľ to odskúšal ručne na budíku aj na
+diári.
+
+#### Prečo je to model hardvéru, nie pohodlie
+
+- `GLOSSARY.TXT`: „Turning the Eureka off doesn't turn off power to the RAM
+  or the Real Time Clock.“
+- `HARDWARE.1.txt` o hodinách: „triggers all chimes, alarms and diary
+  functions. It is capable of turning the Eureka on at any arbitrary
+  time/date.“
+- `SYSJUMPS.11`, `.go_to_sleep`: „The Real Time Clock is programmed to wake
+  up the Eureka when the next chime/alarm/diary message is due.“
+- Prerušovacia linka RTC nejde na procesor, ale na spínač napájania (6.13
+  v archíve, `hardware-map.md` pri budíku). Za behu sa budík hľadá
+  pollovaním v heartbeate, čo potvrdzuje `PROG-A4.12`.
+
+Emulátor túto polovicu nemal: `Step()` vypnutého stroja vráti `false`, takže
+sa nevolalo ani `UpdateRtcEvents()` a hrana budíka vo vypnutom stroji nikdy
+nevznikla.
+
+#### Čo sa zmenilo
+
+- `EurekaMachine::WakeOnAlarm()` — keď je stroj vypnutý a `rtc_mask` má
+  bit 0, porovná hodiny s alarmovými registrami tou istou hranou ako
+  `UpdateRtcEvents()`. Pri zhode zavolá `PowerOn()` a potom nastaví
+  `rtc_status` na `81h`, lebo `PowerOn()` ho nuluje.
+- Vlákno ho volá v hlavnej slučke raz za prechod, sonda pri každom tokene
+  a hlási ho pri `cas:`.
+- **`PowerOn()` už nenuluje `rtc_mask` ani `rtc_command`.** Sú v obvode
+  hodín na nepretínanom napájaní, rovnako ako `rtcRam_`. Kým ich nuloval,
+  budík odkliknutý klávesom zostal natrvalo vypnutý (`rtc_mask` = `00`,
+  dátum sa neposunul). Zmerané sondou, majiteľ potvrdil, že po oprave budík
+  prežije.
+- Hostiteľské tóny napájania pri neodkliknutom budíku nezaznejú ani pri
+  zobudení, ani pri uspatí — ohlasuje sa sama Eureka. Tichý režim zruší prvý
+  kláves a každý príkaz napájania z ponuky.
+
+#### Čo boot robí, zmerané
+
+Cesta je `180C2`–`180D6` (disassemblované):
+
+```
+180C2  LD A,(0040h)   ; rtc_status odložený na 18011
+180C5  RRCA
+180C6  JR NC,180D2h   ; nie budík -> zapnutie rukou
+180C8  CALL CFEBh     ; .service_alarm1
+180CB  LD A,(C45Ah)
+180CE  OR A
+180CF  JP NZ,CFD9h    ; .go_to_sleep
+180D2  CALL CFC4h     ; .schedule_alarm
+180D5  XOR A
+180D6  LD (C45Ah),A
+```
+
+Obsluha budíka teda skončí dvoma spôsobmi a rozhoduje značka `C45Ah`:
+
+- **Nikto neodpovie.** Stroj zvoní, budík si sám presunie na ďalší výskyt
+  (`den` `0B` → `0C`), značka zostane `FFh` a stroj **zase zaspí**. Zmerané
+  sondou (`spin:`) a drží to `integration_test … budik`.
+- **Kláves odpovie.** Značka sa vynuluje (`FFh` → `00h`), boot pokračuje na
+  `180D2` a stroj **zostane v hlavnom menu**, ako po teplom zapnutí. Neskoršie
+  vypnutie je potom obyčajné — akord alebo päť minút nečinnosti. Majiteľ to
+  odskúšal na budíku aj na diári.
+
+#### Pasce pri meraní
+
+- Značky `?text` v sonde rozlišujú veľké a malé písmená a prepis je veľkými.
+  `?dobr` sa nechytí nikdy, `?DOBR` áno. Kým sa to nevedelo, sonda bežala
+  celý rozpočet a výsledky vyzerali ako „kláves budík vypne“; to vypnutie
+  urobilo až päťminútové odpočítavadlo.
+- `.` sa zastaví na tichu medzi zvoneniami, takže neodkliknutý budík sa ním
+  dočkať nedá. Treba `spin:`.
+- Vypínací akord funguje len z hlavného menu. Po nastavení budíka treba
+  najprv `s01`.
+- `Grind()` v integračnom teste zahadzuje zvuk v každom kroku. Rozkmit sa
+  musí zbierať počas behu.
+
+#### Otvorené
+
+- **Odbíjanie hodín nie je zmerané** (`ea4-itd`). Ide rovnakými registrami
+  a rovnakou cestou bootu, takže by sa malo správať ako neodkliknutý budík,
+  ale nikto to neskúšal.
+- Hostiteľ uspatý Windows preskočí čas medzi dvoma pollami a hrana sa
+  nezachytí. Rovnakú vlastnosť má `UpdateRtcEvents()` za behu, takže to nie
+  je nová trhlina; budík potom preplánuje firmvér pri najbližšom zapnutí
+  (6.15).
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -2369,12 +2464,13 @@ integration_test ROM DISK_FOLDER wp    -> PASS (zámok číta, zápis odmietne)
 integration_test ROM DISK_FOLDER hlaseni -> PASS (tri stavy mechaniky, tri vety)
 integration_test ROM DISK_FOLDER snimka -> PASS (RAM do súboru a späť, tri odmietnutia)
 integration_test ROM DISK_FOLDER akord -> PASS (postupné skladanie akordu bodmi)
+integration_test ROM DISK_FOLDER budik -> PASS (budík zobudí vypnutý stroj a uspí ho)
 disk_test                              -> PASS (144 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 settings_test                          -> PASS (51 kontrol, bez ROM)
 ```
 
-Všetkých **pätnásť** naraz spustí `run-tests.bat`: paralelne, s jedným
+Všetkých **šestnásť** naraz spustí `run-tests.bat`: paralelne, s jedným
 súhrnom na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
 diskety si pripraví sám, takže ručne netreba nič.
 
@@ -2382,8 +2478,9 @@ Ten počet je jediné miesto, kde sa tento zoznam dá overiť zvonka, a preto tu
 stojí číslom: keď režim pribudne do `MODES` v `Makefile` a sem nie, rozdiel
 nevidno inak než spočítaním riadkov `PASS`. Presne to sa aj stalo — `wp`
 tu chýbal a text hovoril „jedenásť“, kým `run-tests.bat` už dávno púšťal
-dvanásť procesov. Trinásty je `hlaseni` (6.30), štrnásty `snimka` (6.15)
-a pätnásty `akord` (ea4-v1j, 11. 9. 2026).
+dvanásť procesov. Trinásty je `hlaseni` (6.30), štrnásty `snimka` (6.15),
+pätnásty `akord` (ea4-v1j, 11. 9. 2026) a šestnásty `budik` (6.32, v ten
+istý deň).
 
 Pozor: `com` potrebuje `READ.COM` v priečinku disku a bez neho zlyhá.
 Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`, a `run-tests.bat`
