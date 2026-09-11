@@ -166,6 +166,16 @@ them on the same diskette.
   alarm, the chime and the diary were dead together.  Needs no files on the
   disk.  Typing here goes down the serial port, and the ROM's keyboard table is
   Czech QWERTZ -- the digits need shift.
+- `akord` pins the membrane keyboard's live-matrix layer (ea4-91z, HANDOFF
+  6.18): held through `HoldMembrane` dot by dot rather than sent as one
+  finished `PressBraille` chord, dot 1 makes a sound, adding dot 2 makes
+  another, adding dot 4 a third -- proof the ROM saw each new state, not
+  which letter, since the echo goes through `.spchar` and never reaches the
+  speech transcript. Letting go of dot 4 alone while 1 and 2 stay down has to
+  be silent: the matrix falls back to a state already seen, not a new one.
+  What lands in the text once 1 and 2 also let go is checked by reading the
+  line back with Home: "f", the union of every dot the fingers reached during
+  the one continuous press. Needs no files on the disk.
 - `hudba` opens the music composer, which plays its jingle on entry, and checks
   that the space bar stops it.  The player's own stop test reads the keyboard
   rows directly (8Ch at 10F13, 89h at 10F1C) and never looks at the ROM's key

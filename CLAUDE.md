@@ -90,7 +90,7 @@ Nezlučuj ich. A `IOPORT.LIB` si s textom prílohy H protirečí v číslovaní
 (HANDOFF 6.29).
 
 **Po zásahu do hlavičky spusti `python tools/check_io_names.py`.** Prehodená
-maska prejde prekladom aj všetkými štrnástimi testami — sú to nezávislé veci.
+maska prejde prekladom aj všetkými pätnástimi testami — sú to nezávislé veci.
 Tento skript porovná každú konštantu s tým, čo o nej hovorí manuál, a je
 jediné, čo taký preklep chytí.
 
@@ -287,14 +287,14 @@ Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spú�
 
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých štrnásť naraz — tri
-samostatné testy a jedenásť režimov `integration_test`. Sú to nezávislé
+`run-tests.bat` zostaví testy a pustí všetkých pätnásť naraz — tri
+samostatné testy a dvanásť režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `eurekatech\TECHMAN1\READ.COM`, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`.
 
-Výstup drží pohromade `--output-sync=target`; bez neho sa riadky štrnástich
+Výstup drží pohromade `--output-sync=target`; bez neho sa riadky pätnástich
 procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
 
 **Pasca, do ktorej som už spadol:** režimy sa v `Makefile` generujú ako
@@ -303,7 +303,7 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť štrnásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
+byť pätnásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
 
 ## Diagnostická sonda
 
@@ -337,6 +337,11 @@ Tokeny sekvencie:
   výzve, ktorá si o ňu povedala. Porovnávaj len ASCII kúsky: reč je
   v Kamenických, takže „vlož cílový disk“ príde ako `vlo. c.lov. disk`.
 - `+wp`, `-wp` — zapne a vypne ochranu diskety proti zápisu.
+- `+b1`…`+b6`, `+bs` (medzerník), `+bh` (shift), `+f1`…`+f8`, `+ku`/`+kd`/`+kl`/`+kr`
+  (kurzory) a ku každému `-…` — drží alebo pustí **jeden** kláves membránovej
+  klávesnice, na rozdiel od `kXX` a `PressBraille`, ktoré posielajú hotový
+  akord. `-b` samotné pustí všetko naraz. Toto je jediný spôsob, ako
+  vysloviť čiastočný akord (ea4-91z) — pozri `HoldMembrane` v `machine.h`.
 - `ram`, `folder`, `mount:CESTA`, `slot1`, `slot2` — výmena diskety tak,
   ako ju robí okno: počká na `DiskSwappable`, flushne a až potom vymení.
   `slot1`/`slot2` idú cez `DiskStash`, teda vrátia **tú istú** disketu.

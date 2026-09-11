@@ -373,6 +373,23 @@ riadiaci kláves nie je, riadiace znaky sa na nej robia akordom.
 Akord sa zbiera, kým sú prsty dole, a vydá sa naraz pri pustení
 posledného — to je perkinsovské správanie a `ReleaseKey` ho umožňuje.
 
+**Toto už neplatí (11. 9. 2026, ea4-v1j).** Hostiteľ akord nezbiera do
+jedného rámca odoslaného pri pustení posledného prsta — drží živý stav
+troch riadkov matice (`HoldMembrane`, `machine.h`) a ROM vidí každú zmenu
+tak, ako na kremíku. Odmerané oboje, čo si k tomu pýtal majiteľ
+(7. 9. 2026): postupné pridávanie bodov 1, potom 2, potom 4 je pri
+každom kroku počuteľné — vidno to len na `zvuk`, nie v prepise reči,
+lebo ozvena ide cez `.spchar` (sekcia 3) — a pustenie jedného bodu z troch
+držaných je ticho, keď sa matica vráti do stavu, ktorý už bola videla.
+Čo sa napíše, keď sa zvyšok pustí, **nie je** posledný stav pred pustením
+— je to zjednotenie všetkých bodov, ktorých sa počas jedného súvislého
+stlačenia dotkli prsty. Akord 1-2-4 dá „f" bez ohľadu na to, ktorý bod sa
+pustí prvý; pôvodná spomienka na „b" pri čiastočnom pustení sa pri meraní
+(sondou aj naživo v emulátore) nepotvrdila — bez skutočného stroja sa
+nedá rozhodnúť, či ide o nepresnosť spomienky, alebo o niečo, čo
+klávesnica PC vlastnou obmedzenou rollover schopnosťou nevie predviesť.
+Drží to `integration_test … akord`.
+
 **Shift patrí do akordu, nie len vedľa neho** (doplnené 26. 8. 2026).
 Je to dvadsiaty kláves braillovej klávesnice a leží na riadku `8Ch`,
 bit 6. Dekodér ROM ho číta na dvoch miestach a obe robia niečo, čo sa
@@ -428,6 +445,13 @@ drží cez celú tú postupnosť — sú to dve rôzne veci a nepatria do jednej
 štruktúry. Rámec, ktorý si bit nesie sám (akord veľkého písmena), sa tým
 nemení, takže `PressBraille` zostal ako bol.
 
+**Shift už nie je jediný kláves mimo frontu (11. 9. 2026, ea4-v1j).** Bol
+to precedens — komentár pri `membraneShift_` to hovoril priamo — a teraz
+platí pre zvyšných devätnásť klávesov cez `HoldMembrane`. Shift zostal
+oddelený zámerne, nie zabudnutý: nejde cez debounce frontu, ktorou
+`HoldMembrane` prechádza (`kHoldStepMs`), lebo naň nič nebrzdí — pozri
+komentár nad `HoldShift` v `machine.h`.
+
 Overené aj to, čo sa dalo pokaziť: `Shift+F9` a `Shift+F10` sú akordy
 medzerníka, ktoré shift bit zámerne nenesú, a s držaným shiftom
 dekódujú **rovnako** („nabitá", „sebekontrola"). Naopak `F1` sa
@@ -447,11 +471,31 @@ tabuľky vrátane číselného režimu aj akordy s medzerníkom, o ktorých
 nevieme. Doložené: štyri akordy napíšu v textovom procesore „Ahoj"
 a `Home` to prečíta späť — presne to robí `integration_test … kbd`.
 
+**Doplnené 11. 9. 2026 (ea4-cb4, ea4-e9k) — dva z týchto akordov už
+zmerané sú.** `medzerník+F1`…`F8` sa dekóduje ako Alt+Fn (bit `k_alt`,
+`1D4F3`): meno funkcie sa povie, ale aplikácia sa nespustí. Overené na
+`medzerník+F4`: povie „komunikace" (rovnako ako samotné F4), no
+nasledujúci samostatný F1 dá „zaznamnik" — sme stále v hlavnom menu,
+zatiaľ čo po samotnom F4 dá F1 „vloz telefonni cislo" (sme v komunikácii).
+`medzerník+hore/dole` číta celý riadok (A1h/A2h), presne ako v sekcii
+„Čítacie klávesy textového procesora". `medzerník+Home/End/PgUp/PgDn`
+reagujú (nie sú ticho), ale čo presne čítajú, zmerané nie je: v
+`eurekatech/` nie je používateľský návod k textovému procesoru a
+jednoriadkový testovací text nevie rozlíšiť „riadok" od dlhšieho úseku —
+neodhadovať.
+
 **Kurzory sa v tomto režime chordujú tiež** a je to tak zámerne: kto píše
 na braillovej klávesnici, čaká, že sa aj kurzory budú správať ako na
 Eureke. Nie je to zvláštnosť tohto režimu — chordovanie je zapnuté všade
 okrem exterky, kde sa scancody prekladajú po jednom a chordovať sa
 nedajú (viď „Vypínanie stroja").
+
+**Mechanizmus je od 11. 9. 2026 iný, záver rovnaký.** Predošlý odsek
+opisoval odosielanie hotového rámca — jeden kurzor ide hneď, druhý ho
+zmení na čakajúci akord. Teraz kurzory (aj F1–F8) žijú v tej istej živej
+vrstve ako bodky (`HoldMembrane`), takže ROM vidí zmenu okamžite, nie až
+pri pustení. Skladanie viacerých kurzorov naraz (napr. Home = hore+vľavo)
+funguje rovnako ako predtým, len bez čakania na pustenie — pozri ea4-v1j.
 
 ### Čítacie klávesy textového procesora
 
@@ -1475,6 +1519,18 @@ klávesy) plus otázka, či treba predsadiť ten istý rámec so samotným
 medzerníkom, aký sa dnes predsadzuje kurzorom (`kModifierMs`). **Neopravené
 — treba to odmerať, nie odhadnúť.**
 
+**Opravené 11. 9. 2026, ale nie tým jednoriadkovým patchom (ea4-v1j,
+ea4-cb4).** `PressMembraneKey` ostal presne taký, aký je opísaný vyššie —
+namiesto záplaty na ňom dostal medzerník (a celých devätnásť ostatných
+klávesov) živú vrstvu `HoldMembrane`, ktorá sa ORuje do portov nezávisle
+od frontu rámcov, presne ako dnes `membraneShift_`. Odmerané:
+`medzerník+F4` cez `HoldMembrane` povie „komunikace" a **nevojde** —
+nasledujúci samostatný F1 dá „zaznamnik" (hlavné menu), kým po samotnom
+F4 dá F1 „vloz telefonni cislo" (vnútri komunikácie). Rada `Alt+F1`–`Alt+F8`
+je tak dostupná cez živú vrstvu; `PressMembraneKey`/`kE3` (jeden hotový
+akord poslaný naraz) má bug ďalej — nie je dôvod ho opravovať, lebo
+interaktívna cesta ním už nejde.
+
 Pri hľadaní alternatív sa našlo aj toto, a môže sa hodiť: tabuľka
 rozšírených klávesov na `1DFD6` je zoznam dvojíc ukončený `00 00`
 (kurzory, Home, End, PgUp, PgDn, Insert, Delete, pravý Ctrl, pravý Alt,
@@ -2312,12 +2368,13 @@ integration_test ROM DISK_FOLDER format-> PASS (Shift+F8 naformátuje prázdnu)
 integration_test ROM DISK_FOLDER wp    -> PASS (zámok číta, zápis odmietne)
 integration_test ROM DISK_FOLDER hlaseni -> PASS (tri stavy mechaniky, tri vety)
 integration_test ROM DISK_FOLDER snimka -> PASS (RAM do súboru a späť, tri odmietnutia)
+integration_test ROM DISK_FOLDER akord -> PASS (postupné skladanie akordu bodmi)
 disk_test                              -> PASS (144 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 settings_test                          -> PASS (51 kontrol, bez ROM)
 ```
 
-Všetkých **štrnásť** naraz spustí `run-tests.bat`: paralelne, s jedným
+Všetkých **pätnásť** naraz spustí `run-tests.bat`: paralelne, s jedným
 súhrnom na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
 diskety si pripraví sám, takže ručne netreba nič.
 
@@ -2325,7 +2382,8 @@ Ten počet je jediné miesto, kde sa tento zoznam dá overiť zvonka, a preto tu
 stojí číslom: keď režim pribudne do `MODES` v `Makefile` a sem nie, rozdiel
 nevidno inak než spočítaním riadkov `PASS`. Presne to sa aj stalo — `wp`
 tu chýbal a text hovoril „jedenásť“, kým `run-tests.bat` už dávno púšťal
-dvanásť procesov. Trinásty je `hlaseni` (6.30), štrnásty `snimka` (6.15).
+dvanásť procesov. Trinásty je `hlaseni` (6.30), štrnásty `snimka` (6.15)
+a pätnásty `akord` (ea4-v1j, 11. 9. 2026).
 
 Pozor: `com` potrebuje `READ.COM` v priečinku disku a bez neho zlyhá.
 Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`, a `run-tests.bat`
