@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "eureka_io.h"
 #include "machine.h"
 #include "md5.h"
 
@@ -122,6 +123,101 @@ bool CheckBraille(EurekaMachine& machine, const EurekaMachine& booted) {
     std::cout << (byte >= 0x20 && byte < 0x7f ? static_cast<char>(byte) : '.');
   std::cout << "\"\n";
   return false;
+}
+
+// Runs the machine a fixed budget of steps, enough for one HoldMembrane
+// state to clear kHoldStepMs's debounce queue and for the ROM to scan and
+// react to it.  Not "until quiet" the way diag_probe waits -- this is a
+// model-level test, not a probe session, and a fixed budget keeps it fast.
+void RunHeldState(EurekaMachine& machine) {
+  for (int step = 0; step < 2'000'000; ++step) machine.Step();
+}
+
+// Whether the DAC moved since the last TakeAudio call.  Silence in this
+// model is exactly zero, not a low hiss (RenderAudio's own coupling
+// capacitor model settles a genuinely idle channel to nothing), so any
+// nonzero sample is a real event -- matching what "zvuk" showed by hand
+// while this bead's live-matrix layer was being measured (ea4-91z).
+bool DacMoved(EurekaMachine& machine) {
+  const auto samples = machine.TakeAudio();
+  return std::any_of(samples.begin(), samples.end(),
+                     [](int16_t sample) { return sample != 0; });
+}
+
+// Pins the owner's own two measurements of ea4-91z (HANDOFF, "Braillovská
+// klávesnica"), driven through HoldMembrane rather than a finished
+// PressBraille chord -- the entire point of the fix is that the ROM sees
+// each state on the way up, not only the pattern the fingers end on.
+//
+// Case 1: hold dot 1 (the owner heard "a"), add dot 2 ("b"), add dot 4 ("f"),
+// then let go of all three together.  Each addition has to produce a sound
+// -- proof the ROM saw a new state, not proof of which letter, since the
+// echo goes through .spchar and never reaches the transcript (HANDOFF
+// section 3).
+//
+// Case 2: the same build-up, then let go of dot 4 alone while 1 and 2 stay
+// down.  The matrix returns to a state already seen (dots 1 and 2), so
+// nothing new is heard -- silence is as much the point here as sound was in
+// case 1, the difference between "the ROM sees a change" and "the ROM sees a
+// new dot".  What commits to the text once 1 and 2 also let go, measured
+// here rather than assumed: the union of every dot reached during the one
+// continuous press, "f" -- the same letter as case 1, not "b", which how
+// this was first recalled by hand did not survive being pinned down with an
+// instrument.  Released one at a time with a pause between each release in
+// diag_probe's own measurement, "f" still came out no matter the order --
+// see HANDOFF 6.18.
+bool CheckChordBuilding(EurekaMachine& machine, const EurekaMachine& booted) {
+  machine.CopyStateFrom(booted);
+  machine.QueueKey(0xd0);  // Shift+F1, the word processor
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+
+  bool ok = true;
+  machine.TakeAudio();
+  machine.HoldMembrane(hw::kBkbDot1, 0, 0);
+  RunHeldState(machine);
+  if (!DacMoved(machine)) {
+    std::cout << "  bod 1 samotny nevyvolal ziadny zvuk\n";
+    ok = false;
+  }
+  machine.HoldMembrane(hw::kBkbDot1 | hw::kBkbDot2, 0, 0);
+  RunHeldState(machine);
+  if (!DacMoved(machine)) {
+    std::cout << "  pridanie bodu 2 nevyvolalo ziadny zvuk\n";
+    ok = false;
+  }
+  machine.HoldMembrane(hw::kBkbDot1 | hw::kBkbDot2 | hw::kBkbDot4, 0, 0);
+  RunHeldState(machine);
+  if (!DacMoved(machine)) {
+    std::cout << "  pridanie bodu 4 nevyvolalo ziadny zvuk\n";
+    ok = false;
+  }
+  // Let go of dot 4 alone: back to a state already seen, so this must be
+  // quiet.
+  machine.HoldMembrane(hw::kBkbDot1 | hw::kBkbDot2, 0, 0);
+  RunHeldState(machine);
+  if (DacMoved(machine)) {
+    std::cout << "  uvolnenie bodu 4 (1 a 2 drzane dalej) nemalo zniet\n";
+    ok = false;
+  }
+  // Let go of the rest together.
+  machine.HoldMembrane(0, 0, 0);
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+
+  machine.TakeSpeechInput();
+  machine.QueueKey(0x85);  // Home, which speaks the line back
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  const auto spoken = machine.TakeSpeechInput();
+  if (!Contains(spoken, "f")) {
+    std::cout << "  po akorde 1-2-4 s uvolnenym bodom 4 sa nenapisalo \"f\": \"";
+    for (uint8_t byte : spoken)
+      std::cout << (byte >= 0x20 && byte < 0x7f ? static_cast<char>(byte) : '.');
+    std::cout << "\"\n";
+    ok = false;
+  }
+  return ok;
 }
 
 // Shift with the bare space bar is Escape, decided at 1D52F: the decoder finds
@@ -1191,9 +1287,11 @@ int wmain(int argc, wchar_t** argv) {
        std::wstring(argv[3]) != L"hudba" &&
        std::wstring(argv[3]) != L"format" && std::wstring(argv[3]) != L"wp" &&
        std::wstring(argv[3]) != L"hlaseni" &&
-       std::wstring(argv[3]) != L"snimka")) {
+       std::wstring(argv[3]) != L"snimka" &&
+       std::wstring(argv[3]) != L"akord")) {
     std::wcerr << L"usage: integration_test ROM DISK_FOLDER "
-                  L"com|bas|kbd|power|dc|rtc|hudba|format|wp|hlaseni|snimka\n";
+                  L"com|bas|kbd|power|dc|rtc|hudba|format|wp|hlaseni|snimka|"
+                  L"akord\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -1283,6 +1381,14 @@ int wmain(int argc, wchar_t** argv) {
               << " braille=" << (braille ? "ok" : "chyba")
               << " pc=" << (pc ? "ok" : "chyba")
               << " altgr=" << (altgr ? "ok" : "chyba") << "\n";
+    return passed ? 0 : 1;
+  }
+
+  if (std::wstring(argv[3]) == L"akord") {
+    const auto booted = BootedSnapshot(*machine);
+    const bool passed = CheckChordBuilding(*machine, *booted);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=AKORD"
+              << " skladanie=" << (passed ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 
