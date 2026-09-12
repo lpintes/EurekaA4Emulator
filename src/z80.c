@@ -893,8 +893,8 @@ void z80_init(z80* const z) {
   z->int_data = 0;
 }
 
-// executes the next instruction in memory + handles interrupts
-void z80_step(z80* const z) {
+// executes the next instruction in memory
+void z80_execute(z80* const z) {
   z->cyc += m1_wait;
   if (z->halted) {
     exec_opcode(z, 0x00);
@@ -902,7 +902,20 @@ void z80_step(z80* const z) {
     const uint8_t opcode = nextb(z);
     exec_opcode(z, opcode);
   }
+}
 
+// Takes a pending interrupt.  A Z180 samples its interrupt inputs at the end
+// of an instruction (UM005004 Table 47, note 7), so a caller whose sources
+// move with the instruction -- a timer that runs, an enable bit it clears --
+// has to set int_pending between z80_execute and this, not before z80_step
+// (HANDOFF 6.33).
+void z80_process_interrupts(z80* const z) {
+  process_interrupts(z);
+}
+
+// executes the next instruction in memory + handles interrupts
+void z80_step(z80* const z) {
+  z80_execute(z);
   process_interrupts(z);
 }
 

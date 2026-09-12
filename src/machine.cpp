@@ -1343,8 +1343,12 @@ void EurekaMachine::Advance(uint32_t cpuCycles) {
   }
 }
 
+// Decided from scratch after every instruction: the request is a level, not a
+// latch.  Kept from one instruction to the next, it was taken even when that
+// instruction had just cleared or disabled its source (HANDOFF 6.33).
 void EurekaMachine::ScheduleInterrupt() {
-  if (cpu_.int_pending || !cpu_.iff1) return;
+  cpu_.int_pending = 0;
+  if (!cpu_.iff1) return;
   const uint8_t control = io_[hw::kTcr];
   const uint8_t base = io_[hw::kIl] & hw::kIlVectorBase;
   if (timerPending_[0] && (control & hw::kTcrTie0)) {
@@ -1527,11 +1531,18 @@ bool EurekaMachine::Step() {
       }
     }
   }
+  // The instruction first and the interrupt after it, with the clock brought
+  // up to date in between: a Z180 samples its interrupt inputs at the end of
+  // an instruction (UM005004 Table 47, note 7).  Deciding the request before
+  // the instruction let OUT0 (TCR) at 0027C, which switches timer 0's
+  // interrupt off, still take one -- three times in a sweep (HANDOFF 6.33).
+  unsigned long before = cpu_.cyc;
+  z80_execute(&cpu_);
+  Advance(static_cast<uint32_t>(cpu_.cyc - before));
   ScheduleInterrupt();
-  const unsigned long before = cpu_.cyc;
-  z80_step(&cpu_);
-  const uint32_t elapsed = static_cast<uint32_t>(cpu_.cyc - before);
-  Advance(elapsed);
+  before = cpu_.cyc;
+  z80_process_interrupts(&cpu_);
+  if (cpu_.cyc != before) Advance(static_cast<uint32_t>(cpu_.cyc - before));
   ++instructions_;
   return true;
 }
