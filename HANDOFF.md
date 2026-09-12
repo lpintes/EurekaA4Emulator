@@ -1131,6 +1131,67 @@ Kým nie je druhé, nezávislé meranie, je to hypotéza, nie výsledok.
    Reč beží na časovači a nemala by sa hnúť; treba to overiť, nie
    predpokladať.
 
+#### Doplnené 12. 9. 2026: výrobca udáva cenu slučky, manuál Z180 opravuje I/O
+
+Prameň: Zilog **UM005004-0918** (`zilog.com/docs/z180/um0050.pdf`)
+a Hitachi **HD64180Z Hardware Manual, 4. vydanie** (bitsavers). V repozitári
+nie sú, je to materiál tretích strán.
+
+**Čo vyššie neplatí.** Veta o „troch čakacích stavoch pre I/O, +9 T“ je
+nesprávna dvakrát. `DCNTL = 38h` dáva IWI = 11, teda **4** čakacie stavy
+(`SYSEQU.LIB`: `slowio equ true ;for 4 wait states on IO`), ale podľa
+Tabuľky 4 **len pre externé porty**. Porty procesora `00h`–`3Fh` sa IWI
+neriadia: `TCR` má 0 čakacích stavov, dátový register PRT (`TMDR0L`) **0 až
+4** podľa vnútornej synchronizácie — presné číslo manuál nedáva. V obsluhe
+je to teda +4 za `OUT (88h)` a +0 až +4 za `TMDR0L`. Prijatie vnútorného
+prerušenia má **vždy 2** automatické čakacie stavy bez ohľadu na IWI
+(Tabuľka 4, obr. 43): `T1 T2 Tw Tw T3 Ti`, dva zápisy PC a dve čítania
+vektora, spolu **18 T**; jadro ráta 19. Záver „holé Z180 hrá asi dvakrát
+rýchlejšie“ platí ďalej: obsluha 416–420 T, obeh slučky 20 T.
+
+**Výrobca udáva cenu presne tejto slučky.** `eurekatech/TECHMAN1/KEYSCAN.MAC`
+(riadky 37–44) má tú istú slučku `DEC HL / LD A,H / OR L / JR NZ` s rozpisom
+**5 + 5 + 5 + 9 = 24 T = 3,9 µs** a 5120 obehov ako „about 20 ms“. Nie je to
+tabuľka Z80 (26) ani Z180 (20), je to **Z180 plus jeden T-stav na cyklus M1**.
+
+**Firmvér počíta s tým istým.** `rtc_ctl_wait_de_ms` (`DEVICES.10`) je na
+`19CD9` (logická `ECD9h`): štvrtá položka tabuľky RTC na `19CA3` s počtom 4
+(`NUM_STD_RTC_CTL`), prvé tri siahajú na `rtc_status` a `rtc_command`.
+Vnútorná slučka má `LD HL,0100h`, a **256 × 24 = 6144 T je presne 1 ms**
+pri φ = 6,144 MHz. Aj 5120 z `KEYSCAN.MAC` je 20 × 256. Pozor: je to **ten
+istý predpoklad tých istých autorov**, nie nezávislé meranie.
+
+**Fyzická kotva je pulzná voľba.** `190D8` pulzuje `loop_mask` (bit 7
+portu `80h`, podľa `IOPORT.H` „pulse dialling“) — 60 ms rozopnuté, 40 ms
+zopnuté cez `E2ECh` → `ECD9h`, 800 ms medzi číslicami (`19102`). To je norma
+10 impulzov za sekundu s pomerom 60 : 40, odmeriavaná slučkou **v ROM**.
+Pri 40 T na obeh by stroj vytáčal 6 impulzov za sekundu a s ústredňou by sa
+nedohodol; pri 26 T (dnešné jadro) 9,2. Je to inžiniersky argument, nie
+meranie, ale **model „čakacie stavy len na ROM“ (vyššie, 3,6 na prístup)
+tým prakticky padá** — dal by práve tých 40 T. Medzi 24 a 26 to nerozlíši.
+
+Prepočet na 540 T na prerušenie, skutočný stroj potrebuje 2,617 obehu:
+
+- **+1 T na cyklus M1** (inštrukcia s `ED` má dva, Tabuľka 51): obsluha
+  465–470 T, slučke zostane 62–67 T, teda 2,58–2,79 obehu — od 1,4 %
+  pomalšie po 6,6 % rýchlejšie než skutočný stroj. **Nič nie je
+  kalibrované.** Rozptyl robia 0–4 čakacie stavy `TMDR0L` a odhad
+  prehrávača (asi 8 T).
+- +1 T na inštrukciu, `ED` raz: 10–18 % rýchlejšie.
+- Čakací stav na každý prístup do pamäte: obsluha má 118 prístupov a slučke
+  nezostane takmer nič. Vylúčené.
+- 4 čakacie stavy len na ROM: na znelku sedí (4,0–4,3), ale odporuje
+  `KEYSCAN.MAC` aj pulznej voľbe.
+
+Čo ten T-stav navyše na doske robí, manuál Z180 nevysvetľuje — pamäť má
+`MWI = 0` a refresh je vypnutý (`RCR = 0` na `00018`). Doložené je číslo od
+výrobcu, nie mechanizmus.
+
+Kadiaľ ísť teraz: jadro na tabuľky Z180, +1 T na cyklus M1, čakacie stavy
+z `DCNTL` pre externé porty a 18 T za prijatie vnútorného prerušenia.
+Znelku zmerať ako 25. 8.; ak zostane odchýlka, jediný voľný kus sú čakacie
+stavy `TMDR0L` a musí sa napísať, že je nastavený. Bod 4 vyššie platí ďalej.
+
 #### Vedľajší nález: jednosmerná zložka v hudobnom editore
 
 Keď editor dohrá a čaká na kláves, ROM nechá DAC na hodnote **65**
@@ -2404,6 +2465,10 @@ a nenačíta znovu (`NVDA+Ctrl+F3`).
 2. **Hudba hrá o 14,5 % pomalšie** (6.10). Zmerané; hľadá sa okolo dvoch
    percent zle započítaných cyklov v obsluhe generátora tónov. Pozor na
    páku 8 : 1 — tempo reaguje osemkrát citlivejšie než cena obsluhy.
+   **Doplnené 12. 9. 2026:** model má doklad od výrobcu — Z180 plus jeden
+   T-stav na cyklus M1 (`KEYSCAN.MAC`, `rtc_ctl_wait_de_ms` na `19CD9`)
+   trafí znelku bez kalibrácie a model čakania na ROM padá na pulznej
+   voľbe. Podrobne v dodatku k 6.10; ďalší krok je zaviesť ho do jadra.
 3. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
    reprodukciu; bez neho je to beh naslepo. Prvá stopa, ktorá sa dá
    sledovať bez neho, sú `C598h`/`C599h` (viď 6.9). Pozor: kým nebol
