@@ -216,8 +216,8 @@ void EurekaMachine::PowerOn() {
   z80_init(&cpu_);
   cpu_.read_byte = ReadMemory;
   cpu_.write_byte = WriteMemory;
-  cpu_.port_in = ReadPort;
-  cpu_.port_out = WritePort;
+  cpu_.port_in = CpuReadPort;
+  cpu_.port_out = CpuWritePort;
   cpu_.userdata = this;
 }
 
@@ -716,6 +716,29 @@ void EurekaMachine::PressBraille(uint8_t dots, bool shift) {
   MembraneFrame release;
   release.cycles = MsToCycles(kReleaseMs);
   membraneFrames_.push_back(release);
+}
+
+// The instruction tables in z80.c leave out the wait states of an I/O cycle.
+// UM005004 Table 4: an external port takes 1 to 4 of them as DCNTL says, the
+// on-chip registers none -- except the PRT, ASCI and CSI/O data registers,
+// which take 0 to 4 "as a function of internal synchronization".  Those are
+// charged 0, the one count here no source pins down, and the tone generator's
+// interrupt reads TMDR0L every time it runs (HANDOFF 6.10).
+void EurekaMachine::ChargeIoWaits(z80* cpu, uint16_t port) {
+  if (static_cast<uint8_t>(port) < hw::kInternalIoEnd) return;
+  auto* machine = static_cast<EurekaMachine*>(cpu->userdata);
+  cpu->cyc +=
+      1 + ((machine->io_[hw::kDcntl] & hw::kDcntlIwi) >> hw::kDcntlIwiShift);
+}
+
+uint8_t EurekaMachine::CpuReadPort(z80* cpu, uint16_t port) {
+  ChargeIoWaits(cpu, port);
+  return ReadPort(cpu, port);
+}
+
+void EurekaMachine::CpuWritePort(z80* cpu, uint16_t port, uint8_t value) {
+  ChargeIoWaits(cpu, port);
+  WritePort(cpu, port, value);
 }
 
 uint8_t EurekaMachine::ReadPort(z80* cpu, uint16_t port) {

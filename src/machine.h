@@ -273,6 +273,11 @@ class EurekaMachine {
   static uint8_t ReadPort(z80* cpu, uint16_t port);
   static uint8_t ReadPortInner(z80* cpu, uint16_t port);
   static void WritePort(z80* cpu, uint16_t port, uint8_t value);
+  // What the CPU core calls: the port access plus its wait states.  The DMA
+  // calls ReadPort and WritePort directly.
+  static uint8_t CpuReadPort(z80* cpu, uint16_t port);
+  static void CpuWritePort(z80* cpu, uint16_t port, uint8_t value);
+  static void ChargeIoWaits(z80* cpu, uint16_t port);
 
   uint32_t PhysicalAddress(uint16_t logical) const;
   void WritePhysical(uint32_t physical, uint8_t value, uint16_t pc);

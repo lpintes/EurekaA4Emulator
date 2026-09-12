@@ -122,6 +122,14 @@ constexpr uint8_t kDcntlDim0 = 0x01;
 constexpr uint8_t kDcntlDim1 = 0x02;
 constexpr uint8_t kDcntlDim = 0x03;
 
+// UM005004 Table 4: DCNTL bits 5-4 (IWI1, IWI0) give an external I/O cycle 1,
+// 2, 3 or 4 wait states.  The on-chip registers below kInternalIoEnd ignore
+// them.  The firmware writes 38h at 00012, four wait states, and SYSEQU.LIB
+// says so: "slowio ... for 4 wait states on IO".
+constexpr uint8_t kDcntlIwi = 0x30;
+constexpr unsigned kDcntlIwiShift = 4;
+constexpr uint8_t kInternalIoEnd = 0x40;
+
 // Interrupts, refresh and the MMU.
 constexpr uint8_t kIl = 0x33;    // il
 constexpr uint8_t kItc = 0x34;   // itc

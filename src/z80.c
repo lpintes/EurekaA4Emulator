@@ -1,44 +1,78 @@
 #include "z80.h"
 
 // MARK: timings
-static const uint8_t cyc_00[256] = {4, 10, 7, 6, 4, 4, 7, 4, 4, 11, 7, 6, 4, 4,
-    7, 4, 8, 10, 7, 6, 4, 4, 7, 4, 12, 11, 7, 6, 4, 4, 7, 4, 7, 10, 16, 6, 4, 4,
-    7, 4, 7, 11, 16, 6, 4, 4, 7, 4, 7, 10, 13, 6, 11, 11, 10, 4, 7, 11, 13, 6,
-    4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4,
-    4, 7, 4, 4, 4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 4,
-    7, 4, 7, 7, 7, 7, 7, 7, 4, 7, 4, 4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 7,
-    4, 4, 4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 7, 4,
-    4, 4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 7, 4, 4, 4, 4, 4, 4, 4, 7, 4, 4,
-    4, 4, 4, 4, 4, 7, 4, 5, 10, 10, 10, 10, 11, 7, 11, 5, 10, 10, 0, 10, 17, 7,
-    11, 5, 10, 10, 11, 10, 11, 7, 11, 5, 4, 10, 11, 10, 0, 7, 11, 5, 10, 10, 19,
-    10, 11, 7, 11, 5, 4, 10, 4, 10, 0, 7, 11, 5, 10, 10, 4, 10, 11, 7, 11, 5, 6,
-    10, 4, 10, 0, 7, 11};
+// Z180 T-states from Zilog UM005004, Tables 38-47, one row per high nibble.
+// They leave out every wait state: the one on each opcode fetch is m1_wait
+// below, and the ones on external I/O are added by the machine, which knows
+// DCNTL.  A conditional instruction is listed at its not-taken cost; the rest
+// is added where the condition is decided.  Undocumented opcodes, which a real
+// Z180 traps, are charged as their unprefixed form plus the prefix fetch.
+static const uint8_t cyc_00[256] = {
+    3, 9, 7, 4, 4, 4, 6, 3, 4, 7, 6, 4, 4, 4, 6, 3,          // 0x
+    7, 9, 7, 4, 4, 4, 6, 3, 8, 7, 6, 4, 4, 4, 6, 3,          // 1x
+    6, 9, 16, 4, 4, 4, 6, 4, 6, 7, 15, 4, 4, 4, 6, 3,        // 2x
+    6, 9, 13, 4, 10, 10, 9, 3, 6, 7, 12, 4, 4, 4, 6, 3,      // 3x
+    4, 4, 4, 4, 4, 4, 6, 4, 4, 4, 4, 4, 4, 4, 6, 4,          // 4x
+    4, 4, 4, 4, 4, 4, 6, 4, 4, 4, 4, 4, 4, 4, 6, 4,          // 5x
+    4, 4, 4, 4, 4, 4, 6, 4, 4, 4, 4, 4, 4, 4, 6, 4,          // 6x
+    7, 7, 7, 7, 7, 7, 3, 7, 4, 4, 4, 4, 4, 4, 6, 4,          // 7x
+    4, 4, 4, 4, 4, 4, 6, 4, 4, 4, 4, 4, 4, 4, 6, 4,          // 8x
+    4, 4, 4, 4, 4, 4, 6, 4, 4, 4, 4, 4, 4, 4, 6, 4,          // 9x
+    4, 4, 4, 4, 4, 4, 6, 4, 4, 4, 4, 4, 4, 4, 6, 4,          // Ax
+    4, 4, 4, 4, 4, 4, 6, 4, 4, 4, 4, 4, 4, 4, 6, 4,          // Bx
+    5, 9, 6, 9, 6, 11, 6, 11, 5, 9, 6, 0, 6, 16, 6, 11,      // Cx
+    5, 9, 6, 10, 6, 11, 6, 11, 5, 3, 6, 9, 6, 0, 6, 11,      // Dx
+    5, 9, 6, 16, 6, 11, 6, 11, 5, 3, 6, 3, 6, 0, 6, 11,      // Ex
+    5, 9, 6, 3, 6, 11, 6, 11, 5, 4, 6, 3, 6, 0, 6, 11};      // Fx
 
-static const uint8_t cyc_ed[256] = {8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 12,
-    12, 15, 20, 8, 14, 8, 9, 12, 12, 15, 20, 8, 14, 8, 9, 12, 12, 15, 20, 8, 14,
-    8, 9, 12, 12, 15, 20, 8, 14, 8, 9, 12, 12, 15, 20, 8, 14, 8, 18, 12, 12, 15,
-    20, 8, 14, 8, 18, 12, 12, 15, 20, 8, 14, 8, 8, 12, 12, 15, 20, 8, 14, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 16, 16, 16, 16, 8, 8, 8, 8, 16, 16, 16, 16, 8, 8, 8, 8,
-    16, 16, 16, 16, 8, 8, 8, 8, 16, 16, 16, 16, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
-    8, 8, 8, 8, 8, 8, 8};
+static const uint8_t cyc_ed[256] = {
+    12, 13, 6, 6, 7, 6, 6, 6, 12, 13, 6, 6, 7, 6, 6, 6,      // 0x
+    12, 13, 6, 6, 7, 6, 6, 6, 12, 13, 6, 6, 7, 6, 6, 6,      // 1x
+    12, 13, 6, 6, 7, 6, 6, 6, 12, 13, 6, 6, 7, 6, 6, 6,      // 2x
+    12, 13, 6, 6, 10, 6, 6, 6, 12, 13, 6, 6, 7, 6, 6, 6,     // 3x
+    9, 10, 10, 19, 6, 12, 6, 6, 9, 10, 10, 18, 17, 12, 6, 6, // 4x
+    9, 10, 10, 19, 6, 12, 6, 6, 9, 10, 10, 18, 17, 12, 6, 6, // 5x
+    9, 10, 10, 19, 9, 12, 6, 16, 9, 10, 10, 18, 17, 12, 6, 16, // 6x
+    9, 10, 10, 19, 12, 12, 8, 6, 9, 10, 10, 18, 17, 12, 6, 6, // 7x
+    6, 6, 6, 14, 6, 6, 6, 6, 6, 6, 6, 14, 6, 6, 6, 6,        // 8x
+    6, 6, 6, 14, 6, 6, 6, 6, 6, 6, 6, 14, 6, 6, 6, 6,        // 9x
+    12, 12, 12, 12, 6, 6, 6, 6, 12, 12, 12, 12, 6, 6, 6, 6,  // Ax
+    12, 12, 12, 12, 6, 6, 6, 6, 12, 12, 12, 12, 6, 6, 6, 6,  // Bx
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,          // Cx
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,          // Dx
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,          // Ex
+    6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6};         // Fx
 
-static const uint8_t cyc_ddfd[256] = {4, 4, 4, 4, 4, 4, 4, 4, 4, 15, 4, 4, 4, 4,
-    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 15, 4, 4, 4, 4, 4, 4, 4, 14, 20, 10, 8, 8,
-    11, 4, 4, 15, 20, 10, 8, 8, 11, 4, 4, 4, 4, 4, 23, 23, 19, 4, 4, 15, 4, 4,
-    4, 4, 4, 4, 4, 4, 4, 4, 8, 8, 19, 4, 4, 4, 4, 4, 8, 8, 19, 4, 4, 4, 4, 4, 8,
-    8, 19, 4, 4, 4, 4, 4, 8, 8, 19, 4, 8, 8, 8, 8, 8, 8, 19, 8, 8, 8, 8, 8, 8,
-    8, 19, 8, 19, 19, 19, 19, 19, 19, 4, 19, 4, 4, 4, 4, 8, 8, 19, 4, 4, 4, 4,
-    4, 8, 8, 19, 4, 4, 4, 4, 4, 8, 8, 19, 4, 4, 4, 4, 4, 8, 8, 19, 4, 4, 4, 4,
-    4, 8, 8, 19, 4, 4, 4, 4, 4, 8, 8, 19, 4, 4, 4, 4, 4, 8, 8, 19, 4, 4, 4, 4,
-    4, 8, 8, 19, 4, 4, 4, 4, 4, 8, 8, 19, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 0,
-    4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 14, 4, 23, 4,
-    15, 4, 4, 4, 8, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 10, 4, 4, 4, 4,
-    4, 4};
+// What a DD/FD opcode costs on its own.  Anything the handler below passes on
+// to exec_opcode is charged 3 here, the prefix fetch, and its unprefixed cost
+// there.  DDCB is charged in exec_opcode_dcb.
+static const uint8_t cyc_ddfd[256] = {
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 10, 3, 3, 3, 3, 3, 3,         // 0x
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 10, 3, 3, 3, 3, 3, 3,         // 1x
+    3, 12, 19, 7, 7, 7, 9, 3, 3, 10, 18, 7, 7, 7, 9, 3,      // 2x
+    3, 3, 3, 3, 18, 18, 15, 3, 3, 10, 3, 3, 3, 3, 3, 3,      // 3x
+    3, 3, 3, 3, 7, 7, 14, 3, 3, 3, 3, 3, 7, 7, 14, 3,        // 4x
+    3, 3, 3, 3, 7, 7, 14, 3, 3, 3, 3, 3, 7, 7, 14, 3,        // 5x
+    7, 7, 7, 7, 7, 7, 14, 7, 7, 7, 7, 7, 7, 7, 14, 7,        // 6x
+    15, 15, 15, 15, 15, 15, 3, 15, 3, 3, 3, 3, 7, 7, 14, 3,  // 7x
+    3, 3, 3, 3, 7, 7, 14, 3, 3, 3, 3, 3, 7, 7, 14, 3,        // 8x
+    3, 3, 3, 3, 7, 7, 14, 3, 3, 3, 3, 3, 7, 7, 14, 3,        // 9x
+    3, 3, 3, 3, 7, 7, 14, 3, 3, 3, 3, 3, 7, 7, 14, 3,        // Ax
+    3, 3, 3, 3, 7, 7, 14, 3, 3, 3, 3, 3, 7, 7, 14, 3,        // Bx
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 0, 3, 3, 3, 3,          // Cx
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,          // Dx
+    3, 12, 3, 19, 3, 14, 3, 3, 3, 6, 3, 3, 3, 3, 3, 3,       // Ex
+    3, 3, 3, 3, 3, 3, 3, 3, 3, 7, 3, 3, 3, 3, 3, 3};         // Fx
+
+// One wait state on every opcode fetch, prefix bytes included -- each of them
+// is an M1 cycle (UM005004 Table 51).  The manual's own count of the delay loop
+// DEC HL / LD A,H / OR L / JR NZ is 5+5+5+9 = 24 T-states
+// (eurekatech/TECHMAN1/KEYSCAN.MAC), one more per instruction than the table
+// above, and the ROM's millisecond wait at 19CD9 runs that loop 256 times:
+// 256 x 24 = 6144, one millisecond at 6.144 MHz.  What adds it on the board is
+// not documented.  With it the tone generator's interrupt leaves the ROM's note
+// timer the share the recording of a real machine asks for (HANDOFF 6.10).
+static const unsigned m1_wait = 1;
 
 // MARK: helpers
 
@@ -208,14 +242,12 @@ static inline void z180_in0(z80* const z, uint8_t opcode) {
   z->pf = parity(value);
   z->nf = 0;
   // Carry is not affected.
-  z->cyc += 4; // cyc_ed supplies 8; IN0 takes 12 Z180 T-states.
 }
 
 static inline void z180_out0(z80* const z, uint8_t opcode) {
   const uint8_t port = nextb(z);
   uint8_t* const reg = z180_reg(z, opcode >> 3);
   z->port_out(z, port, reg ? *reg : 0);
-  z->cyc += 5; // cyc_ed supplies 8; OUT0 takes 13 Z180 T-states.
 }
 
 static inline void z180_mlt(z80* const z, uint8_t opcode) {
@@ -238,8 +270,7 @@ static inline void z180_mlt(z80* const z, uint8_t opcode) {
     z->sp = value;
     break;
   }
-  // MLT does not affect flags.  The base table contains the Z80 NEG timing.
-  z->cyc += 3;
+  // MLT does not affect flags.
 }
 
 static inline void z180_otim(z80* const z, bool decrement, bool repeat) {
@@ -259,7 +290,7 @@ static inline void z180_otim(z80* const z, bool decrement, bool repeat) {
   z->nf = 1;
   if (repeat && z->b != 0) {
     z->pc -= 2;
-    z->cyc += 5;
+    z->cyc += 2;
   }
 }
 
@@ -275,6 +306,7 @@ static inline void cond_jump(z80* const z, bool condition) {
   const uint16_t addr = nextw(z);
   if (condition) {
     jump(z, addr);
+    z->cyc += 3;
   }
   z->mem_ptr = addr;
 }
@@ -291,7 +323,7 @@ static inline void cond_call(z80* const z, bool condition) {
   const uint16_t addr = nextw(z);
   if (condition) {
     call(z, addr);
-    z->cyc += 7;
+    z->cyc += 10;
   }
   z->mem_ptr = addr;
 }
@@ -306,7 +338,7 @@ static inline void ret(z80* const z) {
 static inline void cond_ret(z80* const z, bool condition) {
   if (condition) {
     ret(z);
-    z->cyc += 6;
+    z->cyc += 5;
   }
 }
 
@@ -319,7 +351,7 @@ static inline void cond_jr(z80* const z, bool condition) {
   const int8_t b = nextb(z);
   if (condition) {
     jr(z, b);
-    z->cyc += 5;
+    z->cyc += 2;
   }
 }
 
@@ -786,7 +818,10 @@ static inline void process_interrupts(z80* const z) {
       break;
 
     case 2:
-      z->cyc += 19;
+      // Every interrupt this machine takes is an internal one, and UM005004
+      // Table 4 and Figure 43 give its acknowledge two fixed wait states:
+      // T1 T2 Tw Tw T3 Ti, two stacking writes and two vector reads.
+      z->cyc += 18;
       call(z, rw(z, (z->i << 8) | z->int_data));
       break;
 
@@ -860,6 +895,7 @@ void z80_init(z80* const z) {
 
 // executes the next instruction in memory + handles interrupts
 void z80_step(z80* const z) {
+  z->cyc += m1_wait;
   if (z->halted) {
     exec_opcode(z, 0x00);
   } else {
@@ -1346,7 +1382,7 @@ void exec_opcode(z80* const z, uint8_t opcode) {
 
 // executes a DD/FD opcode (IZ = IX or IY)
 void exec_opcode_ddfd(z80* const z, uint8_t opcode, uint16_t* const iz) {
-  z->cyc += cyc_ddfd[opcode];
+  z->cyc += m1_wait + cyc_ddfd[opcode];
   inc_r(z);
 
 #define IZD displace(z, *iz, nextb(z))
@@ -1498,13 +1534,17 @@ void exec_opcode_ddfd(z80* const z, uint8_t opcode, uint16_t* const iz) {
 
 // executes a CB opcode
 void exec_opcode_cb(z80* const z, uint8_t opcode) {
-  z->cyc += 8;
   inc_r(z);
 
   // decoding instructions from http://z80.info/decoding.htm#cb
   uint8_t x_ = (opcode >> 6) & 3; // 0b11
   uint8_t y_ = (opcode >> 3) & 7; // 0b111
   uint8_t z_ = opcode & 7; // 0b111
+
+  // UM005004 Table 39: BIT takes 6 on a register and 9 on (HL); the rotates,
+  // SET and RES take 7 and 13.  (It prints 3 for SRL (HL), a misprint among
+  // siblings that all say 13.)
+  z->cyc += m1_wait + (x_ == 1 ? (z_ == 6 ? 9 : 6) : (z_ == 6 ? 13 : 7));
 
   uint8_t hl = 0;
   uint8_t* reg = 0;
@@ -1542,15 +1582,10 @@ void exec_opcode_cb(z80* const z, uint8_t opcode) {
     if (z_ == 6) {
       z->yf = GET_BIT(5, z->mem_ptr >> 8);
       z->xf = GET_BIT(3, z->mem_ptr >> 8);
-      z->cyc += 4;
     }
   } break;
   case 2: *reg &= ~(1 << y_); break; // RES y, r[z]
   case 3: *reg |= 1 << y_; break; // SET y, r[z]
-  }
-
-  if ((x_ == 0 || x_ == 2 || x_ == 3) && z_ == 6) {
-    z->cyc += 7;
   }
 
   // BIT b,(HL) performs no write cycle on real silicon; only the rotate,
@@ -1613,17 +1648,17 @@ void exec_opcode_dcb(z80* const z, uint8_t opcode, uint16_t addr) {
   }
 
   if (x_ == 1) {
-    // bit instructions take 20 cycles, others take 23
-    z->cyc += 20;
+    // UM005004 Table 39: BIT b,(IX+d) takes 15, the others 19.
+    z->cyc += 15;
   } else {
     wb(z, addr, result);
-    z->cyc += 23;
+    z->cyc += 19;
   }
 }
 
 // executes a ED opcode
 void exec_opcode_ed(z80* const z, uint8_t opcode) {
-  z->cyc += cyc_ed[opcode];
+  z->cyc += m1_wait + cyc_ed[opcode];
   inc_r(z);
   switch (opcode) {
   case 0x00: case 0x08: case 0x10: case 0x18:
@@ -1705,7 +1740,7 @@ void exec_opcode_ed(z80* const z, uint8_t opcode) {
 
     if (get_bc(z) != 0) {
       z->pc -= 2;
-      z->cyc += 5;
+      z->cyc += 2;
       z->mem_ptr = z->pc + 1;
     }
   } break; // ldir
@@ -1716,7 +1751,7 @@ void exec_opcode_ed(z80* const z, uint8_t opcode) {
 
     if (get_bc(z) != 0) {
       z->pc -= 2;
-      z->cyc += 5;
+      z->cyc += 2;
       z->mem_ptr = z->pc + 1;
     }
   } break; // lddr
@@ -1727,7 +1762,7 @@ void exec_opcode_ed(z80* const z, uint8_t opcode) {
     cpi(z);
     if (get_bc(z) != 0 && !z->zf) {
       z->pc -= 2;
-      z->cyc += 5;
+      z->cyc += 2;
       z->mem_ptr = z->pc + 1;
     } else {
       z->mem_ptr += 1;
@@ -1737,7 +1772,7 @@ void exec_opcode_ed(z80* const z, uint8_t opcode) {
     cpd(z);
     if (get_bc(z) != 0 && !z->zf) {
       z->pc -= 2;
-      z->cyc += 5;
+      z->cyc += 2;
     } else {
       z->mem_ptr += 1;
     }
@@ -1763,7 +1798,7 @@ void exec_opcode_ed(z80* const z, uint8_t opcode) {
     ini(z);
     if (z->b > 0) {
       z->pc -= 2;
-      z->cyc += 5;
+      z->cyc += 2;
     }
     break; // inir
   case 0xAA: ind(z); break; // ind
@@ -1771,7 +1806,7 @@ void exec_opcode_ed(z80* const z, uint8_t opcode) {
     ind(z);
     if (z->b > 0) {
       z->pc -= 2;
-      z->cyc += 5;
+      z->cyc += 2;
     }
     break; // indr
 
@@ -1792,7 +1827,7 @@ void exec_opcode_ed(z80* const z, uint8_t opcode) {
     outi(z);
     if (z->b > 0) {
       z->pc -= 2;
-      z->cyc += 5;
+      z->cyc += 2;
     }
   } break; // otir
   case 0xAB: outd(z); break; // outd
@@ -1800,6 +1835,7 @@ void exec_opcode_ed(z80* const z, uint8_t opcode) {
     outd(z);
     if (z->b > 0) {
       z->pc -= 2;
+      z->cyc += 2;
     }
   } break; // otdr
 
