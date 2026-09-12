@@ -1035,7 +1035,7 @@ tabuľky priebehu je horný bajt `HL`, vzorky sa sčítajú a idú na DAC.
 ```
 B000  EXX / EX AF,AF'         B046  OUT (88h),A
 B002  LD DE,(B0A5h)           B048  EXX
-B006  4x { LD HL,(fáza)       B049  IN0 A,(ITC)
+B006  4x { LD HL,(fáza)       B049  IN0 A,(TCR)
            LD BC,(prírastok)  B04C  IN0 A,(TMDR0L)
            ADD HL,BC          B04F  EX AF,AF'
            LD (fáza),HL       B050  EI
@@ -1043,6 +1043,11 @@ B006  4x { LD HL,(fáza)       B049  IN0 A,(ITC)
            ADD HL,DE
            ADD A,(HL) }
 ```
+
+Opravené 12. 9. 2026: na `B049` tu stálo `IN0 A,(ITC)`. V ROM je
+`IN0 A,(TCR)` (`0FB70`) — dvojica s `IN0 A,(TMDR0L)` sa v nej s `ITC`
+nevyskytuje ani raz. Čítanie `TCR` a potom `TMDR0L` zhadzuje príznak
+časovača; na číslach nižšie to nič nemení.
 
 Zmerané v emulátore (nie odvodené):
 
