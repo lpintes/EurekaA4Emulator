@@ -14,12 +14,19 @@ Oficiálne názvy signálov sú prevzaté z `IOPORT.LIB`.
 ## Procesor a pamäť
 
 - Hitachi HD64180 / Zilog Z180 (potvrdené inštrukciami IN0/OUT0, MMU, DMA, PRT, CSI/O).
-- Reset na 0000h nastaví CBAR=D1h, CBR=0Bh, vypne refresh, ICR=0, skočí na D000h.
+- Reset na 0000h najprv prečíta `ITC` (`IN0 A,(ITC)`, `LD C,00h`). Keď je
+  nastavený bit TRAP, teda sem neviedol reset, ale nedefinovaný operačný kód,
+  skočí na `C006h` — vstup BDOS, ktorý warm boot zapisuje na `0005h`
+  (`196FA`), s C=0, čo je v CP/M funkcia 0 (System Reset). Táto cesta nie je
+  zmeraná; emulátor TRAP nemá (HANDOFF 6.33). Inak nastaví CBAR=D1h,
+  CBR=0Bh, vypne refresh, ICR=0 a skočí na D000h.
 - Časovanie: tabuľky Z180 (Zilog UM005004) a jeden T-stav navyše na každé
   načítanie operačného kódu — tak ho počíta výrobca v `KEYSCAN.MAC` a ROM
   v milisekundovom čakaní na `19CD9`. `DCNTL = 38h` (`00012`) dáva externým
   portom štyri čakacie stavy a pamäti žiadny; prijatie vnútorného prerušenia
   stojí 18 T. Doložené v HANDOFF 6.10.
+- Prerušenie sa vzorkuje na konci inštrukcie (UM005004, tabuľka 47,
+  poznámka 7): inštrukcia, ktorá zdroj zakáže, ho už nedostane. HANDOFF 6.33.
 - Common area 1 = logické D000h–FFFFh, fyzicky +B000h, teda 18000h–1AFFFh.
 - Zvyšok ROM sa mapuje cez bank area (BBR).
 - ROM na fyzických 00000h–3FFFFh.

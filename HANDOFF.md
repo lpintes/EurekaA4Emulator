@@ -2430,6 +2430,100 @@ Obsluha budíka teda skončí dvoma spôsobmi a rozhoduje značka `C45Ah`:
   je nová trhlina; budík potom preplánuje firmvér pri najbližšom zapnutí
   (6.15).
 
+### 6.33 Jadro proti manuálu Z180 — prerušenie po inštrukcii opravené, zvyšok otvorený
+
+Prameň: Zilog **UM005004-0918** (tabuľky 38–47 a 50 čítané priamo v PDF)
+a Hitachi **HD64180Z Hardware Manual**, oba mimo repozitára
+v `C:\b\z180-docs`. Porovnané 12. 9. 2026.
+
+#### Čo sedí
+
+- **T-stavy všetkých zdokumentovaných inštrukcií** (tabuľky 38–47) sa
+  zhodujú s `cyc_00`, `cyc_ddfd`, CB, DDCB aj `cyc_ed` na každom riadku.
+  `SRL (HL)` = 3 v tabuľke 39 je preklep; Hitachi má v súhrne 13.
+- **IN0, OUT0, TST, MLT:** operácia, príznaky aj horný bajt adresy `00h`.
+  `IN`/`OUT (C)` dávajú na horný bajt B, `IN A,(m)` a `OUT (m),A` dávajú A.
+- **Prerušenia:** `EI` aj `DI` odložia prijatie o inštrukciu, `RETN` obnoví
+  IEF1, `LD A,I` a `LD A,R` dávajú IEF2 do P/V a vnútorné prerušenia idú cez
+  I a IL bez ohľadu na IM.
+
+#### Opravené: žiadosť o prerušenie sa rozhodovala pred inštrukciou
+
+`Step` volal `ScheduleInterrupt()` **pred** `z80_step`. Žiadosť zostala
+nastavená a jadro ju prijalo na konci inštrukcie, aj keď práve tá inštrukcia
+zdroj zakázala. Z180 vzorkuje na **konci** inštrukcie (tabuľka 47,
+poznámka 7).
+
+Zmerané dočasným počítadlom v kópii sondy mimo repozitára, `sweep 4000000`:
+zo 542 824 prerušení boli **3 falošné**, všetky od časovača 0 za
+`OUT0 (TCR),A` na `0027C`. Rutina na `00277` ním časovač 0 zastavuje
+a zakazuje jeho prerušenie, takže po zastavení prišla ešte jedna obsluha.
+
+Teraz je `z80_step` rozdelený na `z80_execute` a `z80_process_interrupts`.
+`Step` vykoná inštrukciu, posunie čas (`Advance`), rozhodne žiadosť nanovo
+ako úroveň, nie západku, a až potom ju dá jadru. Časovač, ktorý dobehol
+počas inštrukcie, sa tak prijme na jej konci, nie o inštrukciu neskôr.
+
+Zmerané po oprave:
+
+- To isté počítadlo: 546 081 prerušení, za `0027C` **žiadne**. Situácia, že
+  by `0027C` bežala s čakajúcim a povoleným časovačom 0, nenastala ani raz:
+  žiadosť sa prijme už na konci `AND EEh` na `0027A`, kde je prerušenie ešte
+  povolené, tak ako na Z180.
+- Tempo znelky, `seq 20000000 kC6 spin:2000000`: pred opravou 100 994 obehov
+  `10E5D` na 37 012 prerušení (2,729), po nej 100 971 na 37 012 (2,728).
+  Závery 6.10 platia ďalej.
+- Testy 16 zo 16 pred opravou aj po nej.
+
+Test, ktorý by opravu držal, zatiaľ nie je (`ea4-q6x`).
+
+#### Otvorené
+
+V tejto ROM sa neprejaví nič z toho okrem TRAP pri cudzích programoch.
+
+1. **TSTIO dáva na horný bajt adresy B namiesto `00h`** (`ea4-6dx`;
+   `exec_opcode_ed`, `0x74`). Manuál to hovorí výslovne. V ROM je TSTIO dvakrát (`185FC`,
+   `1E0A2`), vždy na `STAT0`/`STAT1`, kde `ReadPortInner` horný bajt
+   nerozlišuje.
+2. **Príznaky OTIM, OTDM, OTIMR a OTDMR sú neúplné** (`ea4-jp1`). Jadro nastaví len Z
+   a N=1. Podľa tabuľky 46 nastavujú OTIM a OTDM aj S, H, P a C, opakovacie
+   varianty dávajú S=0, H=0, P/V=1 a C=0, a N je vo všetkých štyroch
+   najvyšší bit vyslaného bajtu. ROM má OTIMR šesťkrát a za žiadnym príznaky
+   nečíta.
+3. **N pri INI, IND, OUTI, OUTD a ich opakovacích variantoch** má byť
+   najvyšší bit dát, jadro dáva 1 (`ea4-jp1`).
+4. **SLP sa správa ako HALT** (`ea4-ya6`). Pri IEF1=0 by Z180 povolený zdroj zobudil
+   a pokračoval za SLP; jadro by spalo naveky. ROM SLP nemá.
+5. **TRAP nie je emulovaný** (`ea4-cyq`). Z180 pri nedefinovanom kóde nastaví TRAP
+   (pri treťom bajte aj UFO) v `ITC`, uloží PC a skočí na logickú `0000h`.
+   Jadro kód vykoná ako Z80 alebo ho preskočí s hláškou na stderr. Firmvér
+   s tým počíta: WBOOT BIOSu na `E6B3h` (fyzická `196B3`, druhá položka
+   tabuľky na `1966B`) testuje `ITC`, bit zhodí a povie **„chybný operační
+   kód“**.
+
+   Zmerané s TRAP doplneným v kópii jadra a programom `TRAP.COM`, ktorý povie
+   „pred“, vykoná `ED 77` a povie „po“ (33 bajtov: `11 15 01 0E 09 CD 05 00
+   ED 77 11 1C 01 0E 09 CD 05 00 C3 00 00`, za nimi `pred\r\n$` a `po\r\n$`):
+
+   - Bez TRAP stroj povie „pred po ahoj“. Majiteľ to potvrdil aj ručne.
+   - S TRAP povie „pred ahoj“. Cesta `0000h` → `C103h` → `CF25h` je bežný
+     koniec programu, `E6B3h` sa nedosiahne a bit TRAP zostane nastavený.
+     Ani `RESET.COM` (BDOS 0) spustený potom k `E6B3h` nevedie.
+   - `sweep` nevykoná ani jeden nedefinovaný kód, takže sa to týka len
+     cudzích programov.
+
+   Rozhodne test na skutočnom stroji (`ea4-r1c`).
+6. **CCF a príznak H** (`ea4-aze`). Oba manuály uvádzajú H=0, jadro kopíruje predošlé C
+   ako Z80. Bez stroja sa to rozhodnúť nedá; prejaví sa to len pri DAA hneď
+   po CCF.
+7. **Vzorkovanie po `LD A,I` a `LD A,R`** (`ea4-1qi`). Podľa poznámky k tabuľke 41 masky
+   R1 a Z po nich prerušenie nevzorkujú, jadro áno. ROM má `LD A,R` dvakrát
+   (`0BB1E`, `183E7`), `LD A,I` ani raz.
+8. **Bežné inštrukcie Z80 nie sú overené ZEXDOC** (`ea4-z8y`); na disku
+   nie je.
+9. `tools/z180dis.py` nepozná OTIM, OTDM, OTIMR ani OTDMR a vypisuje ich ako
+   `db ED,93` (`ea4-6lc`).
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
