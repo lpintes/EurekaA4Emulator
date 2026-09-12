@@ -1192,6 +1192,31 @@ z `DCNTL` pre externé porty a 18 T za prijatie vnútorného prerušenia.
 Znelku zmerať ako 25. 8.; ak zostane odchýlka, jediný voľný kus sú čakacie
 stavy `TMDR0L` a musí sa napísať, že je nastavený. Bod 4 vyššie platí ďalej.
 
+**Zavedené v ten istý deň.** `z80.c` má tabuľky Z180 (Tabuľky 38–47; pri
+`SRL (HL)` tlačí manuál 3, čo je preklep medzi súrodencami s 13), `m1_wait`
+= 1 na každé načítanie operačného kódu vrátane prefixov a 18 T za prijatie
+prerušenia. `machine.cpp` pripočíta čakacie stavy externých portov podľa
+`DCNTL` (`ChargeIoWaits`); prenos cez DMA nie. `TMDR0L` dostáva 0.
+
+Zmerané sondou, `seq … kC6 spin:2000000`, teda to isté okno znelky pred
+zmenou aj po nej:
+
+- pred: `10E5D` 88 165-krát, obsluha 38 363-krát — **2,298 obehu** na
+  prerušenie;
+- po: 100 995 a 37 012 — **2,729 obehu**.
+
+Znelka je 1,187-krát rýchlejšia, skutočný stroj chce 1,145. Emulátor teda
+hrá asi **o 3,7 % rýchlejšie** než skutočná Eureka, predtým o 14,5 %
+pomalšie — v pásme predpovede a bez kalibrácie. Keby sa zvyšok pripísal
+`TMDR0L`, zodpovedal by asi dvom čakacím stavom; **nenastavené**, lebo by to
+bola kalibrácia na jedno meranie. Všetkých 16 testov prešlo.
+
+**Vypočuté naživo 12. 9. 2026** majiteľom skutočného stroja: stroj sa
+správa rovnako ako predtým, hudba je jednoznačne lepšia a subjektívne
+„o chlp“ rýchlejšia než skutočná Eureka — sedí to s nameranými 3,7 %.
+Zmena je prijatá. Otvorené zostáva len rozhodnutie o `TMDR0L`; majiteľ to
+dá vypočuť aj iným, a kým sa nevyjadria, zostáva 0.
+
 #### Vedľajší nález: jednosmerná zložka v hudobnom editore
 
 Keď editor dohrá a čaká na kláves, ROM nechá DAC na hodnote **65**
@@ -2469,6 +2494,9 @@ a nenačíta znovu (`NVDA+Ctrl+F3`).
    T-stav na cyklus M1 (`KEYSCAN.MAC`, `rtc_ctl_wait_de_ms` na `19CD9`)
    trafí znelku bez kalibrácie a model čakania na ROM padá na pulznej
    voľbe. Podrobne v dodatku k 6.10; ďalší krok je zaviesť ho do jadra.
+   **Zavedené 12. 9. 2026:** znelka je zo 14,5 % pomalšie na asi 3,7 %
+   rýchlejšie, vypočuté a prijaté. Zostáva rozhodnúť o čakacích stavoch
+   `TMDR0L`, až keď to vypočujú aj iní.
 3. **Umŕtvená klávesnica po čase** (6.9) — čaká na postup na
    reprodukciu; bez neho je to beh naslepo. Prvá stopa, ktorá sa dá
    sledovať bez neho, sú `C598h`/`C599h` (viď 6.9). Pozor: kým nebol
