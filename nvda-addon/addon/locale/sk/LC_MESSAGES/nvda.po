@@ -3,10 +3,10 @@
 # Táto správa sa zobrazuje v Vstupných gestách a v pomocníkovi pre vstup.
 msgid ""
 msgstr ""
-"Project-Id-Version: eurekaA4Emulator 1.0.0\n"
+"Project-Id-Version: eurekaA4Emulator 1.1.0\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2026-08-27 00:00+0200\n"
-"PO-Revision-Date: 2026-08-27 00:00+0200\n"
+"PO-Revision-Date: 2026-09-14 00:00+0200\n"
 "Last-Translator: Lubos Pintes\n"
 "Language-Team: Slovak\n"
 "Language: sk\n"
@@ -24,3 +24,14 @@ msgid ""
 msgstr ""
 "Oznámi titulok okna emulátora, v ktorom je stav klávesnice. Na rozdiel od "
 "vlastného príkazu NVDA odpovie aj vtedy, keď NVDA nad oknom stroja spí"
+
+#. Translators: Announced when the speech rate slider of the Eureka A4 emulator
+#. moves.  {position} is where it is now, counted from 1, and {count} how many
+#. positions the slider has.
+msgid "speech rate {position} of {count}"
+msgstr "rýchlosť {position} z {count}"
+
+#. Translators: Announced when the volume slider of the Eureka A4 emulator moves.
+#. {position} is where it is now, 0 being silence, and {count} the loudest position.
+msgid "volume {position} of {count}"
+msgstr "hlasitosť {position} z {count}"

@@ -19,6 +19,10 @@ other windows, so they keep their ordinary NVDAObject and go on being read.
 Which side owns the keyboard is the emulator's business rather than ours.  It publishes
 that as a window property (``MainWindow::PublishKeyboardState`` in src/main_window.cpp),
 so shift+F11 there wakes NVDA over the machine window too, on the very next keystroke.
+
+It also says the emulator's two sliders out loud.  Once the keyboard is the host's, Ctrl or
+Alt with an arrow moves one of them a step, and Eureka may not speak again for a while --
+nor, for the volume, make any sound that would tell the user where it went.
 """
 
 import ctypes
@@ -27,7 +31,9 @@ from ctypes import wintypes
 import addonHandler
 import api
 import appModuleHandler
+import core
 import inputCore
+import keyboardHandler
 import speech
 import ui
 import winUser
@@ -49,6 +55,23 @@ MACHINE_WINDOW_CLASS = "EurekaA4EmulatorWindow"
 #: Windows with shift+F11.  Absent or zero means Eureka owns the keyboard, which is
 #: also what an emulator built before this existed answers.
 KEYBOARD_RELEASED_PROP = "EurekaA4.KeyboardReleased"
+
+#: Window properties holding the positions of the emulator's two sliders, straight from
+#: src/sliders.h (``PublishSliders`` in src/main_window.cpp).  Ctrl with an arrow moves the
+#: left one, speech rate; Alt with an arrow moves the right one, volume.  Renaming either
+#: there silences the announcements, and silently.
+SPEECH_RATE_PROP = "EurekaA4.SpeechRate"
+VOLUME_PROP = "EurekaA4.Volume"
+
+#: How many positions each slider has.  Fixed in src/sliders.h, and so fixed here.
+SPEECH_RATE_POSITIONS = 32
+VOLUME_POSITIONS = 21
+
+#: When to look for the new position after a slider key, each in milliseconds after the look
+#: before it.  The window moves the slider as soon as its accelerator arrives, which the first
+#: look nearly always finds; the later ones allow for a busy desktop.  A key that went to
+#: Eureka instead moves nothing, the looks run out, and nothing is said.
+SLIDER_LOOK_DELAYS_MS = (30, 70, 150)
 
 #: Flags that mean a menu of this window's is up, and Windows therefore owns the
 #: keyboard.  Measured on the running emulator: opening the menu sets GUI_INMENUMODE
@@ -81,6 +104,57 @@ def _isMenuUp(threadID: int) -> bool:
 	return bool(winUser.getGUIThreadInfo(threadID).flags & MENU_MODE_FLAGS)
 
 
+def _readSlider(windowHandle: int, prop: str) -> int:
+	"""The position of one of the emulator's sliders.
+
+	:param windowHandle: The emulator's main window.
+	:param prop: ``SPEECH_RATE_PROP`` or ``VOLUME_PROP``.
+	:returns: The position, or 0 when the emulator does not publish it.
+	"""
+	return _user32.GetPropW(windowHandle, prop) or 0
+
+
+def _sliderMovedBy(gesture: inputCore.InputGesture) -> str | None:
+	"""Which slider a gesture moves, provided the keyboard is the host's.
+
+	:param gesture: Any gesture NVDA is about to execute, in any application.
+	:returns: The window property of that slider, or None for every other gesture.
+	"""
+	if not isinstance(gesture, keyboardHandler.KeyboardInputGesture):
+		return None
+	if gesture.vkCode not in (winUser.VK_LEFT, winUser.VK_RIGHT):
+		return None
+	modifiers = {vkCode for vkCode, isExtended in gesture.generalizedModifiers}
+	if modifiers == {winUser.VK_CONTROL}:
+		return SPEECH_RATE_PROP
+	if modifiers == {winUser.VK_MENU}:
+		return VOLUME_PROP
+	return None
+
+
+def _describeSlider(prop: str, position: int) -> str:
+	"""What to say about a slider that has moved.
+
+	:param prop: ``SPEECH_RATE_PROP`` or ``VOLUME_PROP``.
+	:param position: The position the emulator published.
+	:returns: The announcement.
+	"""
+	if prop == SPEECH_RATE_PROP:
+		# Counted from one, where the volume counts from zero: zero volume is silence and
+		# means something, while the lowest rate is merely the slowest.
+		return _(
+			# Translators: Announced when the speech rate slider of the Eureka A4 emulator
+			# moves.  {position} is where it is now, counted from 1, and {count} how many
+			# positions the slider has.
+			"speech rate {position} of {count}",
+		).format(position=position + 1, count=SPEECH_RATE_POSITIONS)
+	return _(
+		# Translators: Announced when the volume slider of the Eureka A4 emulator moves.
+		# {position} is where it is now, 0 being silence, and {count} the loudest position.
+		"volume {position} of {count}",
+	).format(position=position, count=VOLUME_POSITIONS - 1)
+
+
 class MachineWindow(NVDAObject):
 	"""The emulator's main window: Eureka's own keyboard and Eureka's own voice."""
 
@@ -101,6 +175,73 @@ class MachineWindow(NVDAObject):
 
 
 class AppModule(appModuleHandler.AppModule):
+	def __init__(self, *args, **kwargs) -> None:
+		super().__init__(*args, **kwargs)
+		# A decider and not a script.  A script bound to ctrl+arrow here would be found before
+		# the focused control's own and take word navigation away from every edit field in the
+		# emulator's dialogs.  A decider sees the key and hands it on untouched, and NVDA asks
+		# it before it checks sleep mode, so it sees the key while NVDA sleeps as well.
+		inputCore.decide_executeGesture.register(self._noticeSliderKey)
+
+	def terminate(self) -> None:
+		inputCore.decide_executeGesture.unregister(self._noticeSliderKey)
+		super().terminate()
+
+	def _noticeSliderKey(self, gesture: inputCore.InputGesture) -> bool:
+		"""Starts watching a slider when one of its keys goes to the machine window.
+
+		Called for every gesture in every application, from the keyboard hook, so it does as
+		little as it can until it knows the gesture is one of the four.
+
+		:param gesture: The gesture NVDA is about to execute.
+		:returns: Always True: the key is watched, never taken.
+		"""
+		prop = _sliderMovedBy(gesture)
+		if prop is None:
+			return True
+		windowHandle = winUser.getForegroundWindow()
+		if winUser.getClassName(windowHandle) != MACHINE_WINDOW_CLASS:
+			return True
+		before = _readSlider(windowHandle, prop)
+		core.callLater(
+			SLIDER_LOOK_DELAYS_MS[0],
+			self._lookAtSlider,
+			windowHandle,
+			prop,
+			before,
+			0,
+		)
+		return True
+
+	def _lookAtSlider(self, windowHandle: int, prop: str, before: int, look: int) -> None:
+		"""Says where the slider is if the key moved it, or looks again a little later.
+
+		A key at the end of the travel moves nothing and is not announced; the emulator sounds
+		its own tone for that.
+
+		:param windowHandle: The emulator's main window.
+		:param prop: The slider the key moves.
+		:param before: Its position when the key went by.
+		:param look: How many looks before this one came up empty.
+		"""
+		position = _readSlider(windowHandle, prop)
+		if position != before:
+			# Cancelled first, so that a held key says where the slider is rather than queueing
+			# every position it went through.
+			speech.cancelSpeech()
+			ui.message(_describeSlider(prop, position))
+			return
+		look += 1
+		if look < len(SLIDER_LOOK_DELAYS_MS):
+			core.callLater(
+				SLIDER_LOOK_DELAYS_MS[look],
+				self._lookAtSlider,
+				windowHandle,
+				prop,
+				before,
+				look,
+			)
+
 	def chooseNVDAObjectOverlayClasses(self, obj: NVDAObject, clsList: list[type]) -> None:
 		# getattr rather than the attribute: windowClassName belongs to
 		# NVDAObjects.window.Window, and this is asked of every object in the process.

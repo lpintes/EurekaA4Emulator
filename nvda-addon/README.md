@@ -22,6 +22,11 @@ Tento doplnok uspí NVDA **len nad hlavným oknom** emulátora. Nikde inde.
   príkaz, lebo titulok okna nesie stav klávesnice a bola by škoda, aby sa
   naň nedalo spýtať. Dvakrát ho vyhláskuje, trikrát skopíruje do schránky —
   ako pôvodný príkaz NVDA.
+- **Posuvníky emulátora sa ohlásia.** Keď po `F11` (alebo po `Shift+F11`)
+  pohnete posuvníkom — `Ctrl+šípka` rýchlosť reči, `Alt+šípka` hlasitosť —
+  NVDA povie novú polohu, napríklad „hlasitosť 12 z 20“ alebo „rýchlosť
+  17 z 32“. Hlasitosť sa počíta od nuly, lebo nula je ticho; rýchlosť od
+  jednotky. Na konci posuvníka NVDA mlčí a pípne emulátor.
 - **`NVDA+Shift+S`** zostáva núdzová brzda: uspí alebo prebudí celú
   aplikáciu naraz a prebije rozhodovanie tohto doplnku.
 
@@ -85,6 +90,29 @@ neprekážajú.
 **Názov triedy okna a názov vlastnosti sú zmluva medzi dvoma
 projektmi.** Premenovanie ktoréhokoľvek z nich doplnok vypne, a vypne ho
 potichu — nič nezlyhá, NVDA len prestane spať.
+
+### Posuvníky
+
+Polohu oboch posuvníkov emulátor vystavuje tým istým spôsobom, vo
+vlastnostiach okna `EurekaA4.SpeechRate` a `EurekaA4.Volume`
+(`MainWindow::PublishSliders`), ako čísla priamo zo `src/sliders.h`. Aj tie
+dva názvy patria do zmluvy a počty polôh (32 a 21) sú v doplnku napevno.
+
+Kedy sa pozrieť, rozhoduje kláves. Skript naviazaný na `Ctrl+šípku` by to
+nebol: skripty aplikačného modulu majú prednosť pred skriptmi zaostreného
+prvku, takže by v dialógoch emulátora vzal editačným poliam skok po slovách.
+Doplnok sa preto zaregistruje do `inputCore.decide_executeGesture`. NVDA sa
+na ten bod pýta **pred** kontrolou spánku, takže kláves vidno aj v spánku,
+a keďže odpoveď je vždy „pokračuj“, kláves ide ďalej nedotknutý.
+
+Po klávese sa doplnok pozrie na vlastnosť o 30, 100 a 250 ms. Ak sa poloha
+zmenila, zruší rozprávanie a ohlási ju. Ak nie, kláves šiel Eureke (bez
+`F11`) alebo bol posuvník na konci, a doplnok nepovie nič. O `F11` teda
+vedieť nemusí — a to je dobre, lebo jednorazovka sa zámerne nezverejňuje.
+
+**V scratchpade sú hlásenia anglicky** („volume 12 of 20“):
+`addonHandler.initTranslation()` tam nefunguje, lebo to nie je doplnok.
+Po slovensky hovorí nainštalovaný balík z `build-addon.bat`.
 
 ## Čo doplnok nedokáže
 
