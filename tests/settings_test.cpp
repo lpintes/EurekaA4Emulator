@@ -115,6 +115,83 @@ void KeepRamSwitchRoundTrips() {
         "zapnutie je v subore ako zachovat-ram=1");
 }
 
+void SlidersRoundTrip() {
+  // Absent means both sliders in the middle, where a first run starts too.
+  {
+    Settings settings(FileNamed("neexistuje.txt"));
+    settings.Load();
+    Check(settings.speech_rate() == sliders::kRateDefault,
+          "chybajuci subor: rychlost je v strede");
+    Check(settings.volume() == sliders::kVolumeDefault,
+          "chybajuci subor: hlasitost je v strede");
+  }
+  const fs::path file = FileNamed("posuvniky.txt");
+  std::wstring error;
+  {
+    Settings settings(file);
+    settings.SetSpeechRate(3);
+    settings.SetVolume(0);
+    Check(settings.Save(error), "ulozenie posuvnikov prejde", Narrow(error));
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(loaded.speech_rate() == 3, "rychlost prezije zapis aj citanie");
+    Check(loaded.volume() == 0, "stlmena hlasitost prezije zapis aj citanie");
+  }
+  const std::string bytes = ReadRaw(file);
+  Check(bytes.find("rychlost-reci=3") != std::string::npos,
+        "rychlost je v subore ako rychlost-reci=3");
+  Check(bytes.find("hlasitost=0") != std::string::npos,
+        "hlasitost je v subore ako hlasitost=0");
+
+  // A hand edit.  Reading a word as zero would start a machine that says
+  // nothing, so a word keeps the default; a number past the end is pulled
+  // back to the end.
+  const fs::path edited = FileNamed("posuvniky-rucne.txt");
+  WriteRaw(edited, "rychlost-reci=99\r\nhlasitost=nahlas\r\n");
+  {
+    Settings loaded(edited);
+    loaded.Load();
+    Check(loaded.speech_rate() == sliders::kRatePositions - 1,
+          "rychlost za koncom sa pritiahne na koniec");
+    Check(loaded.volume() == sliders::kVolumeDefault,
+          "hlasitost, ktora nie je cislo, zostane predvolena");
+  }
+  Settings outside(file);
+  outside.SetSpeechRate(-5);
+  outside.SetVolume(1000);
+  Check(outside.speech_rate() == 0 &&
+            outside.volume() == sliders::kVolumePositions - 1,
+        "nastavenie mimo rozsahu sa pritiahne");
+}
+
+// Not about the file, but this is the one test that runs without a ROM, and
+// the mapping is what the saved positions mean.
+void SliderPositionsMapToTheHardware() {
+  // The firmware keeps five bits of the rate pot (00258), so every position
+  // has to fall inside its own step.
+  bool ownStep = true;
+  for (int position = 0; position < sliders::kRatePositions; ++position)
+    if ((sliders::RatePotLevel(position) >> 3) != position) ownStep = false;
+  Check(ownStep, "kazda poloha rychlosti padne do svojho kroku firmveru");
+  Check((sliders::RatePotLevel(sliders::kRateDefault) >> 3) == (0x80 >> 3),
+        "stred dava ten isty reload ako doterajsich 80h");
+  Check(sliders::RatePotLevel(sliders::kRateDefault) != 0x80,
+        "stred nesedi presne na urovni ticha");
+  Check(sliders::VolumeGain(0) == 0.0, "hlasitost 0 je ticho");
+  Check(sliders::VolumeGain(sliders::kVolumePositions - 1) == 1.0,
+        "vrch hlasitosti nemeni vystup");
+  Check(std::abs(20.0 * std::log10(sliders::VolumeGain(sliders::kVolumeDefault)) +
+                 10.0) < 1e-9,
+        "stred hlasitosti je 10 dB pod vrchom");
+  bool rising = true;
+  for (int position = 1; position < sliders::kVolumePositions; ++position)
+    if (!(sliders::VolumeGain(position) > sliders::VolumeGain(position - 1)))
+      rising = false;
+  Check(rising, "hlasitost s polohou rastie");
+}
+
 void RoundTripKeepsDiacritics() {
   const fs::path file = FileNamed("kolotoc.txt");
   std::wstring error;
@@ -410,6 +487,8 @@ int main() {
 
   MissingFileIsDefaults();
   KeepRamSwitchRoundTrips();
+  SlidersRoundTrip();
+  SliderPositionsMapToTheHardware();
   RoundTripKeepsDiacritics();
   SaveOverwritesRatherThanAppends();
   ClearedSlotDisappears();

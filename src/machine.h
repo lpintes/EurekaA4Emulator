@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "diagnostics.h"
+#include "sliders.h"
 #include "virtual_disk.h"
 
 extern "C" {
@@ -247,6 +248,12 @@ class EurekaMachine {
   // makes anything waiting for a time untestable: a test for the alarm would
   // have to sit out the wait in real time.  Nothing but tests sets this.
   void SetRtcOffset(int64_t seconds) { rtcOffset_ = seconds; }
+  // The two sliders (sliders.h).  The rate pot is an input the firmware reads
+  // through comparator vm1, given here on the DAC's scale; the volume is a
+  // gain after the whole output stage, which the firmware cannot see.  Neither
+  // Reset nor PowerOn touches them: they stay where the fingers left them.
+  void SetRatePot(uint8_t level) { ratePot_ = level; }
+  void SetVolume(double gain) { volume_ = gain; }
 
   uint8_t debug_peek(uint16_t address) const { return Peek(address); }
   // The alarm the firmware last armed: registers 190h-197h in port order, the
@@ -461,6 +468,8 @@ class EurekaMachine {
   // Reconstruction filter state; see RenderAudio.
   double audioState_[2] = {};
   double couplingState_[2] = {};
+  uint8_t ratePot_ = sliders::RatePotLevel(sliders::kRateDefault);
+  double volume_ = 1.0;
 };
 
 #endif

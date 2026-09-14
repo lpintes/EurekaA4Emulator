@@ -438,6 +438,20 @@ void EmulatorThread::PostSetDiagnostics(bool on) {
   Post(std::move(command));
 }
 
+void EmulatorThread::PostSetSpeechRate(int position) {
+  Command command;
+  command.type = Command::Type::kSetSpeechRate;
+  command.position = position;
+  Post(std::move(command));
+}
+
+void EmulatorThread::PostSetVolume(int position) {
+  Command command;
+  command.type = Command::Type::kSetVolume;
+  command.position = position;
+  Post(std::move(command));
+}
+
 void EmulatorThread::PostDumpDiagnostics() {
   PostType(Command::Type::kDumpDiagnostics);
 }
@@ -892,6 +906,12 @@ void EmulatorThread::Run() {
         diagnostics_.store(command.flag, std::memory_order_relaxed);
         machine.diagnostics().set_enabled(command.flag);
         if (notify) PostMessageW(notify, WM_EMU_STATE, 0, 0);
+        break;
+      case Command::Type::kSetSpeechRate:
+        machine.SetRatePot(sliders::RatePotLevel(command.position));
+        break;
+      case Command::Type::kSetVolume:
+        machine.SetVolume(sliders::VolumeGain(command.position));
         break;
       case Command::Type::kDumpDiagnostics:
         host::Print(std::wstring(L"\r\n[Režim písania: ") +

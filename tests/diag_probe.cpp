@@ -17,6 +17,7 @@
 // "vypni"/"zapni"/"studeno" for the power switch and the two ways back on,
 // "cas:+7d" to move the clock the RTC answers with, "budik" to print it
 // beside the alarm the firmware armed, "zvuk" for what the loudspeaker got,
+// "rychlost:N" and "hlasitost:N" to move the two sliders (sliders.h),
 // or a literal string typed on the emulated PC keyboard.  A switched-off
 // machine can wake itself on the alarm the same way it does on the hardware
 // (HANDOFF 6.32): "cas:" reports it right on the token that crossed the
@@ -309,6 +310,24 @@ int wmain(int argc, wchar_t** argv) {
                     unsigned(now[6]), unsigned(now[1]), unsigned(now[2]),
                     unsigned(now[3]), static_cast<long long>(rtcShift),
                     woke ? ", zobudilo budikom" : "");
+        continue;
+      }
+      if (token.starts_with(L"rychlost:") || token.starts_with(L"hlasitost:")) {
+        // By the same positions the window uses, so a measurement names a
+        // setting a user can actually reach.  The firmware looks at the rate
+        // pot only while it speaks (001BB), so moving it in a silence changes
+        // nothing until the next word.
+        const int position =
+            _wtoi(token.substr(token.find(L':') + 1).c_str());
+        if (token.starts_with(L"rychlost:")) {
+          machine->SetRatePot(sliders::RatePotLevel(position));
+          std::printf("%-10ls -> [posuvnik rychlosti na %02Xh]\n", token.c_str(),
+                      unsigned(sliders::RatePotLevel(position)));
+        } else {
+          machine->SetVolume(sliders::VolumeGain(position));
+          std::printf("%-10ls -> [hlasitost x%.4f]\n", token.c_str(),
+                      sliders::VolumeGain(position));
+        }
         continue;
       }
       if (token == L"zvuk") {

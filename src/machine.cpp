@@ -477,15 +477,15 @@ uint8_t EurekaMachine::ReadInputBuffer() const {
   // read a value.  Bit 6 of the output latch picks the pair: clear selects the
   // internal thermometer and the external voltmeter, set selects the speech
   // rate pot and the battery (Appendix H, vmsel_mask).
-  // What each of the four inputs sits at, on the DAC's own scale.  These are
+  // What the other three inputs sit at, on the DAC's own scale.  These are
   // not documented anywhere: they are the values that make the firmware report
-  // a sane room temperature, a mid-travel rate slider and a charged battery.
+  // a sane room temperature and a charged battery.  The fourth is the rate
+  // slider, and that one is the user's (SetRatePot).
   constexpr uint8_t kThermometerLevel = 0x64;
-  constexpr uint8_t kRatePotLevel = 0x80;
   constexpr uint8_t kExternalMeterLevel = 0x80;
   constexpr uint8_t kBatteryLevel = 0xdc;
   const bool batteryPair = (outputLatch_ & hw::kVmselMask) != 0;
-  const uint8_t vm1Threshold = batteryPair ? kRatePotLevel : kThermometerLevel;
+  const uint8_t vm1Threshold = batteryPair ? ratePot_ : kThermometerLevel;
   const uint8_t vm2Threshold = batteryPair ? kBatteryLevel : kExternalMeterLevel;
   // A set comparator bit means the DAC has risen above the measured input, so
   // for the battery it means "below the reference" -- the disk path writes ADh
@@ -1291,8 +1291,10 @@ void EurekaMachine::RenderAudio(uint32_t cpuCycles) {
     const double coupled = c.b0 * out + couplingState_[0];
     couplingState_[0] = c.b1 * out - c.a1 * coupled + couplingState_[1];
     couplingState_[1] = c.b2 * out - c.a2 * coupled;
-    audio_.push_back(
-        static_cast<int16_t>(std::clamp(coupled, -32768.0, 32767.0)));
+    // Last the volume slider: a pot between the output stage and the speaker,
+    // so it scales the result and leaves the filters' state alone.
+    audio_.push_back(static_cast<int16_t>(
+        std::clamp(coupled * volume_, -32768.0, 32767.0)));
     audioPhase_ -= kCpuHz;
   }
 }

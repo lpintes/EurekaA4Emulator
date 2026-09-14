@@ -30,6 +30,8 @@
 #include <string>
 #include <vector>
 
+#include "sliders.h"
+
 class Settings {
  public:
   // Numbered 1..kSlots, the way the menu and Ctrl+digit name them.
@@ -68,6 +70,15 @@ class Settings {
   bool keep_ram() const { return keepRam_; }
   void SetKeepRam(bool keep) { keepRam_ = keep; }
 
+  // Where the two sliders were left, as positions (sliders.h).  A missing line
+  // or one that is not a number means the default, and a number past either
+  // end is pulled back to that end, so a hand edit cannot give the machine a
+  // position its slider does not have.
+  int speech_rate() const { return speechRate_; }
+  void SetSpeechRate(int position);
+  int volume() const { return volume_; }
+  void SetVolume(int position);
+
   // An out-of-range number reads empty and writes nowhere, so a caller that
   // miscounts cannot corrupt the file or walk off the array.
   const std::wstring& slot(int number) const;
@@ -99,6 +110,8 @@ class Settings {
   std::filesystem::path file_;
   std::wstring lastDisk_;
   bool keepRam_ = true;
+  int speechRate_ = sliders::kRateDefault;
+  int volume_ = sliders::kVolumeDefault;
   std::array<std::wstring, kSlots> slots_;
   // In the order they were locked, so the file stays diffable and a lock the
   // user set is not silently reordered under them.

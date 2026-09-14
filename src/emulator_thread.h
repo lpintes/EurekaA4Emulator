@@ -184,6 +184,11 @@ class EmulatorThread {
   void PostSetMode(InputMode mode);
   void PostToggleMode();
   void PostSetDiagnostics(bool on);
+  // Moves one of the two sliders to a position from sliders.h.  Through the
+  // queue like everything else: the machine is the worker's, and the rate pot
+  // is an input the firmware reads in the middle of a sentence.
+  void PostSetSpeechRate(int position);
+  void PostSetVolume(int position);
   void PostDumpDiagnostics();
   // The four cursor keys at once (8Fh, k_udlr): how the machine is switched
   // off for real, from the Main Menu.
@@ -296,11 +301,14 @@ class EmulatorThread {
       kKey, kReset, kSetMode, kToggleMode, kSetDiagnostics,
       kDumpDiagnostics, kPowerOff, kPowerOn, kFocusLost, kSaveDiskAs,
       kMountDisk, kEjectDisk, kCreateEmptyDisk, kInsertSlot, kAssignSlot,
-      kSetWriteProtect, kSetSlotWriteProtect, kEnsureSlotDisk, kQuit,
+      kSetWriteProtect, kSetSlotWriteProtect, kEnsureSlotDisk, kSetSpeechRate,
+      kSetVolume, kQuit,
     } type = Type::kQuit;
     HostKeyEvent key{};
     InputMode mode = InputMode::kPc;
     bool flag = false;
+    // A slider position, for kSetSpeechRate and kSetVolume.
+    int position = 0;
     // Which quick-choice slot the diskette belongs to, 0 for none.  It rides
     // with the command because the worker owns the stash, and a diskette has
     // to go back to the slot it came from when the next one takes its place.

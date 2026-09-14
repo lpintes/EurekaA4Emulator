@@ -289,6 +289,10 @@ int Run() {
     }
   }
   machine->diagnostics().set_enabled(diagnostics);
+  // Where the sliders were left.  Set before the worker exists, so the first
+  // sentence is already spoken at the rate and volume the user chose.
+  machine->SetRatePot(sliders::RatePotLevel(settings.speech_rate()));
+  machine->SetVolume(sliders::VolumeGain(settings.volume()));
 
   // Warm-resume from the RAM snapshot the last clean power-down left behind, so
   // the machine comes up where the user stopped -- on the real Eureka the RAM

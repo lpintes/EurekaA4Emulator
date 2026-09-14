@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <shlobj.h>
 
+#include <algorithm>
 #include <cwctype>
 #include <fstream>
 #include <iterator>
@@ -18,6 +19,8 @@ namespace {
 // otherwise stop matching.
 constexpr char kLastDiskKey[] = "posledna-disketa";
 constexpr char kKeepRamKey[] = "zachovat-ram";
+constexpr char kSpeechRateKey[] = "rychlost-reci";
+constexpr char kVolumeKey[] = "hlasitost";
 constexpr char kSlotPrefix[] = "slot";
 // A locked diskette, one per line: "zamok1=C:\Hry".  Numbered rather than
 // repeated under one key, because the parser here takes the last value for a
@@ -157,6 +160,21 @@ void Settings::Load() {
       keepRam_ = value != L"0";
       continue;
     }
+    if (key == kSpeechRateKey || key == kVolumeKey) {
+      // Plain digits only.  Anything else is skipped rather than read as zero,
+      // which for the volume would start a machine that says nothing and
+      // gives no hint why.
+      const bool digits =
+          !value.empty() && value.size() <= 4 &&
+          std::all_of(value.begin(), value.end(),
+                      [](wchar_t ch) { return ch >= L'0' && ch <= L'9'; });
+      if (digits) {
+        const int position = std::stoi(value);
+        if (key == kSpeechRateKey) SetSpeechRate(position);
+        else SetVolume(position);
+      }
+      continue;
+    }
     // Before the slot test: "zamok" and "slot" do not overlap, but the lock
     // lines are the ones a hand-editing user is most likely to duplicate, and
     // reading them first keeps that path short.
@@ -195,6 +213,8 @@ bool Settings::Save(std::wstring& error) const {
   // Always written, even at its default, so the switch is visible to someone
   // editing the file by hand.
   text += std::wstring(L"zachovat-ram=") + (keepRam_ ? L"1" : L"0") + L"\r\n";
+  text += L"rychlost-reci=" + std::to_wstring(speechRate_) + L"\r\n";
+  text += L"hlasitost=" + std::to_wstring(volume_) + L"\r\n";
   if (!lastDisk_.empty()) text += L"posledna-disketa=" + lastDisk_ + L"\r\n";
   for (int number = 1; number <= kSlots; ++number) {
     const auto index = static_cast<std::size_t>(number - 1);
@@ -222,6 +242,14 @@ bool Settings::Save(std::wstring& error) const {
 }
 
 void Settings::SetLastDisk(std::wstring path) { lastDisk_ = std::move(path); }
+
+void Settings::SetSpeechRate(int position) {
+  speechRate_ = std::clamp(position, 0, sliders::kRatePositions - 1);
+}
+
+void Settings::SetVolume(int position) {
+  volume_ = std::clamp(position, 0, sliders::kVolumePositions - 1);
+}
 
 const std::wstring& Settings::slot(int number) const {
   static const std::wstring empty;
