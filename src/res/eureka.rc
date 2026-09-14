@@ -64,11 +64,17 @@ BEGIN
         MENUITEM "&8 (prázdny)\tF11, Ctrl+8",                   ID_DISK_SLOT8
         MENUITEM "&9 (prázdny)\tF11, Ctrl+9",                   ID_DISK_SLOT9
     END
-    POPUP "&Stroj"
+    POPUP "S&troj"
     BEGIN
         MENUITEM "&Reset\tF11, Ctrl+R",                         ID_MACHINE_RESET
         MENUITEM "&Zapnúť Eureku\tF11, Ctrl+P",                 ID_MACHINE_POWERON
         MENUITEM "&Vypnúť Eureku\tF11, Ctrl+V",                 ID_MACHINE_POWEROFF
+        MENUITEM SEPARATOR
+        MENUITEM "Rý&chlejšia reč\tF11, Ctrl+šípka vpravo",     ID_MACHINE_FASTER
+        MENUITEM "&Pomalšia reč\tF11, Ctrl+šípka vľavo",        ID_MACHINE_SLOWER
+        MENUITEM "&Hlasnejšie\tF11, Alt+šípka vpravo",          ID_MACHINE_LOUDER
+        MENUITEM "&Tichšie\tF11, Alt+šípka vľavo",              ID_MACHINE_QUIETER
+        MENUITEM "Nastaviť po&suvníky…",                        ID_MACHINE_SLIDERS
     END
     POPUP "&Klávesnica"
     BEGIN
@@ -150,11 +156,13 @@ END
 // whose command is greyed, TranslateAccelerator still returns 1 -- the message
 // is eaten and RunMessageLoop moves on -- but no WM_COMMAND arrives at all.
 // The one-shot survives that only because every entry in this table is Ctrl
-// with something: the *Ctrl* press is no accelerator, so it reaches the window
-// and arms passOnceUsed_, and the letter's release spends it.  So keep them
-// Ctrl+something.  A bare key here, pointing at an item that RefreshMenu ever
-// greys, would leave F11 armed with nothing to spend it -- the silent sticky
-// mode again, and this time without a single message to notice it by.
+// or Alt with something: the modifier's own press is no accelerator, so it
+// reaches the window (Alt as WM_SYSKEYDOWN, which HostKeepsKey sees just the
+// same) and arms passOnceUsed_, and the other key's release spends it.  So keep
+// them Ctrl+something or Alt+something.  A bare key here, pointing at an item
+// that RefreshMenu ever greys, would leave F11 armed with nothing to spend it
+// -- the silent sticky mode again, and this time without a single message to
+// notice it by.
 
 IDR_ACCELERATORS_HOST ACCELERATORS
 BEGIN
@@ -184,6 +192,13 @@ BEGIN
     "7",        ID_DISK_SLOT7,       VIRTKEY, CONTROL
     "8",        ID_DISK_SLOT8,       VIRTKEY, CONTROL
     "9",        ID_DISK_SLOT9,       VIRTKEY, CONTROL
+    /* The two sliders, by where the modifier lies under the left hand: Ctrl is
+       the outer key and moves the left slider, speech rate; Alt is nearer the
+       middle and moves the right one, volume.  Right is faster and louder. */
+    VK_RIGHT,   ID_MACHINE_FASTER,   VIRTKEY, CONTROL
+    VK_LEFT,    ID_MACHINE_SLOWER,   VIRTKEY, CONTROL
+    VK_RIGHT,   ID_MACHINE_LOUDER,   VIRTKEY, ALT
+    VK_LEFT,    ID_MACHINE_QUIETER,  VIRTKEY, ALT
 END
 
 /////////////////////////////////////////////////////////////////////////////
@@ -231,6 +246,31 @@ BEGIN
 
     DEFPUSHBUTTON   "OK", IDOK, 118, 145, 50, 14, WS_GROUP
     PUSHBUTTON      "Zrušiť", IDCANCEL, 175, 145, 50, 14
+END
+
+/////////////////////////////////////////////////////////////////////////////
+// Sliders
+//
+// The two slider controls on the Eureka's front, as trackbars.  A screen reader
+// reads a trackbar's position as its value, and the arrows, Home, End and the
+// page keys move it with nothing written here.  Left before right as on the
+// machine, so the rate comes first.  Each label stands straight before its
+// trackbar because that is where its name comes from, and its mnemonic lands
+// on the trackbar for the same reason.
+
+IDD_SLIDERS DIALOGEX 0, 0, 232, 96
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Posuvníky"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "&Rýchlosť reči:", IDC_STATIC, 7, 9, 218, 9
+    CONTROL         "", IDC_SLIDER_RATE, "msctls_trackbar32", WS_TABSTOP,
+                    7, 20, 218, 16
+    LTEXT           "&Hlasitosť:", IDC_STATIC, 7, 42, 218, 9
+    CONTROL         "", IDC_SLIDER_VOLUME, "msctls_trackbar32", WS_TABSTOP,
+                    7, 53, 218, 16
+    DEFPUSHBUTTON   "OK", IDOK, 118, 76, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 175, 76, 50, 14
 END
 
 /////////////////////////////////////////////////////////////////////////////

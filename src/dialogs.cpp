@@ -1,10 +1,13 @@
 #include "dialogs.h"
 
+#include <commctrl.h>
+
 #include <filesystem>
 #include <system_error>
 
 #include "disk_split.h"
 #include "res/resource.h"
+#include "sliders.h"
 
 bool SettingsDialog::OnInit() {
   SetChecked(IDC_MODE_BRAILLE, mode_ == InputMode::kBraille);
@@ -20,6 +23,27 @@ bool SettingsDialog::OnOk() {
   mode_ = IsChecked(IDC_MODE_BRAILLE) ? InputMode::kBraille : InputMode::kPc;
   diagnostics_ = IsChecked(IDC_DIAGNOSTICS);
   keepRam_ = IsChecked(IDC_KEEP_RAM);
+  return true;
+}
+
+bool SlidersDialog::OnInit() {
+  const auto setUp = [this](int id, int positions, int position) {
+    const HWND slider = Item(id);
+    SendMessageW(slider, TBM_SETRANGE, FALSE, MAKELPARAM(0, positions - 1));
+    // A page is a quarter of the travel, so PgUp and PgDn cross it in four.
+    SendMessageW(slider, TBM_SETPAGESIZE, 0, positions / 4);
+    SendMessageW(slider, TBM_SETPOS, TRUE, position);
+  };
+  setUp(IDC_SLIDER_RATE, sliders::kRatePositions, speechRate_);
+  setUp(IDC_SLIDER_VOLUME, sliders::kVolumePositions, volume_);
+  return false;
+}
+
+bool SlidersDialog::OnOk() {
+  speechRate_ = static_cast<int>(
+      SendMessageW(Item(IDC_SLIDER_RATE), TBM_GETPOS, 0, 0));
+  volume_ = static_cast<int>(
+      SendMessageW(Item(IDC_SLIDER_VOLUME), TBM_GETPOS, 0, 0));
   return true;
 }
 

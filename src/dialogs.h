@@ -32,6 +32,26 @@ class SettingsDialog : public win::Dialog {
   bool keepRam_;
 };
 
+// The two sliders at once, as positions from sliders.h.  Applied on OK and not
+// while a trackbar moves: the rate only shows in speech, and the machine is
+// usually silent while a dialog is up, so a live preview would preview nothing.
+class SlidersDialog : public win::Dialog {
+ public:
+  SlidersDialog(int speechRate, int volume)
+      : speechRate_(speechRate), volume_(volume) {}
+
+  int speech_rate() const { return speechRate_; }
+  int volume() const { return volume_; }
+
+ protected:
+  bool OnInit() override;
+  bool OnOk() override;
+
+ private:
+  int speechRate_;
+  int volume_;
+};
+
 // The nine quick-choice slots as the dialogs pass them around.
 using SlotList = std::array<std::wstring, Settings::kSlots>;
 

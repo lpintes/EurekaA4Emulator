@@ -42,6 +42,9 @@ class MainWindow : public win::Window {
   // Puts the released state where another process can read it.  The NVDA
   // add-on is the only reader; see kKeyboardReleasedProp.
   void PublishKeyboardState() const;
+  // Puts the two slider positions where the same add-on can read them, so it
+  // can say a step out loud.  See kSpeechRateProp.
+  void PublishSliders() const;
   void RefreshMenu() const;
   // Puts the "F11, " prefix on the Ctrl shortcuts, or takes it off once the
   // keyboard is released and they no longer need it.
@@ -84,6 +87,10 @@ class MainWindow : public win::Window {
   // already off -- then closing loses nothing.
   bool ConfirmClosingWithoutPowerDown();
   void SaveSettings();
+  // Moves the two sliders to these positions, clamped to their travel, and
+  // remembers them.  Both at once because the dialog sets both; a shortcut
+  // passes the other one unchanged.
+  void SetSliders(int speechRate, int volume);
   void SaveSlot(int number, std::wstring value);
   // Puts the diskette from one of the nine slots in.  Numbered 1..9 the way
   // the menu and Ctrl+digit name them.

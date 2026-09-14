@@ -27,6 +27,16 @@ constexpr wchar_t kClassName[] = L"EurekaA4EmulatorWindow";
 // is almost always in.
 constexpr wchar_t kKeyboardReleasedProp[] = L"EurekaA4.KeyboardReleased";
 
+// The two slider positions, raw from sliders.h, for the same add-on.  It sees
+// Ctrl or Alt with an arrow go past, looks again a moment later and says the
+// new position -- the only way to hear a step the machine will not voice until
+// its next sentence, and for the volume perhaps not at all.  A key that went to
+// Eureka instead moves nothing, so the add-on stays quiet without having to
+// know about F11.  Absent reads as 0 and never changes, so against an older
+// emulator the add-on simply announces nothing.
+constexpr wchar_t kSpeechRateProp[] = L"EurekaA4.SpeechRate";
+constexpr wchar_t kVolumeProp[] = L"EurekaA4.Volume";
+
 // A mode nobody can hear is the trap this machine keeps setting: a keyboard
 // that goes nowhere and a keyboard that is broken are both silence.  So every
 // change of where the keys go says so out loud, and says it in the host's own
@@ -67,6 +77,11 @@ void ToneUnlocked() { Tone(1000, 140); }
 void TonePoweredOff() { Tone(700, 100); Tone(500, 100); Tone(300, 150); }
 void TonePoweredOn() { Tone(300, 100); Tone(500, 100); Tone(700, 150); }
 
+// A slider at the end of its travel.  One short note, higher than anything
+// above, so it cannot be taken for the one-shot being spent -- which, after
+// F11, sounds in the same breath.
+void ToneSliderEnd() { Tone(1600, 60); }
+
 
 // Kept in one place so the menu, the help text and this list cannot drift
 // apart.  A shortcut a screen reader never reads is a shortcut nobody has.
@@ -86,7 +101,8 @@ constexpr wchar_t kShortcutHelp[] =
     L"      znamená, že klávesy Eureku opúšťajú, stúpajúca že sa vracajú.\r\n"
     L"      Kým to platí, je to napísané aj v titulku okna.\r\n"
     L"\r\n"
-    L"Ostatné skratky sú dvojhmatové: najprv F11, potom Ctrl s písmenom.\r\n"
+    L"Ostatné skratky sú dvojhmatové: najprv F11, potom Ctrl alebo Alt\r\n"
+    L"s ďalším klávesom.\r\n"
     L"Bez F11 idú tie klávesy Eureke, takže jej okno neberie ani jeden.\r\n"
     L"Po Shift+F11 platia rovno, bez F11, lebo vtedy je klávesnica hosťova\r\n"
     L"aj tak. Všetky sú aj v ponuke a tá ich nepotrebuje.\r\n"
@@ -99,6 +115,13 @@ constexpr wchar_t kShortcutHelp[] =
     L"      hodiny majú na skutočnej Eureke vlastný zdroj a vypínač im ho\r\n"
     L"      nepretína. Zavretie emulátora je iná vec: pamäť sa zatiaľ nikam\r\n"
     L"      neukladá.\r\n"
+    L"F11, Ctrl+šípka vpravo a vľavo — rýchlejšia a pomalšia reč. Je to\r\n"
+    L"      ľavý posuvník Eureky: reč sa zrýchli a zároveň zvýši, tak ako\r\n"
+    L"      na stroji.\r\n"
+    L"F11, Alt+šípka vpravo a vľavo — hlasnejšie a tichšie, pravý\r\n"
+    L"      posuvník. Na konci posuvníka sa ozve krátke vysoké pípnutie.\r\n"
+    L"      Oba posuvníky naraz nastavíte v ponuke Stroj → Nastaviť\r\n"
+    L"      posuvníky a emulátor si ich polohu pamätá.\r\n"
     L"F11, Ctrl+I — vloží disketu z iného priečinka. Vymieňať sa dá za\r\n"
     L"      behu: EurekaDOS si nový disk prihlási sám, tak ako skutočný\r\n"
     L"      stroj.\r\n"
@@ -204,6 +227,7 @@ bool MainWindow::Create() {
     return false;
   RegisterCommands();
   PublishKeyboardState();
+  PublishSliders();
   RefreshTitle();
   return true;
 }
@@ -214,11 +238,44 @@ void MainWindow::PublishKeyboardState() const {
            reinterpret_cast<HANDLE>(static_cast<UINT_PTR>(released_ ? 1 : 0)));
 }
 
+void MainWindow::PublishSliders() const {
+  if (!hwnd_) return;
+  SetPropW(hwnd_, kSpeechRateProp,
+           reinterpret_cast<HANDLE>(
+               static_cast<UINT_PTR>(settings_.speech_rate())));
+  SetPropW(hwnd_, kVolumeProp,
+           reinterpret_cast<HANDLE>(static_cast<UINT_PTR>(settings_.volume())));
+}
+
 void MainWindow::RegisterCommands() {
   OnCommand(ID_FILE_EXIT, [this] { PostMessageW(hwnd_, WM_CLOSE, 0, 0); });
   OnCommand(ID_MACHINE_RESET, [this] { emulator_.PostReset(); });
   OnCommand(ID_MACHINE_POWERON, [this] { emulator_.PostPowerOn(); });
   OnCommand(ID_MACHINE_POWEROFF, [this] { emulator_.PostPowerOff(); });
+  // One step per press.  A step that lands on either end of the travel, or
+  // finds the slider already there, says so: without it the only way to find
+  // the end is to go on pressing and hear nothing change.
+  const auto step = [this](int rateDelta, int volumeDelta) {
+    SetSliders(settings_.speech_rate() + rateDelta,
+               settings_.volume() + volumeDelta);
+    const int rate = settings_.speech_rate();
+    const int volume = settings_.volume();
+    const bool rateEnd =
+        rateDelta != 0 && (rate == 0 || rate == sliders::kRatePositions - 1);
+    const bool volumeEnd =
+        volumeDelta != 0 &&
+        (volume == 0 || volume == sliders::kVolumePositions - 1);
+    if (rateEnd || volumeEnd) ToneSliderEnd();
+  };
+  OnCommand(ID_MACHINE_FASTER, [step] { step(+1, 0); });
+  OnCommand(ID_MACHINE_SLOWER, [step] { step(-1, 0); });
+  OnCommand(ID_MACHINE_LOUDER, [step] { step(0, +1); });
+  OnCommand(ID_MACHINE_QUIETER, [step] { step(0, -1); });
+  OnCommand(ID_MACHINE_SLIDERS, [this] {
+    SlidersDialog dialog(settings_.speech_rate(), settings_.volume());
+    if (dialog.ShowModal(hwnd_, IDD_SLIDERS) != IDOK) return;
+    SetSliders(dialog.speech_rate(), dialog.volume());
+  });
   OnCommand(ID_KEYBOARD_BRAILLE,
             [this] { emulator_.PostSetMode(InputMode::kBraille); });
   OnCommand(ID_KEYBOARD_PC,
@@ -477,6 +534,25 @@ void MainWindow::RegisterCommands() {
 // What keeps this from being a silent loss is that the title says "neuložená"
 // the whole time, so what would be dropped is on screen -- and on NVDA+T --
 // before anybody reaches for Ctrl+I.
+
+void MainWindow::SetSliders(int speechRate, int volume) {
+  const int oldRate = settings_.speech_rate();
+  const int oldVolume = settings_.volume();
+  // Settings does the clamping, so a step past either end lands back on it
+  // and comes out as no change at all.
+  settings_.SetSpeechRate(speechRate);
+  settings_.SetVolume(volume);
+  if (settings_.speech_rate() == oldRate && settings_.volume() == oldVolume)
+    return;
+  emulator_.PostSetSpeechRate(settings_.speech_rate());
+  emulator_.PostSetVolume(settings_.volume());
+  // Before the save, which can stop on a message box: the add-on is already
+  // looking for the new position.
+  PublishSliders();
+  // Saved on every step, like a diskette choice: a position the user set is
+  // one they expect to find again, and a failed save is best reported now.
+  SaveSettings();
+}
 
 void MainWindow::InsertSlot(int number) {
   // The diskette already in the drive may be the only copy of itself.
@@ -906,7 +982,9 @@ void MainWindow::RefreshShortcutText(HMENU menu) const {
                            ID_DISK_INSERT,      ID_DISK_NEW,
                            ID_DISK_EJECT,       ID_DISK_PROTECT,
                            ID_MACHINE_RESET,    ID_MACHINE_POWERON,
-                           ID_MACHINE_POWEROFF,
+                           ID_MACHINE_POWEROFF, ID_MACHINE_FASTER,
+                           ID_MACHINE_SLOWER,   ID_MACHINE_LOUDER,
+                           ID_MACHINE_QUIETER,
                            ID_KEYBOARD_TOGGLE,  ID_TOOLS_SETTINGS,
                            ID_TOOLS_DIAGDUMP,   ID_HELP_KEYS};
   for (int number = 1; number <= Settings::kSlots; ++number)
@@ -1114,6 +1192,8 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       // process.  Nothing else here needs the message, so it goes on to the
       // base class as usual.
       RemovePropW(hwnd_, kKeyboardReleasedProp);
+      RemovePropW(hwnd_, kSpeechRateProp);
+      RemovePropW(hwnd_, kVolumeProp);
       break;
 
     case WM_EMU_STATE:

@@ -16,6 +16,7 @@
 // a screen reader deals with best -- see the comments in eureka.rc.
 #define IDD_SPLIT            204
 #define IDD_SPLITPLAN        205
+#define IDD_SLIDERS          206
 
 // Menu and accelerator commands.
 #define ID_FILE_EXPORT       40001
@@ -31,6 +32,13 @@
 // clock and the eight bytes of alarm, so the machine carries on where the user
 // left it.  Reset beside it is the cold start.  See EurekaMachine::PowerOn.
 #define ID_MACHINE_POWERON   40012
+// The two sliders on the front of the machine: speech rate on the left,
+// volume on the right.  One step per command; the dialog sets both at once.
+#define ID_MACHINE_FASTER    40013
+#define ID_MACHINE_SLOWER    40014
+#define ID_MACHINE_LOUDER    40015
+#define ID_MACHINE_QUIETER   40016
+#define ID_MACHINE_SLIDERS   40017
 #define ID_KEYBOARD_BRAILLE  40020
 #define ID_KEYBOARD_PC       40021
 #define ID_KEYBOARD_TOGGLE   40022
@@ -105,6 +113,10 @@
 #define IDC_SPLITPLAN_UNITS  1051
 #define IDC_SPLITPLAN_REBUILD 1052
 #define IDC_SPLITPLAN_SAVESPOLU 1053
+
+// Sliders dialog controls.
+#define IDC_SLIDER_RATE      1060
+#define IDC_SLIDER_VOLUME    1061
 
 // Slots dialog controls.
 #define IDC_SLOT_LIST        1020
