@@ -177,6 +177,28 @@ nenájde, vypíše, kde všade hľadal. Ak sa neuvedie `--disk`, vloží sa
 disketa z minulého spustenia; systémový výber priečinka sa zobrazí len
 vtedy, keď si emulátor nemá čo pamätať.
 
+## Posuvníky
+
+Eureka mala dva posuvníky: ľavý menil rýchlosť reči, pravý hlasitosť.
+Emulátor ich má tiež, v ponuke **Stroj**:
+
+- `F11`, `Ctrl+šípka vpravo` a `Ctrl+šípka vľavo` — **rýchlejšia a pomalšia
+  reč**. Tak ako na stroji sa s rýchlosťou mení aj výška hlasu. Posuvník má
+  32 polôh, viac ich Eureka nerozlišuje, a zmena sa prejaví na najbližšej
+  vete. Ozvena klávesov sa mení tiež, polovičnou mierou; hudba a tóny nie.
+- `F11`, `Alt+šípka vpravo` a `Alt+šípka vľavo` — **hlasnejšie a tichšie**.
+  Posuvník má 21 polôh a najnižšia je ticho. Najvyššia je najhlasnejšia,
+  akú zvuk znesie bez skreslenia, a predvolene stojí posuvník v strede.
+
+Po `Shift+F11` platia tieto skratky aj bez `F11`. Keď je posuvník na konci,
+ozve sa krátke vysoké pípnutie. Oba posuvníky naraz nastavíte v **Stroj →
+Nastaviť posuvníky**.
+
+S doplnkom pre NVDA z priečinka `nvda-addon` sa nová poloha aj ohlási,
+napríklad „hlasitosť 12 z 20“ alebo „rýchlosť 17 z 32“.
+
+Emulátor si polohu oboch posuvníkov pamätá.
+
 Disketa je nepovinná:
 
 - `--no-disk` spustí Eureku bez diskety a bez pýtania. Diskové funkcie
@@ -499,7 +521,7 @@ kopírovanie chránený zdroj priamo žiada.
 Diskety a stav stroja. Z diskiet **tú, ktorú ste mali naposledy**,
 **deväť slotov** a **zoznam diskiet zamknutých proti zápisu**; zo stavu
 stroja **obsah pamäte a hodín po riadnom vypnutí**, pokiaľ to
-v Nastaveniach nevypnete (viď vyššie). Posledná
+v Nastaveniach nevypnete (viď vyššie), a **polohu oboch posuvníkov**. Posledná
 disketa sa vloží pri ďalšom štarte, takže sa program
 nepýta na priečinok pri každom spustení; zapíše sa vždy, keď disketu
 vložíte — pri štarte, pri výmene za behu aj zo slotu. Pamätá sa

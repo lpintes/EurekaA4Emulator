@@ -102,9 +102,18 @@ Zabudovaný voltmeter a teplomer (`DVM`, `TIC`, `TIF` v BASICu).
   aplikáciami). Manuál to potvrdzuje: Timer 0 obsluhuje reč **asi
   7,5 kHz** a rýchlosť kolíše podľa výšky hlasu a typu alofónu. Zvukové
   efekty bežia na dvojnásobku zvolenej frekvencie.
+  **Doplnené 14. 9. 2026:** veľkú časť tých prepisov robí pravdepodobne
+  posuvník rýchlosti, ktorý emulátor držal na pevných `80h` — presne na
+  úrovni ticha, kde firmvér reštartuje časovač každú ôsmu vzorku pauzy
+  (114 zápisov `RLDR0` na vetu namiesto jedného). Od 6.34 stojí predvolene
+  na `84h`; počet sa odvtedy znova nemeral.
 - Ten potenciometer nie je len hardvérový: `vmsel_mask` (`B0h` bit 6)
   v nule pripája na komparátor `vm1` práve posuvník rýchlosti reči,
   takže firmvér si jeho polohu vie prečítať.
+  **Opravené 14. 9. 2026:** nie v nule, ale v **jednotke** — tak to píše
+  `IOPORT.H` (príloha H), tak bit nastavuje firmvér na `004EB` a tak to mal
+  aj `machine.cpp`; mýlila sa len táto veta. Ako firmvér posuvník číta a na
+  čo ho použije, je v 6.34.
 - Heartbeat je Timer 1 na **75 Hz**. Bez neho stroj nezaznamená stlačenie
   klávesu ani neozve echo. Zapisuje aj do `power_latch` a `output_latch`,
   preto sa ich tiene v RAM musia aktualizovať *pred* zápisom na port.
@@ -2529,6 +2538,125 @@ V tejto ROM sa neprejaví nič z toho okrem TRAP pri cudzích programoch.
 9. `tools/z180dis.py` nepozná OTIM, OTDM, OTIMR ani OTDMR a vypisuje ich ako
    `db ED,93` (`ea4-6lc`).
 
+### 6.34 Posuvníky hlasitosti a rýchlosti reči — spravené (`ea4-06x`)
+
+Eureka mala dva posuvníky: ľavý menil rýchlosť reči, pravý hlasitosť.
+Emulátor držal rýchlosť na pevných `80h` (`kRatePotLevel` v `machine.cpp`,
+s poznámkou, že hodnota nie je nikde doložená) a hlasitosť nemal.
+
+Manuál k tomu hovorí málo. `IOPORT.H` (príloha H) pomenúva „speech rate pot
+(the left hand slider control)“ na komparátore `vm1` pri `vmsel` v jednotke
+a nič viac. Hlasitosť v manuáli nie je vôbec — je to analógový potenciometer
+za DAC a firmvér o ňom nevie.
+
+#### Ako firmvér číta posuvník rýchlosti
+
+Odčítané z kódu 14. 9. 2026 a na troch miestach (`004EB`, `001BB`, `00258`)
+skontrolované priamo v bajtoch ROM.
+
+- **Binárnym vyhľadávaním nie.** Vyhľadávanie OS na `192B5` sa volá len pre
+  kanály 0, 1 a 3 (teplomer, voltmeter, batéria; `19C6D`, `1878B`).
+- `004EB` nastaví `vmsel` (`C438h` bit 6, port `B0h`) na začiatku každej
+  dávky reči (rutina `04C5`, volaná z `00337`, `004B0`, `0095F`).
+- Obsluha prerušenia reči na `1D015` pošle vzorku na DAC a uloží ju do
+  `C43Bh`. **Každú ôsmu vzorku** alofónu (`01A5`) aj pauzy (`0243`) porovná
+  `001BB`–`001EE` bit `vm1` s touto vzorkou a odhad v `F833h` k nej posunie:
+  keď je posuvník nad odhadom a odhad pod vzorkou, odhad sa zdvihne na
+  vzorku, a naopak. Pri inicializácii je odhad `80h` (`00290`).
+- Z odhadu skladá `01F0` → `0258` reload časovača:
+  **`RLDR0L` = výška (`F802h`) − `F833h`/8**, `RLDR0H` = 0 (`00261`).
+  Výška je predvolene `38h` = 56 (`C43Eh`), mení ju `!%P` (`03FF9`)
+  a intonácia o ±2 (`03407`).
+- Vzorkovacia frekvencia reči je teda 307 200 / (RLDR0 + 1) Hz a posuvník ju
+  mení **ako rýchlosť pásky: reč je rýchlejšia a zároveň vyššia**. Výšku
+  firmvér nekompenzuje. Pauzy (`!%W` aj medzi slovami) sa počítajú vo
+  vzorkách, takže sa skracujú s rečou.
+- Firmvér rozlišuje **32 polôh**. Pri výške 56 je to teoreticky 5 389 až
+  11 815 Hz.
+- Odhad nadobúda len hodnoty vzoriek, ktoré naozaj zazneli, takže krajné
+  polohy obmedzuje rozkmit reči: pri `FFh` sa zastavil na `E0h`–`E7h`
+  (`RLDR0` = `1Ch`), nie na `19h`. Na hardvéri je to tak isto.
+- **Kliky** cez `.spchar` (`04010` → `03B03`) majú polovičnú váhu:
+  `RLDR0` = výška/2 − `F833h`/16. **Tóny `!%T`** (`005DD`–`00676`),
+  **melódie** (`0FB12`, `RLDR0` = `1Ah`) ani `19136` (`RLDR0` = `28h`) na
+  posuvníku nezávisia.
+
+Polarita komparátora (nastavený bit = DAC nad vstupom) sedí s binárnym
+vyhľadávaním OS (`192BC`, `SUB D`) aj s meraním nižšie; na hardvéri
+overená nie je.
+
+#### Zmerané v emulátore
+
+Veta „hlavní menu“ (F10), vždy 9 416 vzoriek na DAC, pred zavedením
+posuvníka, podľa pevnej úrovne:
+
+- `00h`: `RLDR0` = `38h`, 5 390 Hz, 1 747 ms
+- `40h`: `RLDR0` = `31h`, 6 145 Hz, 1 532 ms
+- `80h`: `RLDR0` = `28h`, 7 480 Hz, 1 259 ms
+- `C0h`: `RLDR0` = `21h`, 9 036 Hz, 1 042 ms
+- `FFh`: `RLDR0` = `1Ch`, 10 594 Hz, 889 ms
+
+Po zavedení tokenom sondy: poloha 0 dáva zápisy `RLDR0L` `2Fh`–`33h`,
+poloha 31 `1Ch`. Hlasitosť 0 dala 48 000 vzoriek s rozkmitom 0 až 0.
+
+#### Dve vedľajšie zistenia
+
+- **`80h` je presne úroveň ticha.** Pri rovnosti firmvér volá `01F0`
+  a reštartuje časovač 0 každú ôsmu vzorku pauzy: 114 zápisov `RLDR0` na
+  jednu vetu, pri iných úrovniach jeden. Odtiaľ je pravdepodobne väčšina
+  z 13 041 prepisov v sekcii 3 — dohad, znova sa to nemeralo.
+- **Úvodná veta môže byť pomalá.** `C43Bh` je po štarte `00h`, kým DAC už
+  stojí inde, takže pri polohe pod `C0h` odhad spadne na `00h` (`RLDR0` =
+  `38h`, `00264`). Je to správanie firmvéru, emulátor ho neopravuje.
+
+#### Čo sa spravilo
+
+- **`src/sliders.h`** je jediné miesto s rozsahmi. Rýchlosť má 32 polôh na
+  úrovni poloha × 8 + 4, teda v strede kroku firmvéru; predvolená je 16
+  (`84h`), ktorá dáva ten istý reload ako doterajších `80h`, ale nesedí na
+  úrovni ticha. Hlasitosť má 21 polôh: vrch je doterajší plný výstup
+  (špičky okolo 27 900 z 32 767, nad tým by sa orezávalo), predvolený stred
+  je o 10 dB nižšie, nad stredom kroky po 1 dB, pod ním po 2 dB a poloha 0
+  je ticho. Stred hlasitosti chcel majiteľ, aby sa dalo ísť oboma smermi.
+- **Stroj:** `SetRatePot` (úroveň na stupnici DAC, ide do `ReadInputBuffer`)
+  a `SetVolume` (zosilnenie na konci `RenderAudio`). `Reset` ani `PowerOn`
+  ich nemenia.
+- **Nastavenia:** `rychlost-reci=` a `hlasitost=`. Chýbajúci kľúč je stred,
+  slovo sa preskočí, číslo mimo rozsahu sa pritiahne na koniec.
+- **Okno:** ponuka `S&troj` (dovtedy `&Stroj`, bila sa so `&Súbor`) s
+  položkami Rýchlejšia reč, Pomalšia reč, Hlasnejšie, Tichšie a Nastaviť
+  posuvníky; hostiteľské skratky `Ctrl+šípka` vľavo a vpravo pre rýchlosť
+  a `Alt+šípka` pre hlasitosť; dialóg `IDD_SLIDERS` s dvoma posuvníkmi
+  Windows; každý krok sa hneď uloží. Na konci posuvníka krátky tón 1600 Hz.
+- **`Alt` v hostiteľskej tabuľke je pre jednorazovku bezpečný** rovnako ako
+  `Ctrl`: samotné stlačenie `Alt` príde do okna ako `WM_SYSKEYDOWN`
+  a `HostKeepsKey` nastaví `passOnceUsed_`. Majiteľ vyskúšal, že pustenie
+  `Alt` po `Shift+F11` a `Alt+šípke` ponuku neotvorí.
+- **Doplnok NVDA 1.1.0** ohlási novú polohu („hlasitosť 12 z 20“, „rýchlosť
+  17 z 32“ — rýchlosť od jednotky podľa želania majiteľa). Emulátor
+  zverejňuje polohy vo vlastnostiach okna `EurekaA4.SpeechRate`
+  a `EurekaA4.Volume`. Doplnok sleduje klávesy cez
+  `inputCore.decide_executeGesture`, ktorý NVDA volá pred kontrolou spánku,
+  a nie skriptom, lebo skript aplikačného modulu by v dialógoch vzal
+  editačným poliam `Ctrl+šípku`. Po klávese sa pozrie o 30, 100 a 250 ms.
+  Podrobne v `nvda-addon/README.md`.
+- **Sonda:** tokeny `rychlost:N` a `hlasitost:N`. **`settings_test`:**
+  13 nových kontrol.
+
+#### Otvorené
+
+1. **Kam siahal skutočný posuvník rýchlosti.** Celý rozsah `00h`–`FFh`
+   a „vyššie napätie je rýchlejšie“ je dohad. Majiteľ si nepamätá, či
+   najvyššia rýchlosť znela tak ako teraz. Rozhodne to nahrávka jednej vety
+   pri oboch krajných polohách: z dĺžky vety sa dopočíta `RLDR0` a z neho
+   úroveň. Mení sa len `sliders::RatePotLevel`.
+2. **Hlásenie v NVDA** je v čase zápisu overené prekladom a kontrolou
+   modulu, nie ešte naživo.
+   **Uzavreté 14. 9. 2026:** majiteľ vyskúšal naživo, doplnok funguje, ako
+   má.
+3. **Test cez ROM** na to, že posuvník dôjde do firmvéru, neexistuje; je to
+   overené len sondou.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -2578,6 +2706,11 @@ a funguje, ako má (potvrdené 7. 9. 2026). Rozbor je na konci 6.18. Pozor
 len na vývojovú slučku: beží zo scratchpadu, takže zmena v repozitári sa
 neprejaví, kým sa modul nenakopíruje (`build-addon.bat scratchpad`)
 a nenačíta znovu (`NVDA+Ctrl+F3`).
+
+**Hotové 14. 9. 2026: posuvníky hlasitosti a rýchlosti reči** (6.34,
+`ea4-06x`) — model, nastavenia, ponuka, skratky, dialóg, tón na konci
+posuvníka a hlásenie v doplnku NVDA. Otvorené zostáva hlavne to, kam siahal
+skutočný posuvník rýchlosti (6.34, Otvorené).
 
 1. **Sonda na klávesnicu** (6.18, koniec) — dva krátke `.COM` programy
    cez `dev_kb` a `con_ctl_getkey`, ktoré ohlásia prijatý kód. Bez ich dát
@@ -2657,9 +2790,9 @@ integration_test ROM DISK_FOLDER hlaseni -> PASS (tri stavy mechaniky, tri vety)
 integration_test ROM DISK_FOLDER snimka -> PASS (RAM do súboru a späť, tri odmietnutia)
 integration_test ROM DISK_FOLDER akord -> PASS (postupné skladanie akordu bodmi)
 integration_test ROM DISK_FOLDER budik -> PASS (budík zobudí vypnutý stroj a uspí ho)
-disk_test                              -> PASS (144 kontrol, bez ROM)
+disk_test                              -> PASS (214 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
-settings_test                          -> PASS (51 kontrol, bez ROM)
+settings_test                          -> PASS (75 kontrol, bez ROM)
 ```
 
 Všetkých **šestnásť** naraz spustí `run-tests.bat`: paralelne, s jedným

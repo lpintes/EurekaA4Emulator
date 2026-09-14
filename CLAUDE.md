@@ -283,6 +283,15 @@ Drží aj **prepínač zachovania RAM** (`zachovat-ram=`, `ea4-dh1`): že chýba
 kľúč znamená zapnuté (starší súbor nesmie ticho prestať uchovávať RAM), že
 vypnuté aj zapnuté prežijú zápis a čítanie a že sa píšu ako `0`/`1`.
 Overené mutáciou: `CP_UTF8` → `CP_ACP` v `settings.cpp` zhodí tri kontroly.
+Drží aj **posuvníky** (`rychlost-reci=`, `hlasitost=`, `ea4-06x`): že chýbajúci
+kľúč znamená stred, že poloha prežije zápis aj čítanie, že slovo v súbore
+nechá predvolenú polohu (čítané ako nula by hlasitosť ticho stlmilo) a číslo
+mimo rozsahu sa pritiahne na koniec. Keďže je to test bez ROM, drží aj
+**zobrazenie polôh** zo `src/sliders.h`: že každá poloha rýchlosti padne do
+vlastného kroku firmvéru (`00258` berie päť bitov), že stred nesedí presne na
+`80h`, úrovni ticha, a že vrch hlasitosti výstup nemení. **Rozsahy posuvníkov
+sú v `sliders.h` a nikde inde** — pýta sa ich stroj, nastavenia, dialóg aj
+sonda. Doplnok NVDA má počty polôh napevno, takže zmena rozsahu patrí aj doň.
 Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spúšťa.
 
 ## Spustenie testov
@@ -361,6 +370,12 @@ Tokeny sekvencie:
   klávesu cez `.spchar` zámerne nie (HANDOFF sekcia 3). Kým bral len
   `.speak`, bol po F2 prepis prázdny, hoci reproduktor dostal 48 000 vzoriek
   na plný rozkmit. Keď sa zdá, že stroj mlčí, over to týmto.
+- `rychlost:N`, `hlasitost:N` — posuvníky, v tých istých polohách ako okno
+  (`src/sliders.h`: rýchlosť 0–31, hlasitosť 0–20). Posuvník rýchlosti firmvér
+  sleduje len počas reči (`001BB`), takže v tichu sa nič nestane až do
+  ďalšieho slova. Dĺžku vety `zvuk` nezmeria — počíta vzorky za pevné okno;
+  vplyv posuvníka ukážu zápisy do `RLDR0L` (port `0Eh` z `0264h`) vo výpise
+  sondy (HANDOFF 6.34).
 - `cas:+7d`, `budik` — hodiny a budík. `cas:` posunie čas, ktorý hlási RTC
   (`+2h`, `-30m`, holé číslo sú sekundy), `budik` vypíše hodiny vedľa
   alarmových registrov, masky a stavu. Bez nich sa zmeškaný budík odmerať
@@ -511,8 +526,9 @@ v konflikte s hosťom. Platí:
   siahneš, porovnaj ju s tou tabuľkou.
 - **Akcelerátorové tabuľky sú dve a to je celý trik.** `IDR_ACCELERATORS`
   platí vždy a je to celá trvalá cena: `F11`, `Shift+F11`, `F12`.
-  `IDR_ACCELERATORS_HOST` (`Ctrl+U I M Q R V P K N D H Z` a `Ctrl+0` až `Ctrl+9`
-  pre sloty s disketami) platí **len keď je
+  `IDR_ACCELERATORS_HOST` (`Ctrl+U I M Q R V P K N D H Z`, `Ctrl+0` až `Ctrl+9`
+  pre sloty s disketami a `Ctrl+šípka` s `Alt+šípkou` vľavo a vpravo pre
+  posuvníky) platí **len keď je
   klávesnica hosťova** — po `F11` alebo `Shift+F11`. Bez toho prefixu idú
   tie klávesy Eureke, takže `Ctrl+H` na exterke naozaj urobí to, čo robí
   na stroji. Bránu vyhodnocuje `MainWindow::HostShortcutsActive()` a pýta
@@ -534,9 +550,12 @@ v konflikte s hosťom. Platí:
   skrytom okne s ručne poskladaným `MSG`: keď akcelerátor ukazuje na zošedený
   príkaz, `TranslateAccelerator` aj tak vráti 1 — správa je zjedená a slučka
   ide ďalej — ale `WM_COMMAND` nepríde žiadne. Jednorazovku to nezabíja len
-  preto, že **každý prvok hostiteľskej tabuľky je `Ctrl` s niečím**: stlačenie
-  samotného `Ctrl` nie je akcelerátor, dôjde do okna a nastaví `passOnceUsed_`,
-  a pustenie písmena ju minie. Preto tam holý kláves nedávaj, ak jeho položku
+  preto, že **každý prvok hostiteľskej tabuľky je `Ctrl` alebo `Alt`
+  s niečím**: stlačenie samotného modifikátora nie je akcelerátor, dôjde do
+  okna a nastaví `passOnceUsed_`, a pustenie druhého klávesu ju minie. `Alt`
+  príde ako `WM_SYSKEYDOWN` a `HostKeepsKey` ho vidí rovnako (posuvníky,
+  14. 9. 2026); že jeho pustenie po `Shift+F11` a `Alt+šípke` neotvorí
+  ponuku, vyskúšal majiteľ. Preto tam holý kláves nedávaj, ak jeho položku
   `RefreshMenu` niekedy zošedí — `F11` by zostalo nachystané a **nebolo by to
   na čom spozorovať**.
 - **Hostiteľské skratky sú `Ctrl` s písmenom, nie `Ctrl+Shift`.** Nie je to
@@ -568,17 +587,27 @@ okno**. Nič v `main_window.cpp` preto nevie klávesu vziať čítačke — to s
 len dohodou, a tá je v `nvda-addon/`: doplnok uspí NVDA nad oknom triedy
 `EurekaA4EmulatorWindow` a nikde inde, takže ponuka a dialógy sa čítajú ďalej.
 
-Emulátor do toho hovorí jedinou vecou: vlastnosťou okna
-`EurekaA4.KeyboardReleased` (`PublishKeyboardState`), ktorú si doplnok číta
-cez `GetPropW` z druhého procesu. Overené na bežiacom procese — pri štarte
-je `0`, po `Shift+F11` `1`, po vrátení zase `0`.
+Emulátor do toho hovorí vlastnosťami okna, ktoré si doplnok číta cez
+`GetPropW` z druhého procesu. `EurekaA4.KeyboardReleased`
+(`PublishKeyboardState`) hovorí, komu patrí klávesnica — overené na bežiacom
+procese: pri štarte je `0`, po `Shift+F11` `1`, po vrátení zase `0`.
+`EurekaA4.SpeechRate` a `EurekaA4.Volume` (`PublishSliders`, od 14. 9. 2026)
+nesú polohy posuvníkov; doplnok sa po `Ctrl+šípke` alebo `Alt+šípke` pozrie,
+či sa zmenili, a novú polohu ohlási.
 
 Tri veci, na ktoré si dať pozor:
 
-- **Názov triedy okna a názov vlastnosti sú zmluva medzi dvoma projektmi.**
+- **Názov triedy okna a názvy vlastností sú zmluva medzi dvoma projektmi.**
   Premenovanie ktoréhokoľvek doplnok vypne, a **potichu** — nič nezlyhá,
-  NVDA len prestane spať. Oba názvy sú v `main_window.cpp` aj
-  v `eurekaa4emulator.py` a musia si zodpovedať.
+  NVDA len prestane spať alebo hlásiť posuvníky. Všetky názvy sú
+  v `main_window.cpp` aj v `eurekaa4emulator.py` a musia si zodpovedať;
+  počty polôh posuvníkov (32 a 21) má doplnok napevno podľa `src/sliders.h`.
+- **Klávesy posuvníkov doplnok sleduje, nie berie.** Skript na `Ctrl+šípku`
+  v aplikačnom module by mal prednosť pred skriptom zaostreného prvku a vzal
+  by editačným poliam v dialógoch emulátora skok po slovách. Doplnok sa preto
+  registruje do `inputCore.decide_executeGesture`, ktorý NVDA volá **pred**
+  kontrolou spánku, a vždy vráti `True`. O `F11` vedieť nemusí: kláves, ktorý
+  išiel Eureke, polohu nezmení a doplnok mlčí.
 - **Jednorazovka (F11) sa zámerne nepublikuje.** Vyzerá to logicky — na
   jeden kláves patrí klávesnica hosťovi — ale prebudená čítačka by práve
   ten kláves zjedla ako svoj príkaz, okno by ho nikdy nevidelo a

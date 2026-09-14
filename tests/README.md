@@ -337,6 +337,12 @@ never gets far enough to take the digits, the alarm registers stay at zero and
 nothing says why.  `spin:8000000` per step is what the sequence in 6.15 uses
 instead.  `zvuk` prints how many samples the loudspeaker got and how far they
 swung, which is the one report no hole in the speech capture can fool.
+`rychlost:N` and `hlasitost:N` move the two sliders, by the positions the
+window uses (`src/sliders.h`: rate 0-31, volume 0-20).  The firmware looks at
+the rate pot only while it speaks (`001BB`), and `zvuk` counts samples over a
+fixed stretch of guest time rather than the length of a sentence, so the rate
+shows in the firmware's writes to `RLDR0L` (port `0Eh` from `0264h`) in the
+probe's report, not there (HANDOFF 6.34).
 
 Formatting cannot currently be driven to completion. The ROM answers "v
 jednotce neni disk", from the error dispatch at physical 13D08h, which decodes

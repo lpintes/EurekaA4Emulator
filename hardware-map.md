@@ -226,6 +226,9 @@ OUT (88h),A     ; vzorka na DAC
   aplikáciami, hodnoty 15h aj 28h), čím mení rýchlosť a výšku reči.
   To je tá softvérová páka vedľa potenciometra; vzorkovacia frekvencia
   teda nie je konštantná.
+  **Doplnené 14. 9. 2026:** potenciometer je v tom istom vzorci —
+  `RLDR0L` = výška − odhad posuvníka/8 (`00258`), viď port `A8h` nižšie
+  a HANDOFF 6.34.
 - Priebehy: 10 tabuliek po 64 bajtoch od 00677h, hodnota = bajt − 20h, rozsah −32..+31.
   0 = píla, 1 = sínus, 8 = obdĺžnik, 9 = trojuholník, 2/4/5/6 = farby nástrojov,
   3/7 = úzke impulzy.
@@ -380,6 +383,17 @@ Bity 0 a 1 sú výsledky porovnania meraného napätia s napätím z DAC
 (0 až 1,31 V). Firmvér hodnotu získava binárnym vyhľadávaním — príloha
 kapitoly 10 pri `dev_battery` píše doslova „Input: DAC value in A after
 binary search".
+
+**Posuvník rýchlosti reči sa binárnym vyhľadávaním nečíta** (odčítané
+14. 9. 2026, HANDOFF 6.34). Vyhľadávanie OS na `192B5` sa volá len pre
+kanály 0, 1 a 3 — teplomer, voltmeter, batéria. Posuvník sleduje rečový
+modul priebežne: `004EB` nastaví `vmsel` na začiatku každej dávky reči
+a `001BB`–`001EE` každú ôsmu vzorku porovná `vm1` s poslednou vzorkou na DAC
+(`C43Bh`) a odhad v `F833h` k nej posunie. Z odhadu sa na `00258` skladá
+`RLDR0L` = výška (`F802h`) − `F833h`/8, `RLDR0H` = 0. Posuvník teda mení
+vzorkovaciu frekvenciu reči ako rýchlosť pásky, s výškou hlasu naraz. Kliky
+cez `.spchar` (`03B03`) ovplyvňuje polovičnou váhou, tóny `!%T` a melódie
+vôbec.
 
 **Na bite 1 nie je INTRQ.** To odvodenie bolo chybné a v emulátore
 spôsobilo, že každý diskový príkaz skončil hláškou „slabá baterie":
