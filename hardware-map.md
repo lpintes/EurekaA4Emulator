@@ -612,7 +612,12 @@ podstrčený do fronty ROM na `C67B` neprebudí**.
   (`CPL` / `AND B`), takže reč zastaví kláves aj mimo vzorkovej slučky.
 - **Prehrávač melódií**, slučka 10EFF–10F6B. Raz za takt skladby prečíta
   `8Ch` (10F13, proti vlastnému tieňu na `B0F5h`) a `89h` (10F1C, kde
-  stačí čokoľvek nenulové). **Riadok `8Ah` nečíta**, takže funkčné
+  stačí čokoľvek nenulové). Na `8Ch` **zastaví len nový bit**: tieň
+  nastaví pri štarte (`10ECC`–`10ECF`, `CPL`) a obnoví pri každom čítaní
+  (`10F19`–`10F1B`), takže shift držaný od začiatku znelku nezastaví.
+  Číta ho každých 13,7 až 20,0 ms hosťovského času (zmerané 15. 9. 2026,
+  352 čítaní počas celej znelky), a preto pulz shiftu zastaví skladbu, len
+  keď trvá aspoň jedno také čítanie (HANDOFF 6.35). **Riadok `8Ah` nečíta**, takže funkčné
   klávesy skladbu neukončia. Medzerník má vlastnú vetvu: `CP 80h` na
   10F94 rozozná medzerník bez bodov a podľa toho sa 10F6E rozhodne, či
   uloží pozíciu v skladbe.

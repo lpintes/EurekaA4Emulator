@@ -238,15 +238,25 @@ bool CheckBrailleShiftSpace(EurekaMachine& machine,
   return false;
 }
 
-// Says "where am I" and returns how many steps the utterance lasted, pressing
-// shift after `pressShiftAfter` steps of it if that is not zero.  C621h is FFh
-// only while speech is playing -- armed at 002D5, cleared at 0055E -- so it is
-// both the "is it speaking" flag and the value a new key press copies into
-// spabrt (C620h) to stop it.
+// What SpeakUntilDone does with shift while the machine speaks.
+enum class ShiftFinger { kNone, kHeld, kTapped };
+
+// Says "where am I" and returns how many steps the utterance lasted, putting a
+// finger on shift `after` steps into it.  C621h is FFh only while speech is
+// playing -- armed at 002D5, cleared at 0055E -- so it is both the "is it
+// speaking" flag and the value a new key press copies into spabrt (C620h) to
+// stop it.  With pcKeyboard the question is asked on the PC keyboard, F10 being
+// scan code 44h there, so the check covers a machine that is being typed on
+// with it rather than on the membrane.
 long SpeakUntilDone(EurekaMachine& machine, const EurekaMachine& booted,
-                    long pressShiftAfter) {
+                    ShiftFinger finger, long after, bool pcKeyboard = false) {
   machine.CopyStateFrom(booted);
-  machine.QueueKey(0xc9);  // F10, "where am I"
+  if (pcKeyboard) {
+    machine.QueueScanCode(0x44);
+    machine.QueueScanCode(0xc4);
+  } else {
+    machine.QueueKey(0xc9);  // F10, "where am I"
+  }
   bool armed = false;
   for (long step = 0; step < 6'000'000 && !armed; ++step) {
     machine.Step();
@@ -258,7 +268,8 @@ long SpeakUntilDone(EurekaMachine& machine, const EurekaMachine& booted,
   }
   for (long step = 0; step < 8'000'000; ++step) {
     machine.Step();
-    if (pressShiftAfter != 0 && step == pressShiftAfter) machine.HoldShift(true);
+    if (step == after && finger == ShiftFinger::kHeld) machine.HoldShift(true);
+    if (step == after && finger == ShiftFinger::kTapped) machine.TapShift();
     if (machine.debug_peek(0xc621) != 0xff) {
       machine.HoldShift(false);
       return step;
@@ -278,15 +289,58 @@ long SpeakUntilDone(EurekaMachine& machine, const EurekaMachine& booted,
 // together with dots the shadow is about to learn anyway.
 bool CheckBrailleShiftStopsSpeech(EurekaMachine& machine,
                                   const EurekaMachine& booted) {
-  const long full = SpeakUntilDone(machine, booted, 0);
+  const long full = SpeakUntilDone(machine, booted, ShiftFinger::kNone, 0);
   if (full <= 0) return false;
-  const long cut = SpeakUntilDone(machine, booted, full / 4);
+  const long cut =
+      SpeakUntilDone(machine, booted, ShiftFinger::kHeld, full / 4);
   if (cut <= 0) return false;
   // Generous on purpose: the point is that speech stopped early, not where.
   if (cut < full / 2) return true;
   std::cout << "  shift rec nezastavil: cela " << full << " krokov, so shiftom "
             << cut << "\n";
   return false;
+}
+
+// The emulator's tap on Ctrl: shift pressed for a moment and let go by itself
+// (TapShift, HANDOFF 6.35).  It has to stop speech on both keyboards -- the PC
+// keyboard above all, which has no key of its own that does only that -- and
+// it has to end.  A shift left down would be silent: nothing would say so
+// until the next bare space bar came out as Escape (1D52F) and every letter as
+// a capital, and that is what the second half looks at.
+bool CheckShiftTap(EurekaMachine& machine, const EurekaMachine& booted) {
+  bool ok = true;
+  for (const bool pcKeyboard : {false, true}) {
+    const long full = SpeakUntilDone(machine, booted, ShiftFinger::kNone, 0,
+                                     pcKeyboard);
+    if (full <= 0) return false;
+    const long cut = SpeakUntilDone(machine, booted, ShiftFinger::kTapped,
+                                    full / 4, pcKeyboard);
+    if (cut <= 0) return false;
+    if (cut >= full / 2) {
+      std::cout << "  tuknutie na shift rec nezastavilo"
+                << (pcKeyboard ? " (externa klavesnica)" : "") << ": cela "
+                << full << " krokov, s tuknutim " << cut << "\n";
+      ok = false;
+    }
+  }
+  machine.CopyStateFrom(booted);
+  machine.TapShift();
+  const uint64_t until = machine.cycles() + EurekaMachine::kCpuHz / 2;
+  while (machine.cycles() < until) machine.Step();
+  machine.PressBraille(0x80);  // the bare space bar
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step() && machine.queued_keys() == 0) break;
+  // Only Escape is asked about.  A bare space bar leaves C638h at 00 here, so
+  // there is no "right" value to expect -- but a shift still down makes it
+  // 1Bh, exactly as CheckBrailleShiftSpace measures, and that is the failure
+  // this is for.  Checked by making the tap last two seconds: it rang.
+  const uint8_t seen = machine.debug_peek(0xc638);
+  if (seen == 0x1b) {
+    std::cout << "  medzernik pol sekundy po tuknuti dekodovany ako Escape"
+                 " -- shift zostal dole\n";
+    ok = false;
+  }
+  return ok;
 }
 
 // Types the same word on the optional IBM PC keyboard.  The emulator sends
@@ -753,6 +807,9 @@ bool CheckSettlesToSilence(EurekaMachine& machine) {
 // Two runs, because one proves nothing: the same window is measured with the
 // space bar pressed on row 89h and with nothing pressed at all.  Without the
 // second the check would pass just as happily on a tune that ended by itself.
+// A third taps shift, as a tap on Ctrl does in the window: the player stops
+// only on a bit its previous read of row 8Ch lacked (10F16, shadow refreshed at
+// 10F1B), so a pulse too short to span one of its reads would miss.
 bool CheckMusicStops(EurekaMachine& machine) {
   // Measured: the jingle runs about 6.3 s of guest time from the F7 press, so
   // pressing at 1 s and looking at 2.5-3.0 s is well inside it either way.
@@ -760,9 +817,9 @@ bool CheckMusicStops(EurekaMachine& machine) {
   const uint64_t kWindowFrom = EurekaMachine::kCpuHz * 5 / 2;
   const uint64_t kWindowTo = EurekaMachine::kCpuHz * 3;
 
-  double level[2] = {0, 0};
-  for (int run = 0; run < 2; ++run) {
-    const bool press = run == 0;
+  double level[3] = {0, 0, 0};
+  for (int run = 0; run < 3; ++run) {
+    const bool press = run != 1;
     machine.Reset();
     for (int step = 0; step < 8'000'000; ++step)
       if (!machine.Step()) break;
@@ -774,7 +831,10 @@ bool CheckMusicStops(EurekaMachine& machine) {
     std::size_t samples = 0;
     while (machine.cycles() < started + kWindowTo) {
       if (press && !pressed && machine.cycles() > started + kPressAt) {
-        machine.PressBraille(0x80);  // the space bar alone, row 89h bit 7
+        if (run == 0)
+          machine.PressBraille(0x80);  // the space bar alone, row 89h bit 7
+        else
+          machine.TapShift();  // row 8Ch bit 6, for a moment
         pressed = true;
       }
       const bool measuring = machine.cycles() >= started + kWindowFrom;
@@ -796,6 +856,11 @@ bool CheckMusicStops(EurekaMachine& machine) {
   if (level[0] > 64) {
     std::cout << "  medzernik na riadku 89h hranie nezastavil, RMS "
               << level[0] << "\n";
+    ok = false;
+  }
+  if (level[2] > 64) {
+    std::cout << "  tuknutie na shift hranie nezastavilo, RMS " << level[2]
+              << "\n";
     ok = false;
   }
   // Measured without the press: around 5000.  A tune that is not playing here
@@ -1525,12 +1590,14 @@ int wmain(int argc, wchar_t** argv) {
     const bool braille = CheckBraille(*machine, *booted) &&
                          CheckBrailleShiftSpace(*machine, *booted) &&
                          CheckBrailleShiftStopsSpeech(*machine, *booted);
+    const bool tap = CheckShiftTap(*machine, *booted);
     const bool pc = CheckPcKeyboard(*machine);
     const bool altgr = CheckAltGr(*machine, *booted);
-    const bool passed = keys && braille && pc && altgr;
+    const bool passed = keys && braille && tap && pc && altgr;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=KBD"
               << " klavesy=" << (keys ? "ok" : "chyba")
               << " braille=" << (braille ? "ok" : "chyba")
+              << " tuknutie=" << (tap ? "ok" : "chyba")
               << " pc=" << (pc ? "ok" : "chyba")
               << " altgr=" << (altgr ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;

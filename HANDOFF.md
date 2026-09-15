@@ -2657,6 +2657,76 @@ poloha 31 `1Ch`. Hlasitosť 0 dala 48 000 vzoriek s rozkmitom 0 až 0.
 3. **Test cez ROM** na to, že posuvník dôjde do firmvéru, neexistuje; je to
    overené len sondou.
 
+### 6.35 Ťuknutie na Ctrl zastaví reč aj skladbu — spravené (`ea4-ooy`)
+
+Používateľ NVDA ťukne na Ctrl, aby umlčal reč, a robí to bez rozmýšľania.
+Nad oknom stroja NVDA spí, takže gesto bolo mŕtve. Na externej klávesnici
+navyše chýba kláves, ktorý by reč zastavil a nič iné neurobil: shift ani
+Ctrl nič nedoručia, a preto nič nezastavia (`hardware-map.md`, „Aj externá
+klávesnica zastaví reč“). Membrána taký kláves má — shift — a je pripojená
+aj vtedy, keď sa píše na externej klávesnici. Ťuknutie na Ctrl ho preto
+v oboch režimoch krátko stlačí. Na hosťovi sa nič neberie, samotné Ctrl
+na Eureke nerobí nič (zmerané, tá istá tabuľka).
+
+#### Čo sa spravilo
+
+- **Stroj:** `TapShift()` stlačí shift membrány (riadok `8Ch`, bit 6)
+  a po `kShiftTapMs` = 40 ms hosťovského času ho sám pustí. Pulz sa ráta
+  v cykloch od jedného okamihu, takže ho neskráti ani to, že vlákno púšťa
+  hosťa po dávkach. `HoldShift` rozpracované ťuknutie ukončí.
+- **Vlákno:** ťuknutie rozpoznáva `applyKey` v oboch režimoch. Ctrl musí ísť
+  dole bez Shiftu a Altu, medzitým nesmie prísť žiadna iná udalosť klávesu
+  a pustenie musí prísť do 350 ms (`kCtrlTapMs`). Pulz sa pošle až po
+  preklade pustenia, lebo braillovský režim pri každej udalosti zosúlaďuje
+  shift so skutočne drženým. V režime externej klávesnice každá iná udalosť
+  klávesu pulz skráti, aby kláves napísaný hneď po ťuknutí nevyšiel
+  s membránovým shiftom vedľa seba.
+- **Vo vlákne, nie v okne, ako navrhoval bead.** Vlákno dostane presne tie
+  klávesy, ktoré idú Eureke. Po `Shift+F11` a pri nachystanej jednorazovke
+  okno Ctrl nepošle a hostiteľské skratky zje akcelerátorová tabuľka, takže
+  podmienka `!released_ && !passOnce_` platí sama a netreba nový príkaz.
+  AltGr je ľavý Ctrl s pravým Altom a Alt, ktorý príde medzi ne, ťuknutie
+  zruší. Uvoľnenie klávesnice ide cez `kFocusLost`, ktorý ho zruší tiež.
+- Hostiteľský tón nie je žiadny, spätná väzba je zastavená reč. Keď nič
+  nehrá, ťuknutie nerobí nič, tak ako shift na stroji.
+
+#### Zmerané 15. 9. 2026
+
+- **Prehrávač melódií** číta `8Ch` na `10F13` každých 13,7 až 20,0 ms
+  hosťovského času, typicky 13,8 ms (352 čítaní počas celej znelky). Tieň
+  `B0F5h` nastaví pri štarte (`10ECC`–`10ECF`) a obnoví pri každom čítaní
+  (`10F19`–`10F1B`), takže zastaví len **nový** bit — shift držaný od
+  začiatku znelku nezastaví. Riadok `89h` na `10F1C` zastaví akýkoľvek bit.
+- Pulz 20, 50, 80, 120, 200 aj 300 ms, každý v desiatich časoch medzi 1,0
+  a 1,6 s po F7, zastavil znelku 10 z 10 (RMS 0); bez pulzu hrala (RMS
+  5 252). Zvolených 40 ms sú dve čítania prehrávača a zároveň tri takty
+  heartbeatu, rovnako ako `kMinPressMs`. Vzorková slučka reči číta riadky
+  rýchlosťou DAC, tá pulz nemôže minúť.
+
+#### Testy
+
+- `kbd`, `CheckShiftTap`: ťuknutie zastaví vetu „kde som“ spustenú
+  z membrány aj scancodom `44h` z externej klávesnice, a pol sekundy po ňom
+  holý medzerník nevyjde ako Escape. Holý medzerník tam necháva `C638h` na
+  `00h`, preto sa kontrola pýta len na `1Bh`. Overené mutáciou: pulz dlhý
+  2 s ju zhodí.
+- `hudba`: tretí beh s ťuknutím namiesto medzerníka.
+- Druhá mutácia, pulz 0 ms, zhodí všetky tri: reč z membrány (786 910
+  krokov s ťuknutím aj bez neho), reč z externej klávesnice (787 715) aj
+  znelku (RMS 5 252). Tým je doložené aj to, že F10 zo scancodu `44h` reč
+  naozaj spustí, takže kontrola externej klávesnice nie je prázdna.
+
+#### Otvorené
+
+- **Rozpoznanie ťuknutia test nekryje.** `applyKey` beží vo vlákne, ktoré
+  testy nepoháňajú; ručné overenie v oboch režimoch je na majiteľovi.
+  **Overené naživo 15. 9. 2026:** majiteľ ťuknutie vyskúšal v oboch
+  režimoch a funguje.
+  Reaguje subjektívne „lenivejšie“ ako shift, a to je očakávané: shift
+  zastaví reč pri stlačení, ťuknutie až pri pustení Ctrl, lebo dovtedy sa
+  nevie, či nejde o Ctrl s ďalším klávesom. Oneskorenie je teda dĺžka
+  stlačenia, nie hranica 350 ms.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

@@ -77,7 +77,15 @@ struct HostKeyboard {
   std::array<bool, 256> heldKeys{};
   ULONGLONG heldStamp = 0;  // host time of the last held-key event
   uint8_t mods = 0;         // modifiers the machine is being told are held
+  // Ctrl went down on its own and no other key event has come since, so if it
+  // comes up in time it was a tap.  See applyKey.
+  bool ctrlTapArmed = false;
+  ULONGLONG ctrlTapStamp = 0;
 };
+
+// Longest press of Ctrl that still counts as a tap.  A Ctrl held longer was
+// the start of a combination the user thought better of, not a reflex.
+constexpr ULONGLONG kCtrlTapMs = 350;
 
 uint8_t SpecialKey(const HostKeyEvent& key) {
   const bool shift = (key.modifiers & SHIFT_PRESSED) != 0;
@@ -615,7 +623,7 @@ void EmulatorThread::Run() {
 
   // One host key event, already off the queue.  Split out of the command loop
   // only because it is long; it runs on the worker like everything else.
-  const auto applyKey = [&](const HostKeyEvent& key, bool trace) {
+  const auto translateKey = [&](const HostKeyEvent& key, bool trace) {
     if (!key.down) {
       if (host.mode == InputMode::kPc) {
         if (trace) TraceKey(key, host.mode, L"scan kód");
@@ -734,6 +742,44 @@ void EmulatorThread::Run() {
     if (trace)
       TraceKey(key, host.mode,
                L"ignorované, braillovská klávesnica text nepíše — píšte bodmi");
+  };
+
+  // A bare tap on Ctrl -- down and up with nothing in between -- taps the
+  // membrane's shift, which stops speech and a playing tune (TapShift).  Users
+  // of NVDA do it without thinking, and over this window NVDA is asleep.  It
+  // takes nothing from the guest: a bare Ctrl does nothing on the machine.
+  //
+  // Decided here and not in the window because this is exactly the set of
+  // keys that go to the Eureka.  With the keyboard released or the one-shot
+  // armed the window keeps Ctrl, and the host's shortcuts are eaten by the
+  // accelerator table, so neither can pass for a tap.  AltGr is left Ctrl plus
+  // right Alt, and the Alt arriving in between disarms it.
+  const auto applyKey = [&](const HostKeyEvent& key, bool trace) {
+    bool tapped = false;
+    if (key.virtualKey == VK_CONTROL) {
+      if (!key.down) {
+        tapped = host.ctrlTapArmed &&
+                 GetTickCount64() - host.ctrlTapStamp <= kCtrlTapMs;
+        host.ctrlTapArmed = false;
+      } else if (!key.autoRepeat) {
+        host.ctrlTapArmed =
+            (key.modifiers & (SHIFT_PRESSED | LEFT_ALT_PRESSED |
+                              RIGHT_ALT_PRESSED)) == 0;
+        host.ctrlTapStamp = GetTickCount64();
+      }
+    } else {
+      host.ctrlTapArmed = false;
+      // Nothing holds the membrane's shift in PC mode, so this only cuts a tap
+      // short, for the reason HoldShift gives.  Braille mode already does it
+      // on every event.
+      if (host.mode == InputMode::kPc) machine.HoldShift(false);
+    }
+    translateKey(key, trace);
+    // After the translation, whose own resync of shift would end it at once.
+    if (tapped) {
+      machine.TapShift();
+      if (trace) TraceKey(key, host.mode, L"ťuknutie na Ctrl, pulz shiftu");
+    }
   };
 
   // A diskette change waits for the drive to go quiet instead of forcing
@@ -962,6 +1008,9 @@ void EmulatorThread::Run() {
         host.heldKeys.fill(false);
         RecomputeHeldMembrane(machine, host);
         machine.HoldShift(false);
+        // Releasing the keyboard comes through here too, and the Ctrl release
+        // that follows would otherwise be taken for a tap.
+        host.ctrlTapArmed = false;
         break;
       case Command::Type::kSaveDiskAs: {
         // Flushed first, so what lands in the folder is the image the guest

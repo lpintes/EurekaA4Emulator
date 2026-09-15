@@ -209,7 +209,22 @@ class EurekaMachine {
   // above debounces it: shift has never needed the minimum-dwell queue the
   // other nineteen keys do, and giving it one would only add a step between a
   // press and the ROM noticing it stopped speech.
-  void HoldShift(bool down) { membraneShift_ = down; }
+  //
+  // Ends a TapShift still in progress, whichever way it sets the key: the host
+  // calls this on every key event to bring shift in line with what is really
+  // held, and a key typed right after a tap must not come out shifted.
+  void HoldShift(bool down) {
+    membraneShift_ = down;
+    shiftTapUntil_ = 0;
+  }
+  // Presses shift and lets it go again on its own, in guest time.  This is the
+  // emulator's tap on Ctrl (HANDOFF 6.35): pausing NVDA with it is a reflex,
+  // and on either keyboard the machine has one key that stops speech and a
+  // tune without doing anything else -- shift on the membrane.  The PC keyboard
+  // has none; its shift and Ctrl deliver no code, so nothing gets stopped
+  // (hardware-map.md, "Aj externá klávesnica zastaví reč").  The membrane is
+  // still there with the PC keyboard plugged in, so the tap works for both.
+  void TapShift();
   // Hands one IBM PC scan code to the optional QWERTY keyboard on the clocked
   // serial port: XT set 1, so a make code is below 80h, a break code is the
   // make code with bit 7 set, and E0h prefixes the grey keys.  The ROM does
@@ -400,6 +415,10 @@ class EurekaMachine {
   // Outside the frame queue on purpose: the frames are a sequence the machine
   // plays out, shift is a key the user is holding across all of them.
   bool membraneShift_ = false;
+  // Shift reads as down until the cycle counter reaches this; set by TapShift.
+  // Apart from membraneShift_ so that a tap does not stand in for a held key:
+  // HoldShift ends it without having to know one is running.
+  uint64_t shiftTapUntil_ = 0;
   // The live matrix state HoldMembrane sets, for the nineteen keys that are
   // not shift.  Only row0 and row1 and the low nibble of row2 are ever
   // written here -- HoldMembrane never touches row2 bit 6, which is

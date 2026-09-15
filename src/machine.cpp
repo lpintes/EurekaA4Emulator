@@ -166,6 +166,7 @@ void EurekaMachine::PowerOn() {
   membraneMinUntil_ = 0;
   membraneHeldKey_ = 0;
   membraneShift_ = false;
+  shiftTapUntil_ = 0;
   holdQueue_.clear();
   holdState_ = MembraneHold();
   holdUntil_ = 0;
@@ -527,6 +528,13 @@ constexpr uint32_t kMinPressMs = 40;
 // partial-chord measurements (dot 1 -> "a", +2 -> "b", +4 -> "f") are what
 // this has to survive, and that has not been run against the model yet.
 constexpr uint32_t kHoldStepMs = kMinPressMs;
+// How long TapShift holds shift down.  The slowest reader that stops on it is
+// the melody player: it reads row 8Ch at 10F13 every 13.7 to 20.0 ms of guest
+// time and stops only on a bit its last read did not have (shadow refreshed
+// at 10F1B), so a tap has to span one of its reads.  Measured through the
+// whole jingle, pulses from 20 ms up stopped it every time; this is two of
+// its reads, and the same three heartbeat ticks as kMinPressMs (HANDOFF 6.35).
+constexpr uint32_t kShiftTapMs = 40;
 
 // Two codes are the same physical key if they differ only in their modifiers;
 // the host may well have let go of Shift before the key it modified.
@@ -578,10 +586,15 @@ uint8_t EurekaMachine::ReadMembraneKeyboard(uint8_t port) {
     // frame that carries the bit itself -- a capital letter's chord -- still
     // reads the same, which is why nothing had to change in PressBraille.
     case hw::kBkbCursor:
-      return static_cast<uint8_t>(membraneState_.row2 | holdState_.row2 |
-                                  (membraneShift_ ? hw::kBkbShift : 0));
+      return static_cast<uint8_t>(
+          membraneState_.row2 | holdState_.row2 |
+          (membraneShift_ || cycles_ < shiftTapUntil_ ? hw::kBkbShift : 0));
     default: return 0;
   }
+}
+
+void EurekaMachine::TapShift() {
+  shiftTapUntil_ = cycles_ + MsToCycles(kShiftTapMs);
 }
 
 bool EurekaMachine::MembraneBusy() const {
@@ -1494,6 +1507,7 @@ void EurekaMachine::PowerDown() {
   membraneState_ = MembraneFrame{};
   membraneHeldKey_ = 0;
   membraneShift_ = false;
+  shiftTapUntil_ = 0;
   holdQueue_.clear();
   holdState_ = MembraneHold{};
   holdUntil_ = 0;

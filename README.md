@@ -91,13 +91,18 @@ Prepína sa `F11`, `Ctrl+K` alebo v ponuke Klávesnica:
   na stroji.
 
   Shift je tu aj **kláves sám osebe: stlačený samotný zastaví reč.** Takto
-  sa pozastavuje plynulé čítanie v textovom procesore. Na externej
-  klávesnici taký kláves nie je — tam reč zastaví každý kláves, ktorý niečo doručí,
-  a shift ani Ctrl medzi ne nepatria; preto sa tam čítanie prerušuje
-  šípkou, ktorá navyše nechá kurzor tam, kde sa prestalo čítať.
+  sa pozastavuje plynulé čítanie v textovom procesore. Externá klávesnica
+  taký kláves nemá — reč na nej zastaví len kláves, ktorý niečo doručí,
+  a shift ani Ctrl medzi ne nepatria.
 
 V oboch režimoch fungujú `F1`–`F10` so shiftom, kurzory aj ich akordy
 (`Home`, `End`, `PgUp`, `PgDn`, `Insert`, `Delete`).
+
+**Ťuknutie na `Ctrl`** — stlačiť a hneď pustiť — zastaví v oboch režimoch
+reč aj skladbu, ktorú práve hrá hudobný editor, rovnako ako samotný shift
+na stroji. Je to ten istý reflex, ktorým sa umlčí NVDA. Na externej
+klávesnici sa čítanie dá prerušiť aj šípkou, ktorá navyše nechá kurzor tam,
+kde sa prestalo čítať.
 
 Dá sa štartovať rovno v braillovskom režime prepínačom `--braille`.
 

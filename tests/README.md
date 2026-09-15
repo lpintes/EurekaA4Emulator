@@ -127,7 +127,15 @@ them on the same diskette.
   such in SYSJUMPS.11.  Measured, "hlavni menu" runs 783k cycles and ends after
   203k with shift, so the check asks only that it stopped before half.  A chord
   cannot fake this: a chord's shift arrives together with dots the shadow is
-  about to learn anyway.  Last it types the same word again as IBM
+  about to learn anyway.  Then it taps shift instead -- `TapShift`, pressed for
+  a moment and let go on its own, which is what a tap on Ctrl does in the
+  window (HANDOFF 6.35) -- in the same utterance, asked once on the membrane
+  and once as scan code 44h on the PC keyboard, and both have to stop.  Half a
+  second after a tap a bare space bar must not come out as Escape, which is
+  what a shift left down would make of it.  A bare space bar leaves C638h at
+  00 there, so only 1Bh is asked about; verified by mutation, a two-second tap
+  fails it, and a zero-length one fails both speech checks.  Last it types the
+  same word again as IBM
   PC scan codes down the serial port, which exercises the reset handshake, the
   CSI/O interrupt and the ROM's own Czech QWERTZ tables.  Last it presses AltGr
   and lets it go, then types the same key on its own: the right Alt is the one
@@ -192,9 +200,13 @@ them on the same diskette.
   that the space bar stops it.  The player's own stop test reads the keyboard
   rows directly (8Ch at 10F13, 89h at 10F1C) and never looks at the ROM's key
   queue, so only a key that reaches the rows silences the tune.  The same
-  window is measured twice, once with the space bar pressed and once with
-  nothing pressed at all: without the second run the check would pass just as
-  happily on a tune that had ended by itself.  Needs no files on the disk.
+  window is measured with the space bar pressed, with nothing pressed at all
+  -- without that run the check would pass just as happily on a tune that had
+  ended by itself -- and with a tap on shift (`TapShift`).  The player stops on
+  row 8Ch only for a bit its previous read lacked (shadow refreshed at 10F1B)
+  and reads it every 13.7 to 20.0 ms, so a tap too short to span one read
+  would miss; a zero-length tap fails it (verified by mutation).  Needs no
+  files on the disk.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
 A genuine `READ.COM` ships with the Technical Manual's development disk and is
