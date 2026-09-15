@@ -160,6 +160,14 @@ MembraneKeyBit HoldableBit(WORD virtualKey) {
     return {MembraneRow::kRow1,
             static_cast<uint8_t>(1u << (virtualKey - VK_F1))};
   switch (virtualKey) {
+    // The twenty keys have no Enter and no Backspace: F8 (C7h) and F6 (C5h)
+    // do their work (TECHMAN1/KB.INC:52,54).  A hand that learned on a PC
+    // reaches for Enter and Backspace, and nothing else could be meant by
+    // them in this mode -- the same reasoning as Esc in applyKey.  Mapped to
+    // the key, not to a code, so shift and the space bar combine with them
+    // exactly as with F8 and F6, and what they do is up to the application.
+    case VK_RETURN: return HoldableBit(VK_F8);
+    case VK_BACK: return HoldableBit(VK_F6);
     case VK_UP: return {MembraneRow::kRow2, hw::kKeyUp & hw::kKeyNumberMask};
     case VK_DOWN: return {MembraneRow::kRow2, hw::kKeyDown & hw::kKeyNumberMask};
     case VK_LEFT: return {MembraneRow::kRow2, hw::kKeyLeft & hw::kKeyNumberMask};
