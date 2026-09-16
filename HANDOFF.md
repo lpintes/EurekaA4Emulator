@@ -2783,7 +2783,7 @@ na Eureke nerobí nič (zmerané, tá istá tabuľka).
 
 ### 6.36 Externé porty sa dekódujú po blokoch — DAC aj na 8Ch
 
-Spätná väzba od používateľov 16. 9. 2026: demo EUŘOU (HEMRNA Software,
+Spätná väzba od používateľov 16. 9. 2026: demo EUŠOU (HEMRNA Software,
 1994, disketa `C:\b\diskety\eusou`) v emulátore nehrá a `OUT` z BASICu
 „nereaguje“. Autor správy to pripisoval chýbajúcemu „podtaktovaniu“
 procesora. Tá príčina to nie je, emulátor počíta čas po taktoch Z180 (6.10).
@@ -2825,6 +2825,10 @@ keď `DecodedPort` pre DAC vráti holý port, zlyhá všetkých sedem aliasov,
   **Overené naživo 16. 9. 2026:** majiteľ demo s opravou spustil a hrá.
   Kontrolu na `CA00h` teda model splní; čo presne ten bajt znamená,
   zostáva nezistené.
+  **Neplatí (16. 9. 2026):** model ju sám nesplní. Na čistej kópii
+  diskety demo v sonde povie „Nepovolená manipulace“; hralo len po cracku
+  `EUSPATH.COM`, ktorý majiteľ v každom behu spúšťa. `CFh` je „O“
+  s ôsmym bitom, viď ďalšiu podsekciu.
 - Či sa `9Ch`–`9Fh` zrkadlí na `98h`–`9Bh` (WD177x má dve adresné
   linky), manuál nehovorí. Nechané bez zmeny.
 - Príkaz `OUT` z BASICu: nevedno, na ktorý port ho autor správy skúšal.
@@ -2832,6 +2836,62 @@ keď `DecodedPort` pre DAC vráti holý port, zlyhá všetkých sedem aliasov,
   pravdepodobne týka atribútov CP/M v ôsmom bite mena. `Trim`
   v `virtual_disk.cpp` ich pri zápise do priečinka zahadzuje. Zatiaľ
   neodmerané.
+  **Odmerané 16. 9. 2026**, viď ďalšiu podsekciu (`ea4-iwb`).
+
+#### Ochrana v mene súboru — EUŠOU a Sokoban (`ea4-iwb`)
+
+Obe hry HEMRNA Software chránia disketu menom súboru v adresári, nie
+obsahom. Cracky `EUSPATH.COM` a `SOKPATH.COM`
+(`C:\b\diskety\cracks`, Turbo Pascal) meno len prepíšu. Ich účinok
+vydrží do konca behu emulátora, lebo pri ďalšom načítaní priečinka sa
+meno zostaví znovu z mena súboru na hostiteľovi.
+
+Doložené disassemblom:
+
+- `AUTOEXEC.COM` dema na `0320h`: `LD A,(CA00h)`, `CP CFh`, pri nezhode
+  „Nepovolená manipulace“ a `JP 0000h`. `CFh` je „O“ (`4Fh`) s ôsmym
+  bitom, teda druhý znak prípony `COM` s atribútom t2 (v CP/M SYS). Že
+  `CA00h` je bajt t2 v kópii mena spúšťaného programu, je odhad podľa
+  hodnoty; miesto v ROM, ktoré ho tam zapisuje, nie je vystopované.
+- `EUSPATH.COM` na `21F3h` pripraví meno `41 55 54 4F 45 58 45 43 2E 43
+  CF 4D` a súbor `AUTOEXEC.COM` naň premenuje.
+- `SOKPATH.COM` na `21A9h` pripraví meno `37 E8 45 4D 52 4E 41 2E D5`
+  („7“, malé „h“ s ôsmym bitom, „EMRNA“, „U“ s ôsmym bitom) a súbor
+  vytvorí. Sokoban si to isté meno skladá za behu na `2100h` a otvára ho
+  cez BDOS 15 z `1450h`; zo súboru nečíta nič (má 0 bajtov).
+
+Odmerané v sonde s dočasným tokenom, ktorý po vložení diskety prepíše
+bajty mena v adresári obrazu (každý beh na čerstvej kópii diskety):
+
+- EUŠOU, bez úpravy: „Nepovolená manipulace“. S t2 = `CFh` v mene
+  `AUTOEXEC.COM`: „Firma HEMRNA Software uvádí fantastické demo“, demo
+  dohralo až po záverečnú melódiu, reproduktor dostal vzorky s rozkmitom
+  −28 755 až 30 151. Ôsmy bit je celá ochrana dema.
+- Sokoban, bez úpravy (meno `7HEMRNA.U`, ako ho dnes zostaví import):
+  „Pozor, toto není originální disk“. Varianty mena:
+  `37 E8 … D5` (presne ako crack) prijal, `37 C8 … D5` (veľké „H“
+  s bitmi) odmietol, `37 68 … 55` (malé „h“ bez bitov) prijal.
+- Z toho: **ROM pri hľadaní súboru rozlišuje veľké a malé písmená
+  a ôsmy bit ignoruje.** Sokoban teda chráni malé písmeno, nie atribút.
+
+Kde to emulátor stráca, dve nezávislé miesta:
+
+- `Trim` v `src/virtual_disk.cpp` maskuje `7Fh`, takže meno zapísané do
+  priečinka atribúty nemá (EUŠOU).
+- `NamePart` v `src/cpm_disk.cpp` pri načítaní priečinka prevedie
+  písmená na veľké (Sokoban). To zrušiť nejde: bežné súbory z Windows
+  majú malé písmená a na diskete musia byť veľkými.
+
+Otvorené — návrh riešenia, ešte nezačaté: postranný súbor `.disk`
+v priečinku diskety s presnými jedenástimi bajtmi mena pre súbory,
+ktorých meno sa do mena na hostiteľovi nezmestí (ôsmy bit alebo malé
+písmeno). Vznikne len vtedy, keď taký súbor existuje. Celý 8 KB adresár
+sa neukladá, lebo čísla blokov sa pri každom načítaní rátajú nanovo
+a súbory v priečinku sa medzi behmi menia. Najcitlivejšie miesto je
+kľúč `imported_` (dnes meno bez ôsmych bitov), na ktorom visí presun
+zmazaných súborov do `.eureka-trash`. Sokoban z dnešného priečinka
+(`7hEMRNA.U` sa načíta ako `7HEMRNA.U`) to samo neopraví, kým raz
+neprejde crackom a disketa sa neuloží.
 
 ## 7. Nástroje
 

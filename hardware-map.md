@@ -145,7 +145,7 @@ Dekodér s výberom po 8 portoch: 80, 88, 90, 98, A0, A8, B0, B8.
 | B8h–BFh | R/W | `pwr_stb` — **akýkoľvek prístup vypne stroj** | doložené |
 
 Bloky s jediným registrom odpovedajú na všetkých ôsmich adresách. ROM
-používa len prvú, ale program z diskety nemusí: demo EUŘOU hrá vzorky cez
+používa len prvú, ale program z diskety nemusí: demo EUŠOU hrá vzorky cez
 `OUT (8Ch),A`. Spodné bity majú význam len v blokoch hodín, radiča a pri
 čítaní riadkov klávesnice. V kóde to rieši `hw::DecodedPort` (HANDOFF 6.36).
 
