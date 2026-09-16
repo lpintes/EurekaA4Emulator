@@ -127,21 +127,27 @@ stroj nemá kam prijať kláves a čítačka nad ním číta ako nad hociktorým
 iným oknom. `Shift+F11` preto v tom stave nerobí nič a v ponuke je
 zošedené; klávesnicu vráti až zapnutie.
 
-Späť ho zapne `Ctrl+P`, a keďže klávesnica je hosťova, stačí samotné
-`Ctrl+P` bez `F11`; v ponuke je to `Stroj` → `Zapnúť Eureku`. Ohlásia to
-tri stúpajúce tóny a klávesnicu dostane zase Eureka. **Nadviaže tam, kde
-ste skončili** — rozrobená práca aj nastavenia stroja vypnutie prežijú,
-lebo RAM a hodiny majú na skutočnej Eureke vlastný zdroj a vypínač im ho
-nepretína.
+Späť ho zapne teplý reset, `Ctrl+P`, a keďže klávesnica je hosťova, stačí
+samotné `Ctrl+P` bez `F11`; v ponuke je to `Stroj` → `Teplý reset`.
+Ohlásia to tri stúpajúce tóny a klávesnicu dostane zase Eureka.
+**Rozrobená práca sa nestratí** — text aj nastavenia stroja vypnutie
+prežijú, lebo RAM a hodiny majú na skutočnej Eureke vlastný zdroj
+a vypínač im ho nepretína.
+
+Teplý reset funguje aj na **bežiacej** Eureke (`F11`, `Ctrl+P`): preruší,
+čo práve robí, aj rozhovorenú vetu, ozvú sa úvodné tóny a Eureka je
+v hlavnom menu. Pamäť zostane, takže napísaný text v editore nájdete tam,
+kde bol. Hodí sa, keď ste sa stratili alebo Eureka zamrzla. Na skutočnom
+stroji to bol akord **bod 3, `F1` a šípka hore**, podržaný asi sekundu.
 
 Vedľa toho je `Reset` (`Ctrl+R`), ktorý **začne odznova**: Eureka sa
 ohlási slovami „inicializace eureky“ a rozrobená práca je preč. Na
 skutočnom stroji tomu zodpovedá **vypínač batérie** — drobný prepínač
 v dierke na ľavej hrane medzi telefónnymi zásuvkami a zadným rohom, ktorý
 sa prepínal perom alebo malým skrutkovačom. Po ňom bola pri ďalšom
-zapnutí prázdna pamäť aj hodiny, presne ako po tomto resete. Zapnutie a reset sú v ponuke vedľa seba a vždy je dostupné len
-to, čo v danom stave dáva zmysel — vypnutý stroj sa nedá vypnúť a bežiaci
-zapnúť.
+zapnutí prázdna pamäť aj hodiny, presne ako po tomto resete. Oba resety
+sú v ponuke vedľa seba a sú dostupné vždy; zošedené je len vypnutie
+vypnutého stroja.
 
 Toto prežije aj **zavretie emulátora**, ale len po riadnom vypnutí. Keď
 Eureku vypnete — kurzorovým akordom, alebo ju po piatich minútach vypne

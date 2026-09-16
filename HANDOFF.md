@@ -2381,6 +2381,33 @@ hovoria jej dva vlastné dodatky z toho istého dňa.
 Otvorené zostáva len prežitie **procesu**, a to nikdy do 6.31 nepatrilo:
 je to 6.15 a epic `ea4-aip`.
 
+**Doplnené 16. 9. 2026 (`ea4-6kz`): položka `Zapnúť Eureku` už
+neexistuje, volá sa `Teplý reset` a platí v oboch stavoch.** Kým stroj
+bežal, bola zošedená, a zošedenej položke akcelerátor `WM_COMMAND`
+nepošle, takže `Ctrl+P` za behu nerobilo nič. Majiteľ ho chcel ako
+východisko zo zamrznutia: na stroji to bol akord bod 3 + `F1` + šípka
+hore, podržaný asi sekundu. Tie isté ID (`ID_MACHINE_POWERON`, `kPowerOn`)
+teraz na bežiacom stroji volajú `PowerOn()` a navyše zahodia rozhovorenú
+reč vo zvukovom zariadení (zatvorí a znovu otvorí sa ako pri `Reset`),
+lebo z behu, na rozdiel od vypnutia, nie je dohraté. Zmerané sondou:
+
+- `zapni` na bežiacom stroji povie len úvodné tóny `!%t154/50*5!%t230`,
+  nie „inicializace eureky“, a skončí v hlavnom menu — z menu, z hodín,
+  z editora aj 0,4 s po začatí čítania riadku. Text v editore prežije
+  (`kA1 -> Ahoj Svete.`). Slová „A4 reset“ z `DEVICES.10` v tejto ROM nie
+  sú; reťazec `reset` v nej chýba.
+- **Akord ROM nečíta.** Bod 3 + `F1` + šípka hore držaný 3, 5 aj 10 s
+  v menu nič nespraví, v hodinách tiež, v editore sa číta ako obyčajné
+  klávesy. Žiadne čítanie `89h`/`8Ah`/`8Ch` naň netestuje a na `0066h` je
+  text copyrightu, teda NMI sa nepoužíva. Záver, ktorý je **odvodený, nie
+  zmeraný na hardvéri**: reset robil hardvér linkou RESET procesora, čiže
+  presne `PowerOn()`.
+- Pri tom sa odmerali dve veci o štarte: na `18042` sa firmvér pýta na
+  akord **bez bodov, `F1`–`F4` a štyri šípky** (`8Ah=0Fh`, `8Ch=0Fh`)
+  a pri ňom zmaže RAM (`1805E`), a **bod držaný počas štartu stroj vypne**
+  (`180BB` → `18181`, točí sa na `18187`). Keby sa akord niekedy emuloval,
+  reset musí prísť až po pustení klávesov.
+
 ### 6.32 Vypnutá Eureka sa budí sama — spravené
 
 **11. 9. 2026, bead `ea4-b41`.** Kým beží emulátor, vypnutá Eureka sa zobudí na budík a diár
