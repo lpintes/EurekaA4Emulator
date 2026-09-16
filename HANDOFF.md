@@ -354,6 +354,13 @@ obchádzka: text z neho išiel skratkou do fronty ROM, čo skutočná Eureka
 nevedela urobiť, a keď sa zrušilo parkovanie, prestal fungovať aj tak.
 Štartuje sa v **exterke**, teda v stave „Eureka s pripojenou klávesnicou".
 
+**Od 16. 9. 2026 to platí len pre stroj bez nastavení** (ea4-0vw). Režim
+klávesnice sa ukladá do `nastavenia.txt`, takže sa štartuje na tej
+klávesnici, na ktorej sa skončilo; slovo „(štartový)" v tabuľke vyššie
+hovorí o prvom spustení, keď si emulátor nemá čo pamätať. Prepínače
+`--braille` a `--pc` zapamätanú voľbu prebijú. Zvyšok je v 6.18,
+v podsekcii „Čo zostáva".
+
 Cena, ktorú 6.11 za to priznávala — že sa nebude dať napísať
 `ľ ĺ ŕ ô ä Ľ` — **žiadna cena nebola**. Preverené pred zrušením, ako si
 tá poznámka pýtala: v Kamenických majú tie znaky kódy `8C 8D AA 93 84 9C`,
@@ -1608,6 +1615,26 @@ zostáva toto:
   samotného dialógu `Nastavenia` — režim klávesnice a diagnostika — sa
   neukladajú. Čo z nich má beh prežiť, je tá istá otázka ako uchovanie RAM
   (6.15) a rozhodne sa s ňou.
+
+  **Hotové 16. 9. 2026 (ea4-0vw).** Odsek vyššie už v prvej časti neplatí:
+  režim klávesnice sa ukladá, diagnostika zámerne nie. V súbore je ako
+  `klavesnica=braillovska` alebo `klavesnica=externa`; `main.cpp` ho po
+  `settings.Load()` podáva do `emulator.Start` a prepínače `--braille`
+  a `--pc` ho prebijú, lebo výslovná odpoveď tohto spustenia má prednosť
+  pred odpoveďou minulého. Zapisuje ho `MainWindow::RememberMode`
+  z `WM_EMU_STATE` — to je jediné miesto, kam dôjdu **všetky štyri** cesty
+  zmeny (dve položky ponuky Klávesnica, `Ctrl+K` a dialóg `Nastavenia`),
+  a vlákno tú správu posiela až po skutočnej zmene; režim, v ktorom už je,
+  zahodí skôr. Zápis je strážený porovnaním, lebo tá istá správa nesie aj
+  zmenu diagnostiky — bez stráže by každé `Ctrl+D` prepísalo súbor.
+  Diagnostika sa neukladá preto, že zapamätaná by pri štarte otvorila
+  konzolu, ktorú si nikto nevyžiadal, a tá vezme fokus.
+  Štart **nič nepípne** (rozhodnuté majiteľom): tón patrí zmene a štart
+  zmena nie je, režim nesie titulok a `NVDA+T` naň odpovie kedykoľvek.
+  Drží to `KeyboardModeRoundTrips` v `settings_test`, vrátane toho, že
+  chýbajúci kľúč **aj neznáma hodnota** znamenajú externú klávesnicu:
+  prečítané ako braillovská by to podalo klávesnicu, ktorá píše len
+  akordmi, a nikde by nestálo prečo.
 
 **`PressMembraneKey` zahadzuje bit Altu pri funkčných klávesoch.**
 Tretia z troch vecí, ktoré našla kontrola dokumentácie 27. 8. 2026 —

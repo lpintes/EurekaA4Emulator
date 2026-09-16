@@ -77,7 +77,7 @@ otvorená aj vtedy, keď niektorú skratku zoberie cudzí program.
 Eureka mala dve klávesnice a emulátor môže byť ktoroukoľvek z nich.
 Prepína sa `F11`, `Ctrl+K` alebo v ponuke Klávesnica:
 
-- **externá klávesnica** — takto sa štartuje. Píše sa normálne;
+- **externá klávesnica** — takto sa štartuje, kým nezvolíte inak. Píše sa normálne;
   emulátor posiela scancody po sériovom porte a ROM si ich prekladá sama.
   Pozor, ROM čaká **českú** klávesnicu: `z` a `y` sú prehodené,
   nezhiftovaná číselná rada dáva `ěščřžýáíé` a číslice sú až so shiftom.
@@ -104,7 +104,10 @@ na stroji. Je to ten istý reflex, ktorým sa umlčí NVDA. Na externej
 klávesnici sa čítanie dá prerušiť aj šípkou, ktorá navyše nechá kurzor tam,
 kde sa prestalo čítať.
 
-Dá sa štartovať rovno v braillovskom režime prepínačom `--braille`.
+Zvolená klávesnica sa pamätá: ďalšie spustenie štartuje na tej, na ktorej
+ste skončili. Nijako sa to neohlási — zvolili ste ju vy a štart nie je
+zmena — ale nesie ju titulok okna, takže `NVDA+T` na ňu odpovie kedykoľvek.
+Prepínače `--braille` a `--pc` zapamätanú voľbu pre jedno spustenie prebijú.
 
 Eureku možno vypnúť aj tak, ako sa vypínala naozaj: v hlavnom menu
 podržte **všetky štyri kurzorové klávesy naraz**. Stroj zahlási „konec“
