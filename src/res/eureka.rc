@@ -67,7 +67,7 @@ BEGIN
     POPUP "S&troj"
     BEGIN
         MENUITEM "&Reset\tF11, Ctrl+R",                         ID_MACHINE_RESET
-        MENUITEM "&Zapnúť Eureku\tF11, Ctrl+P",                 ID_MACHINE_POWERON
+        MENUITEM "T&eplý reset\tF11, Ctrl+P",                   ID_MACHINE_POWERON
         MENUITEM "&Vypnúť Eureku\tF11, Ctrl+V",                 ID_MACHINE_POWEROFF
         MENUITEM SEPARATOR
         MENUITEM "Rý&chlejšia reč\tF11, Ctrl+šípka vpravo",     ID_MACHINE_FASTER

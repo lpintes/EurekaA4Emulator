@@ -111,10 +111,10 @@ constexpr wchar_t kShortcutHelp[] =
     L"F11, Ctrl+R — reset: Eureka začne odznova, ako po prepnutí vypínača\r\n"
     L"      batérie — pamäť aj hodiny sú prázdne.\r\n"
     L"F11, Ctrl+V — vypne Eureku tak, ako to robí ona sama.\r\n"
-    L"F11, Ctrl+P — zapne ju späť a nadviaže tam, kde ste skončili. RAM aj\r\n"
-    L"      hodiny majú na skutočnej Eureke vlastný zdroj a vypínač im ho\r\n"
-    L"      nepretína. Zavretie emulátora je iná vec: pamäť sa zatiaľ nikam\r\n"
-    L"      neukladá.\r\n"
+    L"F11, Ctrl+P — teplý reset: Eureka sa vráti do hlavného menu a pamäť\r\n"
+    L"      aj hodiny zostanú, takže napísaný text sa nestratí. Funguje aj\r\n"
+    L"      vtedy, keď Eureka zamrzne, a vypnutú Eureku ním zapnete. Na\r\n"
+    L"      stroji to bol akord bod 3, F1 a šípka hore, podržaný asi sekundu.\r\n"
     L"F11, Ctrl+šípka vpravo a vľavo — rýchlejšia a pomalšia reč. Je to\r\n"
     L"      ľavý posuvník Eureky: reč sa zrýchli a zároveň zvýši, tak ako\r\n"
     L"      na stroji.\r\n"
@@ -973,15 +973,15 @@ void MainWindow::RefreshMenu() const {
   CheckMenuItem(menu, ID_DISK_PROTECT,
                 MF_BYCOMMAND |
                     (disk_.writeProtected ? MF_CHECKED : MF_UNCHECKED));
-  // A machine that is already off has nothing to switch off, and a running one
-  // nothing to switch on.  Exactly one of the pair is live at any moment and
-  // the other says so by being greyed, which a screen reader reads out; Reset
-  // stays enabled either way, because it is the cold start and that is a choice
-  // in both states, not a way out of one of them.
+  // A machine that is already off has nothing to switch off, so that one is
+  // greyed.  Both resets stay enabled either way.  The warm one switches an
+  // off machine on and resets a running one, and the running case is the
+  // point: it is the way out of a hang, so greying it while the machine runs
+  // would take it away exactly when it is needed.  It was greyed until
+  // 16 Sep 2026, and a greyed item's accelerator is swallowed without a
+  // WM_COMMAND, so Ctrl+P did nothing at all (ea4-6kz).
   EnableMenuItem(menu, ID_MACHINE_POWEROFF,
                  MF_BYCOMMAND | (poweredOff_ ? MF_GRAYED : MF_ENABLED));
-  EnableMenuItem(menu, ID_MACHINE_POWERON,
-                 MF_BYCOMMAND | (poweredOff_ ? MF_ENABLED : MF_GRAYED));
   // Before RefreshShortcutText, which reads the item text back and would
   // otherwise be working on the names this is about to replace.
   RefreshSlotItems(menu);

@@ -984,23 +984,42 @@ void EmulatorThread::Run() {
         // The host reached for the switch itself; see kReset above.
         alarmWake = false;
         break;
-      case Command::Type::kPowerOn:
+      case Command::Type::kPowerOn: {
         // Warm: the RAM, the clock and the eight bytes of alarm survive, so the
-        // firmware comes up where the user was.  Nothing is done to the sound
-        // device here, unlike Reset -- switching off drained it and waited for
-        // it, and reopening would only throw away the pacing the latency
-        // control has learned.  The cycle counter survives too, so guestClock
-        // needs no correction: the debt ceiling in the run loop held it a
-        // quarter second ahead of a clock that was not moving.
+        // firmware comes up in the Main Menu with every application's
+        // workspace intact.  On a running machine this is the warm reset the
+        // hardware gave on dot 3 + F1 + up held for a second: the ROM never
+        // reads that chord (no read of 89h/8Ah/8Ch tests it, and 0066h is
+        // copyright text, not an NMI handler), so it was the CPU's RESET line,
+        // which is exactly this.  Measured with the probe: from an application
+        // or mid-speech it lands in the Main Menu and the editor's text
+        // survives.  The cycle counter survives too, so guestClock needs no
+        // correction.
+        const bool wasRunning = !machine.powered_off();
         machine.PowerOn();
+        // Switching off drained the sound device and waited for it, so from
+        // off there is nothing to throw away, and reopening would only lose
+        // the pacing the latency control has learned.  From running there is
+        // the speech the reset just interrupted, still queued, and it would
+        // go on talking over the boot tones.
+        if (wasRunning) {
+          audio.Close();
+          audio.Open(EurekaMachine::kAudioHz);
+          lastTick = Clock::now();
+        }
         // The user's writing mode is theirs and survives; a key caught
-        // half-pressed does not.  Same reasoning as Reset above.
+        // half-pressed does not.  Same reasoning as Reset above.  The Ctrl of
+        // Ctrl+P is still down, and its release must not count as the tap
+        // that stops speech -- it would cut the boot tones short.
         host.heldKeys.fill(false);
         host.mods = 0;
+        host.ctrlTapArmed = false;
         // The host reached for the switch itself; see kReset above.
         alarmWake = false;
-        host::Print(L"\r\n[Eureka bola zapnutá]\r\n");
+        host::Print(wasRunning ? L"\r\n[Eureka bola teplo resetovaná]\r\n"
+                               : L"\r\n[Eureka bola zapnutá]\r\n");
         break;
+      }
       case Command::Type::kFocusLost:
         // Exact where ForgetStaleHeld only guesses: the releases for these
         // are about to be delivered to whoever took the focus.

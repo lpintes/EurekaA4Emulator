@@ -193,9 +193,11 @@ class EmulatorThread {
   // The four cursor keys at once (8Fh, k_udlr): how the machine is switched
   // off for real, from the Main Menu.
   void PostPowerOff();
-  // Switching it on again, warm: the RAM, the clock and the eight bytes of
-  // alarm survive, so the firmware comes up where the user left it instead of
-  // initialising.  PostReset is the cold start beside it.
+  // The warm start, from off or while running: the RAM, the clock and the
+  // eight bytes of alarm survive, so the firmware comes up in the Main Menu
+  // with its workspaces intact instead of initialising.  On a running machine
+  // it is the warm reset, the way out of a hang.  PostReset is the cold start
+  // beside it.
   void PostPowerOn();
   // Everything the host believes is held goes up.  The window sends this on
   // WM_KILLFOCUS, where the real key releases are delivered to whoever took

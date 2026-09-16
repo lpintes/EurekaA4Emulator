@@ -28,9 +28,10 @@
 #define ID_DISK_SPLIT        40007
 #define ID_MACHINE_RESET     40010
 #define ID_MACHINE_POWEROFF  40011
-// Switching on again is its own command and not Reset: it keeps the RAM, the
-// clock and the eight bytes of alarm, so the machine carries on where the user
-// left it.  Reset beside it is the cold start.  See EurekaMachine::PowerOn.
+// The warm reset is its own command and not Reset: it keeps the RAM, the
+// clock and the eight bytes of alarm, so every application's workspace
+// survives.  It switches an off machine on and resets a running one.  Reset
+// beside it is the cold start.  See EurekaMachine::PowerOn.
 #define ID_MACHINE_POWERON   40012
 // The two sliders on the front of the machine: speech rate on the left,
 // volume on the right.  One step per command; the dialog sets both at once.
