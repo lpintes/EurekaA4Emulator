@@ -355,6 +355,31 @@ constexpr uint8_t kRts1Mask = 0x80;       // rts1_mask
 constexpr uint8_t kPwrStb = 0xb8;  // pwr_stb
 
 // ---------------------------------------------------------------------------
+// The external decoder only looks at the top five bits.  IOPORT.LIB hands out
+// the 80h-BFh space in blocks of eight -- "80-87 Modem latch", "88-8F Digital
+// to analog converter", "A0-A7 Power latch" and so on -- and each of the
+// single register blocks answers on all eight addresses.  The ROM only ever
+// uses the first one, but a program loaded from disk need not: the EUROU demo
+// plays its samples with OUT (8Ch),A, and a model that decoded 88h alone
+// dropped every one of them in silence.
+//
+// The blocks that do use the low bits keep them: the clock (90h-97h), the
+// floppy controller (98h-9Fh) and the keyboard rows, which are one-hot in
+// 88h-8Fh on reads.  Writes to that same block go to the DAC.
+constexpr uint8_t kExternalBlockMask = 0xf8;  // top five bits select a block
+
+constexpr uint8_t DecodedPort(uint8_t port, bool write) {
+  const uint8_t block = port & kExternalBlockMask;
+  switch (block) {
+    case kModemLatch: case kPowerLatch: case kInputBuffer:
+    case kOutputLatch: case kPwrStb:
+      return block;
+    case kDacPort: return write ? block : port;
+    default: return port;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Eureka key codes (KB.H).  This is what an application receives, and what
 // PressMembraneKey turns back into the rows above.
 

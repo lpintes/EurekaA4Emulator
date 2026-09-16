@@ -796,6 +796,34 @@ bool CheckSettlesToSilence(EurekaMachine& machine) {
   return ok;
 }
 
+// The DAC answers on all of 88h-8Fh, not on 88h alone (eureka_io.h,
+// DecodedPort).  The EUROU demo writes its samples to 8Ch, and a model that
+// ignored that played the whole demo as silence -- which nothing here noticed,
+// because the ROM itself only ever writes 88h.
+//
+// Each alias gets a full-scale step after a second of quiet, and has to be
+// heard.  A step on 8Fh with the filter and coupling capacitor in the way is
+// still thousands of units, so "any nonzero sample" is not a lenient bar.
+bool CheckDacDecodesWholeBlock(EurekaMachine& machine) {
+  bool ok = true;
+  uint8_t level = 0x80;
+  for (uint16_t port = 0x88; port <= 0x8f; ++port) {
+    const uint64_t quiet = machine.cycles() + EurekaMachine::kCpuHz;
+    while (machine.cycles() < quiet && machine.Step()) {}
+    machine.TakeAudio();
+    level = level == 0xff ? 0x00 : 0xff;
+    machine.debug_out(static_cast<uint16_t>(0x0700 | port), level);
+    const uint64_t heard = machine.cycles() + EurekaMachine::kCpuHz / 50;
+    while (machine.cycles() < heard && machine.Step()) {}
+    if (!DacMoved(machine)) {
+      std::cout << "  zapis na port " << std::hex << port << std::dec
+                << " nebolo pocut\n";
+      ok = false;
+    }
+  }
+  return ok;
+}
+
 // The music composer's jingle, and what does and does not silence it.
 //
 // The player's own stop test is at 10F13 and 10F1C: it reads rows 8Ch and 89h
@@ -1564,8 +1592,12 @@ int wmain(int argc, wchar_t** argv) {
   }
 
   if (std::wstring(argv[3]) == L"dc") {
-    const bool passed = CheckSettlesToSilence(*machine);
-    std::cout << (passed ? "PASS" : "FAIL") << " mode=DC\n";
+    const bool settles = CheckSettlesToSilence(*machine);
+    const bool aliases = CheckDacDecodesWholeBlock(*machine);
+    const bool passed = settles && aliases;
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=DC"
+              << " ticho=" << (settles ? "ok" : "chyba")
+              << " porty=" << (aliases ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 

@@ -281,6 +281,8 @@ class EurekaMachine {
   // the two, so whoever asks it has to be able to read both sides of it.
   std::array<uint8_t, 8> debug_rtc_now() const { return CurrentRtcRegisters(); }
   uint8_t debug_io(uint8_t port) const { return io_[port]; }
+  // An OUT as a program would issue it, without assembling one into RAM.
+  void debug_out(uint16_t port, uint8_t value) { WritePort(&cpu_, port, value); }
   uint64_t debug_bios_reads() const { return biosReads_; }
   uint16_t debug_bios_track() const { return biosTrack_; }
   uint16_t debug_bios_sector() const { return biosSector_; }
