@@ -780,6 +780,22 @@ void MainWindow::RememberLock(const DiskState& disk) {
   SaveSettings();
 }
 
+// The keyboard mode outlives the run (ea4-0vw), so every way of reaching it has
+// to write it down.  Here rather than in the four commands that change it --
+// the menu's two, Ctrl+K and the Nastavenia dialog -- because WM_EMU_STATE is
+// the one place all four arrive at, and the worker posts it only once the mode
+// has really changed: one it is already in is dropped before this.
+//
+// Guarded by the comparison because that message carries a diagnostics change
+// as well, and diagnostics is deliberately not remembered.  Without the test
+// every Ctrl+D would rewrite the file to say what it already said.
+void MainWindow::RememberMode() {
+  const bool braille = emulator_.mode() == InputMode::kBraille;
+  if (settings_.braille_keyboard() == braille) return;
+  settings_.SetBrailleKeyboard(braille);
+  SaveSettings();
+}
+
 // Asked before anything pushes the diskette out of the drive.
 //
 // An unsaved diskette exists nowhere but in this process.  If a quick-choice
@@ -1203,6 +1219,7 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case WM_EMU_STATE:
       RefreshTitle();
+      RememberMode();
       return 0;
 
     case WM_EMU_POWERED_OFF:

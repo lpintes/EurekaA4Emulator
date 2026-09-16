@@ -115,6 +115,55 @@ void KeepRamSwitchRoundTrips() {
         "zapnutie je v subore ako zachovat-ram=1");
 }
 
+void KeyboardModeRoundTrips() {
+  // Absent means the PC keyboard, which is where this program has always
+  // started: a file from a version that never knew the key must not move the
+  // user's keyboard under them (ea4-0vw).
+  {
+    Settings settings(FileNamed("neexistuje.txt"));
+    settings.Load();
+    Check(!settings.braille_keyboard(),
+          "chybajuci subor: startuje sa na externej klavesnici");
+  }
+  const fs::path file = FileNamed("klavesnica.txt");
+  std::wstring error;
+  {
+    Settings settings(file);
+    Check(!settings.braille_keyboard(), "novy Settings ma externu");
+    settings.SetBrailleKeyboard(true);
+    Check(settings.Save(error), "ulozenie s braillovskou prejde", Narrow(error));
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(loaded.braille_keyboard(), "braillovska prezije zapis aj citanie");
+  }
+  Check(ReadRaw(file).find("klavesnica=braillovska") != std::string::npos,
+        "braillovska je v subore ako klavesnica=braillovska");
+  {
+    Settings settings(file);
+    settings.Load();
+    settings.SetBrailleKeyboard(false);
+    settings.Save(error);
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(!loaded.braille_keyboard(), "externa sa da vratit");
+  }
+  Check(ReadRaw(file).find("klavesnica=externa") != std::string::npos,
+        "externa je v subore ako klavesnica=externa");
+  // A word the parser does not know leaves the PC keyboard rather than being
+  // read as braille: that mistake hands someone a keyboard that writes only in
+  // chords, and nothing anywhere would say why.
+  {
+    WriteRaw(file, "klavesnica=nezmysel\r\n");
+    Settings loaded(file);
+    loaded.Load();
+    Check(!loaded.braille_keyboard(), "nezname slovo nechava externu");
+  }
+}
+
 void SlidersRoundTrip() {
   // Absent means both sliders in the middle, where a first run starts too.
   {
@@ -487,6 +536,7 @@ int main() {
 
   MissingFileIsDefaults();
   KeepRamSwitchRoundTrips();
+  KeyboardModeRoundTrips();
   SlidersRoundTrip();
   SliderPositionsMapToTheHardware();
   RoundTripKeepsDiacritics();

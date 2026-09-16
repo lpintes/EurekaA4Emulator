@@ -70,6 +70,22 @@ class Settings {
   bool keep_ram() const { return keepRam_; }
   void SetKeepRam(bool keep) { keepRam_ = keep; }
 
+  // Which of the two keyboards the next run starts on.  It is how a person
+  // types on this machine and it changes rarely, so it outlives the run
+  // (ea4-0vw); the other switch in that dialog, diagnostics, deliberately does
+  // not -- remembering it would open a console nobody asked for at start-up.
+  //
+  // A bool and not InputMode, because that type belongs to emulator_thread.h,
+  // which already includes this header: naming it here would be a cycle, and
+  // this file is meant to know nothing about the emulator anyway.  The caller
+  // translates, in the one place that starts the machine.
+  //
+  // Absent means the PC keyboard, which is where this program has always
+  // started.  Only the explicit word turns it round, so a file from a version
+  // that never knew the key cannot quietly move the user's keyboard.
+  bool braille_keyboard() const { return brailleKeyboard_; }
+  void SetBrailleKeyboard(bool braille) { brailleKeyboard_ = braille; }
+
   // Where the two sliders were left, as positions (sliders.h).  A missing line
   // or one that is not a number means the default, and a number past either
   // end is pulled back to that end, so a hand edit cannot give the machine a
@@ -110,6 +126,7 @@ class Settings {
   std::filesystem::path file_;
   std::wstring lastDisk_;
   bool keepRam_ = true;
+  bool brailleKeyboard_ = false;
   int speechRate_ = sliders::kRateDefault;
   int volume_ = sliders::kVolumeDefault;
   std::array<std::wstring, kSlots> slots_;

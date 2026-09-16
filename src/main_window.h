@@ -78,6 +78,8 @@ class MainWindow : public win::Window {
   SlotsDialog::Locks CurrentLocks() const;
   SlotsDialog::Present CurrentPresent() const;
   void RememberLock(const DiskState& disk);
+  // Writes down which keyboard is in use, so the next run starts on it.
+  void RememberMode();
   // False when the user backed out of losing a diskette that lives only in
   // memory; the caller then does nothing.  See the definition.
   bool ConfirmLosingDiskette();

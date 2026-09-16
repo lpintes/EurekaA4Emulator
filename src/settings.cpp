@@ -19,6 +19,11 @@ namespace {
 // otherwise stop matching.
 constexpr char kLastDiskKey[] = "posledna-disketa";
 constexpr char kKeepRamKey[] = "zachovat-ram";
+// Spelt out rather than 0/1, because this is the one key whose two values a
+// person editing the file by hand would have to guess at otherwise.
+constexpr char kKeyboardKey[] = "klavesnica";
+constexpr wchar_t kKeyboardBraille[] = L"braillovska";
+constexpr wchar_t kKeyboardPc[] = L"externa";
 constexpr char kSpeechRateKey[] = "rychlost-reci";
 constexpr char kVolumeKey[] = "hlasitost";
 constexpr char kSlotPrefix[] = "slot";
@@ -160,6 +165,14 @@ void Settings::Load() {
       keepRam_ = value != L"0";
       continue;
     }
+    if (key == kKeyboardKey) {
+      // Only the one word turns it round.  A misspelt or unknown value leaves
+      // the PC keyboard rather than being guessed at: read as braille it would
+      // hand someone a keyboard that writes nothing but chords, and the machine
+      // would give no hint why.
+      brailleKeyboard_ = value == kKeyboardBraille;
+      continue;
+    }
     if (key == kSpeechRateKey || key == kVolumeKey) {
       // Plain digits only.  Anything else is skipped rather than read as zero,
       // which for the volume would start a machine that says nothing and
@@ -213,6 +226,8 @@ bool Settings::Save(std::wstring& error) const {
   // Always written, even at its default, so the switch is visible to someone
   // editing the file by hand.
   text += std::wstring(L"zachovat-ram=") + (keepRam_ ? L"1" : L"0") + L"\r\n";
+  text += std::wstring(L"klavesnica=") +
+          (brailleKeyboard_ ? kKeyboardBraille : kKeyboardPc) + L"\r\n";
   text += L"rychlost-reci=" + std::to_wstring(speechRate_) + L"\r\n";
   text += L"hlasitost=" + std::to_wstring(volume_) + L"\r\n";
   if (!lastDisk_.empty()) text += L"posledna-disketa=" + lastDisk_ + L"\r\n";

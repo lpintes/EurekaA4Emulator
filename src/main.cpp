@@ -102,9 +102,9 @@ void PrintUsage() {
       L"--no-disk spustí Eureku bez diskety a bez pýtania.\r\n"
       L"ROM sa hľadá v premennej A4ROM, vedľa EXE, o úroveň vyššie a\r\n"
       L"v aktuálnom priečinku.\r\n"
-      L"Štartuje sa v režime externej klávesnice; --braille štartuje rovno\r\n"
-      L"v braillovskom. Prepína sa aj za behu, cez F11, Ctrl+K alebo\r\n"
-      L"v ponuke.\r\n"
+      L"Štartuje sa na klávesnici z minulého spustenia; --braille a --pc tú\r\n"
+      L"voľbu pre toto spustenie prebijú. Prepína sa aj za behu, cez F11,\r\n"
+      L"Ctrl+K alebo v ponuke.\r\n"
       L"--diag zapne záznam zahodených zápisov, portov bez modelu a zmien\r\n"
       L"riadiacich latchov, a k tomu záznam každej klávesovej udalosti.\r\n"
       L"Záznam ide na konzolu; výpis je F11, Ctrl+D a aj pri ukončení.\r\n"
@@ -153,8 +153,11 @@ int Run() {
   bool ramDisk = false;
   bool noDisk = false;
   bool diagnostics = false;
-  // Starting straight in a mode, without the shortcut.
+  // Starting straight in a mode, without the shortcut.  Whether the command
+  // line named one at all is kept apart from which one: the settings carry a
+  // mode too, and this run's explicit answer has to beat the last run's.
   InputMode startMode = InputMode::kPc;
+  bool modeFromCommandLine = false;
   for (int index = 1; index < argc; ++index) {
     const std::wstring argument = command[index];
     if (argument == L"--help" || argument == L"-h") {
@@ -178,10 +181,12 @@ int Run() {
     }
     if (argument == L"--pc") {
       startMode = InputMode::kPc;
+      modeFromCommandLine = true;
       continue;
     }
     if (argument == L"--braille") {
       startMode = InputMode::kBraille;
+      modeFromCommandLine = true;
       continue;
     }
     if ((argument == L"--rom" || argument == L"--disk") && index + 1 < argc) {
@@ -202,6 +207,12 @@ int Run() {
   if (diagnostics) host::OpenConsole();
   Settings settings(Settings::FindFile());
   settings.Load();
+  // The keyboard the last run ended on.  Silent on purpose: the tone belongs to
+  // a change, and a start is not one -- the title says which keyboard this is
+  // for any moment afterwards, so NVDA+T answers it (ea4-0vw).
+  if (!modeFromCommandLine)
+    startMode = settings.braille_keyboard() ? InputMode::kBraille
+                                            : InputMode::kPc;
 
   // Without --disk the emulator puts back the diskette it had last time, so a
   // normal start asks nothing at all.  The folder picker is left for the first
