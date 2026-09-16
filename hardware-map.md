@@ -128,8 +128,8 @@ Dekodér s výberom po 8 portoch: 80, 88, 90, 98, A0, A8, B0, B8.
 
 | port | smer | funkcia | istota |
 |---|---|---|---|
-| 80h | W | `modem_latch` — riadenie modemu AM7910, tieň C439h | doložené |
-| 88h | W | `dac_port` — 8-bit DAC (reč, zvuk, DTMF, referencia komparátorov) | doložené |
+| 80h–87h | W | `modem_latch` — riadenie modemu AM7910, tieň C439h | doložené |
+| 88h–8Fh | W | `dac_port` — 8-bit DAC (reč, zvuk, DTMF, referencia komparátorov) | doložené |
 | 89h, 8Ah, 8Ch | R | `bkb_row0`, `bkb_row1`, `bkb_row2` — braillova klávesnica | doložené |
 | 90h–97h | R/W | hodiny reálneho času, sedem registrov + deň v týždni | doložené |
 | 190h–197h | R/W | `rtc_ram_*` — čas a dátum najbližšieho budíka | doložené |
@@ -139,10 +139,15 @@ Dekodér s výberom po 8 portoch: 80, 88, 90, 98, A0, A8, B0, B8.
 | 99h | R/W | `fdc_track` | doložené |
 | 9Ah | R/W | `fdc_sector` | doložené |
 | 9Bh | R/W | `fdc_data` | doložené |
-| A0h | W | `power_latch` — napájanie podsystémov, tieň C43Ah | doložené |
-| A8h | R | `input_buffer` — komparátory a stavové linky | doložené |
-| B0h | W | `output_latch` — všeobecný výstupný latch, tieň C438h | doložené |
-| B8h | R/W | `pwr_stb` — **akýkoľvek prístup vypne stroj** | doložené |
+| A0h–A7h | W | `power_latch` — napájanie podsystémov, tieň C43Ah | doložené |
+| A8h–AFh | R | `input_buffer` — komparátory a stavové linky | doložené |
+| B0h–B7h | W | `output_latch` — všeobecný výstupný latch, tieň C438h | doložené |
+| B8h–BFh | R/W | `pwr_stb` — **akýkoľvek prístup vypne stroj** | doložené |
+
+Bloky s jediným registrom odpovedajú na všetkých ôsmich adresách. ROM
+používa len prvú, ale program z diskety nemusí: demo EUŘOU hrá vzorky cez
+`OUT (8Ch),A`. Spodné bity majú význam len v blokoch hodín, radiča a pri
+čítaní riadkov klávesnice. V kóde to rieši `hw::DecodedPort` (HANDOFF 6.36).
 
 `B8h` nie je „čítaný po vybití batérie", ako sa pôvodne zdalo. Je to
 vypínač: takto sa Eureka vypína štyrmi kurzorovými klávesmi z hlavného

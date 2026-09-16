@@ -2781,6 +2781,58 @@ na Eureke nerobí nič (zmerané, tá istá tabuľka).
   nevie, či nejde o Ctrl s ďalším klávesom. Oneskorenie je teda dĺžka
   stlačenia, nie hranica 350 ms.
 
+### 6.36 Externé porty sa dekódujú po blokoch — DAC aj na 8Ch
+
+Spätná väzba od používateľov 16. 9. 2026: demo EUŘOU (HEMRNA Software,
+1994, disketa `C:\b\diskety\eusou`) v emulátore nehrá a `OUT` z BASICu
+„nereaguje“. Autor správy to pripisoval chýbajúcemu „podtaktovaniu“
+procesora. Tá príčina to nie je, emulátor počíta čas po taktoch Z180 (6.10).
+
+#### Príčina
+
+`AUTOEXEC.COM` z dema posiela vzorky na **port `8Ch`**: slučka načíta bajt,
+pripočíta `80h`, zapíše ho cez `OUT (8Ch),A` a počká cez `DJNZ`. Tá istá
+adresa slúži aj na nastavenie pokojovej úrovne (`OR 8`, `OUT (8Ch),A`).
+`IOPORT.LIB` delí priestor `80h`–`BFh` na bloky po ôsmich adresách
+(„88-8F Digital to analog converter“) a `hardware-map.md` to tvrdila od
+začiatku. `WritePort` však poznal len presnú adresu `88h`, takže zápis na
+`8Ch` ticho zahodil. ROM používa vždy len prvú adresu bloku, preto sa to
+dovtedy neprejavilo.
+
+#### Čo sa zmenilo
+
+- `hw::DecodedPort(port, write)` v `src/eureka_io.h` vráti pre bloky
+  s jediným registrom (modemový, napájací a výstupný latch, vstupný buffer
+  a vypínač) prvú adresu bloku. Pre `88h`–`8Fh` to robí len pri zápise,
+  lebo čítanie vyberá riadky klávesnice jednotlivými bitmi. Hodiny
+  (`90h`–`97h`) a radič (`98h`–`9Fh`) sú bez zmeny.
+- `ReadPortInner` aj `WritePort` sa naň pýtajú. `io_` teda drží hodnotu
+  pod prvou adresou bloku, a preto `debug_io(0x88)` v režime `dc` platí
+  ďalej.
+
+#### Test
+
+`dc`, `CheckDacDecodesWholeBlock`: po sekunde ticha dostane každá adresa
+`88h`–`8Fh` skok na plný rozsah a skok musí byť počuť. Overené mutáciou:
+keď `DecodedPort` pre DAC vráti holý port, zlyhá všetkých sedem aliasov,
+`88h` prejde. Stále je 16 riadkov `PASS`.
+
+#### Otvorené
+
+- Demo v sonde ešte **nebežalo**. Pred spustením kontroluje bajt `CFh`
+  na logickej `CA00h` („Nepovolená manipulace“), čo je nejaká ochrana
+  a nie je jasné, či ju model splní.
+  **Overené naživo 16. 9. 2026:** majiteľ demo s opravou spustil a hrá.
+  Kontrolu na `CA00h` teda model splní; čo presne ten bajt znamená,
+  zostáva nezistené.
+- Či sa `9Ch`–`9Fh` zrkadlí na `98h`–`9Bh` (WD177x má dve adresné
+  linky), manuál nehovorí. Nechané bez zmeny.
+- Príkaz `OUT` z BASICu: nevedno, na ktorý port ho autor správy skúšal.
+- Druhá časť tej istej správy („zápis ôsmeho bitu kvôli ochranám“) sa
+  pravdepodobne týka atribútov CP/M v ôsmom bite mena. `Trim`
+  v `virtual_disk.cpp` ich pri zápise do priečinka zahadzuje. Zatiaľ
+  neodmerané.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -2905,7 +2957,7 @@ integration_test ROM DISK_FOLDER bas   -> PASS
 integration_test ROM DISK_FOLDER com   -> PASS (196 BIOS čítaní)
 integration_test ROM DISK_FOLDER kbd   -> PASS (klávesy, braille, PC)
 integration_test ROM DISK_FOLDER power -> PASS (vypnutie štyrmi kurzormi)
-integration_test ROM DISK_FOLDER dc    -> PASS (výstup po reči sadne na ticho)
+integration_test ROM DISK_FOLDER dc    -> PASS (výstup po reči sadne na ticho, DAC na 88h–8Fh)
 integration_test ROM DISK_FOLDER rtc   -> PASS (budík sa nastaví a zazvoní)
 integration_test ROM DISK_FOLDER hudba -> PASS (medzerník zastaví znelku)
 integration_test ROM DISK_FOLDER format-> PASS (Shift+F8 naformátuje prázdnu)
