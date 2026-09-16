@@ -33,6 +33,172 @@ std::string Trim(const uint8_t* begin, std::size_t length) {
   return value;
 }
 
+// A name field as the firmware matches it: bit 7 ignored, case kept.  Both are
+// measured, not assumed -- a file named with a lower-case letter is a
+// different file to it, and one differing only in bit 7 is the same (6.36).
+std::string NameOf(const uint8_t* name) {
+  const std::string stem = Trim(name, 8);
+  const std::string type = Trim(name + 8, 3);
+  return type.empty() ? stem : stem + "." + type;
+}
+
+constexpr std::size_t kNameBytes = 11;
+
+// What a host file name cannot carry: the attribute bits CP/M keeps in bit 7
+// of the name and lower-case letters, which the import folds away because a
+// host file called readme.txt has to arrive as README.TXT.  Copy protection
+// lives in exactly these -- EUŠOU checks bit 7 of its own name, Sokoban opens
+// a file with a lower-case letter in it (HANDOFF 6.36) -- so for the files
+// that need it the exact bytes go into this one file next to them.  It exists
+// only while some file needs it, so a plain diskette folder stays plain.
+const wchar_t kExactNamesFile[] = L".eureka";
+// Written first and renamed over, so a failed write cannot leave half a list.
+const wchar_t kExactNamesScratch[] = L".eureka-novy";
+
+std::string PlainName(const std::string& cpmName) {
+  std::string exact(kNameBytes, ' ');
+  const std::size_t dot = cpmName.find('.');
+  const std::string stem = cpmName.substr(0, dot);
+  const std::string type = dot == std::string::npos ? "" : cpmName.substr(dot + 1);
+  std::copy(stem.begin(), stem.end(), exact.begin());
+  std::copy(type.begin(), type.end(), exact.begin() + 8);
+  return exact;
+}
+
+bool NeedsExactName(const std::string& exact) {
+  for (unsigned char ch : exact) {
+    const unsigned plain = ch & 0x7f;
+    if (ch != plain || (plain >= 'a' && plain <= 'z')) return true;
+  }
+  return false;
+}
+
+std::string ToHex(const std::string& bytes) {
+  static const char kDigits[] = "0123456789ABCDEF";
+  std::string text;
+  for (unsigned char ch : bytes) {
+    text += kDigits[ch >> 4];
+    text += kDigits[ch & 15];
+  }
+  return text;
+}
+
+bool FromHex(const std::string& text, std::string& bytes) {
+  if (text.size() != kNameBytes * 2) return false;
+  auto digit = [](char ch) {
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+    if (ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    return -1;
+  };
+  bytes.clear();
+  for (std::size_t i = 0; i < text.size(); i += 2) {
+    const int high = digit(text[i]);
+    const int low = digit(text[i + 1]);
+    if (high < 0 || low < 0) return false;
+    bytes += static_cast<char>(high * 16 + low);
+  }
+  return true;
+}
+
+// Host file name -> exact name bytes.  A line that does not parse is skipped,
+// and so is a line for a file that is no longer there: it simply never gets
+// looked up.  A file that exists and cannot be read is an error, because
+// going on without it would hand the guest names its programs refuse.
+bool ReadExactNames(const fs::path& folder,
+                    std::map<std::wstring, std::string>& names,
+                    std::wstring& error) {
+  const fs::path file = folder / kExactNamesFile;
+  std::error_code ec;
+  const bool exists = fs::exists(file, ec);
+  std::ifstream input;
+  if (exists) input.open(file, std::ios::binary);
+  if (ec || (exists && !input)) {
+    error = L"Súbor .eureka v priečinku diskety sa nedá prečítať, preto som "
+            L"disketu nezostavil.";
+    return false;
+  }
+  std::string line;
+  while (exists && std::getline(input, line)) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    const std::size_t tab = line.rfind('\t');
+    std::string exact;
+    if (tab == std::string::npos || tab == 0 ||
+        !FromHex(line.substr(tab + 1), exact)) {
+      continue;
+    }
+    const std::u8string leaf(line.begin(), line.begin() + tab);
+    names[fs::path(leaf).wstring()] = exact;
+  }
+  if (input.bad()) {
+    error = L"Pri čítaní súboru .eureka v priečinku diskety nastala chyba, "
+            L"disketu som nezostavil.";
+    return false;
+  }
+  return true;
+}
+
+// Rewritten only when the list really changed, and removed once nothing needs
+// it any more.
+bool WriteExactNames(const fs::path& folder, const std::string& content,
+                     std::wstring& error) {
+  const fs::path file = folder / kExactNamesFile;
+  std::error_code ec;
+  if (content.empty()) {
+    fs::remove(file, ec);
+    if (ec) {
+      error = L"Nemožno odstrániť súbor " + file.wstring();
+      return false;
+    }
+    return true;
+  }
+  {
+    std::ifstream current(file, std::ios::binary);
+    if (current) {
+      const std::string existing((std::istreambuf_iterator<char>(current)), {});
+      if (existing == content) return true;
+    }
+  }
+  const fs::path scratch = folder / kExactNamesScratch;
+  {
+    std::ofstream output(scratch, std::ios::binary | std::ios::trunc);
+    output.write(content.data(), static_cast<std::streamsize>(content.size()));
+    if (!output.flush()) {
+      error = L"Nemožno zapísať súbor " + file.wstring();
+      return false;
+    }
+  }
+  fs::rename(scratch, file, ec);
+  if (ec) {
+    fs::remove(scratch, ec);
+    error = L"Nemožno zapísať súbor " + file.wstring();
+    return false;
+  }
+  return true;
+}
+
+// Windows compares file names without regard to case, the firmware with it.
+// Two diskette files that differ only in case would otherwise land in one host
+// file, the second overwriting the first.  ASCII is enough: the names this is
+// asked about come out of the directory with bit 7 cleared.
+std::wstring FoldCase(std::wstring leaf) {
+  for (wchar_t& ch : leaf) {
+    if (ch >= L'A' && ch <= L'Z') ch = static_cast<wchar_t>(ch + (L'a' - L'A'));
+  }
+  return leaf;
+}
+
+std::wstring FreeLeaf(const std::wstring& wanted, const std::set<std::wstring>& taken) {
+  if (!taken.contains(FoldCase(wanted))) return wanted;
+  const std::size_t dot = wanted.find(L'.');
+  const std::wstring stem = wanted.substr(0, dot);
+  const std::wstring type = dot == std::wstring::npos ? L"" : wanted.substr(dot);
+  for (unsigned number = 1;; ++number) {
+    const std::wstring candidate = stem + L"~" + std::to_wstring(number) + type;
+    if (!taken.contains(FoldCase(candidate))) return candidate;
+  }
+}
+
 std::wstring Kibibytes(uint64_t blocks) {
   return std::to_wstring(blocks * (kBlockSize / 1024)) + L" KiB";
 }
@@ -172,8 +338,8 @@ bool VirtualDisk::ScanFolder(std::vector<SourceFile>& files, std::wstring& error
     // Only files, and only the top level.  A CP/M directory entry is a name,
     // a user number and extents -- there is nowhere to hang a tree -- so a
     // subfolder is skipped and stays untouched in the host folder.  Our own
-    // bookkeeping (.eureka-trash and friends) belongs to the host too.
-    if (!leaf.starts_with(L".eureka-") && fs::is_regular_file(status)) {
+    // bookkeeping (.eureka, .eureka-trash and friends) belongs to the host too.
+    if (!leaf.starts_with(L".eureka") && fs::is_regular_file(status)) {
       SourceFile file;
       file.path = path;
       file.size = entry->file_size(ec);
@@ -275,6 +441,9 @@ bool VirtualDisk::BuildImage(std::wstring& error, bool* tooBig) {
     return false;
   }
 
+  std::map<std::wstring, std::string> exactNames;
+  if (!ReadExactNames(home_, exactNames, error)) return false;
+
   std::set<std::string> used;
   unsigned directoryIndex = 0;
   unsigned nextBlock = kFirstDataBlock;
@@ -293,7 +462,24 @@ bool VirtualDisk::BuildImage(std::wstring& error, bool* tooBig) {
               L"nezostavil.";
       return false;
     }
-    std::string cpmName = cpm::UniqueName(cpm::MakeName(file.path), used);
+    // A recorded name is taken only while no file before it holds the same
+    // name; otherwise the file falls back to an ordinary one rather than
+    // shadow another.
+    std::string exact;
+    std::string cpmName;
+    const auto recorded = exactNames.find(leaf);
+    if (recorded != exactNames.end()) {
+      const std::string name = NameOf(
+          reinterpret_cast<const uint8_t*>(recorded->second.data()));
+      if (!name.empty() && !used.contains(name)) {
+        exact = recorded->second;
+        cpmName = name;
+      }
+    }
+    if (cpmName.empty()) {
+      cpmName = cpm::UniqueName(cpm::MakeName(file.path), used);
+      exact = PlainName(cpmName);
+    }
     used.insert(cpmName);
 
     const unsigned records = static_cast<unsigned>((data.size() + kRecordSize - 1) / kRecordSize);
@@ -308,19 +494,13 @@ bool VirtualDisk::BuildImage(std::wstring& error, bool* tooBig) {
       return false;
     }
 
-    const std::size_t dot = cpmName.find('.');
-    const std::string stem = cpmName.substr(0, dot);
-    const std::string type = dot == std::string::npos ? "" : cpmName.substr(dot + 1);
     unsigned blockCursor = nextBlock;
     unsigned remainingRecords = records;
     for (unsigned extentNumber = 0; extentNumber < extents; ++extentNumber) {
       uint8_t* directory = image_.data() + directoryIndex++ * 32;
       std::fill(directory, directory + 32, 0);
       directory[0] = 0;
-      std::fill(directory + 1, directory + 9, ' ');
-      std::fill(directory + 9, directory + 12, ' ');
-      std::copy(stem.begin(), stem.end(), directory + 1);
-      std::copy(type.begin(), type.end(), directory + 9);
+      std::copy(exact.begin(), exact.end(), directory + 1);
       directory[12] = static_cast<uint8_t>(extentNumber & 0x1f);
       directory[14] = static_cast<uint8_t>(extentNumber >> 5);
       const unsigned extentRecords = std::min(kRecordsPerEntry, remainingRecords);
@@ -347,9 +527,7 @@ bool VirtualDisk::BuildImage(std::wstring& error, bool* tooBig) {
 }
 
 std::string VirtualDisk::DirectoryName(const uint8_t* entry) {
-  const std::string stem = Trim(entry + 1, 8);
-  const std::string type = Trim(entry + 9, 3);
-  return type.empty() ? stem : stem + "." + type;
+  return NameOf(entry + 1);
 }
 
 // Only for types on which 01Ah really is the end of the file.  The technical
@@ -393,9 +571,24 @@ bool VirtualDisk::ExportImage(const fs::path& destination, bool writeBack,
       extent.blocks[slot] = entry[16 + slot * 2] |
                             (static_cast<uint16_t>(entry[17 + slot * 2]) << 8);
     }
-    files[name].name = name;
-    files[name].extents.push_back(extent);
+    ExportedFile& file = files[name];
+    file.name = name;
+    file.extents.push_back(extent);
+    if (extent.number < file.exact_name_extent) {
+      file.exact_name.assign(reinterpret_cast<const char*>(entry + 1), kNameBytes);
+      file.exact_name_extent = extent.number;
+    }
   }
+
+  // Host names already spoken for.  Every file the folder had is reserved up
+  // front, so a new file whose name differs from one of them only in case gets
+  // a name of its own instead of that file's.
+  std::set<std::wstring> taken;
+  if (writeBack) {
+    for (const auto& [name, imported] : imported_)
+      taken.insert(FoldCase(imported.path.filename().wstring()));
+  }
+  std::string exactNames;
 
   for (auto& [name, file] : files) {
     std::sort(file.extents.begin(), file.extents.end(),
@@ -414,8 +607,18 @@ bool VirtualDisk::ExportImage(const fs::path& destination, bool writeBack,
 
     auto imported = imported_.find(name);
     const bool known = writeBack && imported != imported_.end();
-    fs::path output = known ? imported->second.path
-                            : destination / DecodeCpmName(name);
+    const fs::path output =
+        known ? imported->second.path
+              : destination / FreeLeaf(DecodeCpmName(name), taken);
+    taken.insert(FoldCase(output.filename().wstring()));
+    // Recorded before the unchanged-file shortcut below: a program that only
+    // sets an attribute changes no byte of the file, and that is exactly what
+    // EUSPATH.COM does.
+    if (NeedsExactName(file.exact_name)) {
+      const std::u8string leaf = output.filename().u8string();
+      exactNames.append(leaf.begin(), leaf.end());
+      exactNames += '\t' + ToHex(file.exact_name) + '\n';
+    }
     std::size_t length = data.size();
     if (imported != imported_.end() && imported->second.exact_size <= data.size()) {
       bool paddingOnly = true;
@@ -449,6 +652,7 @@ bool VirtualDisk::ExportImage(const fs::path& destination, bool writeBack,
       (*adopted)[name] = {output, length, Hash(data.data(), length)};
   }
 
+  if (!WriteExactNames(destination, exactNames, error)) return false;
   if (!writeBack) return true;
 
   // Deletions are made recoverable by moving the original host file into a

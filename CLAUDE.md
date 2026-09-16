@@ -261,6 +261,13 @@ v deň uloženia vyzerala v poriadku a odvtedy by ticho prestala rešpektovať
 mazanie súborov — write-back presúva do `.eureka-trash` len súbory, o ktorých
 vie. Drží to `SavingAdoptsTheFolder`.
 
+Drží aj **presné mená** (HANDOFF 6.36): že ôsmy bit a malé písmeno v mene
+prežijú zápis do priečinka a nové načítanie cez súbor `.eureka`, že bežná
+disketa ho nedostane a nepotrebný zmizne, a že dve mená líšiace sa len
+veľkosťou písmen skončia v dvoch súboroch vo Windows, nie v jednom. Na tých
+bitoch stojí ochrana EUŠOU a Sokobanu a ich strata je **tichá** — program
+len povie, že disketa nie je originál. Overené mutáciou.
+
 Drží aj **klasifikáciu typov súborov pri exporte**, a to je jediné, čo ju
 drží. `VirtualDisk::IsTextType` je allowlist a jeho dve chyby stoja rôzne:
 typ zle označený za textový sa oreže na prvom `1Ah` a **stratí dáta

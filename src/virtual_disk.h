@@ -140,6 +140,11 @@ class VirtualDisk {
   struct ExportedFile {
     std::string name;
     std::vector<Extent> extents;
+    // The eleven name bytes exactly as the directory holds them, bit 7 and
+    // lower case included -- taken from the lowest extent, since `name` is
+    // what is left once bit 7 is gone (HANDOFF 6.36).
+    std::string exact_name;
+    unsigned exact_name_extent = ~0u;
   };
 
   static std::string DirectoryName(const uint8_t* entry);

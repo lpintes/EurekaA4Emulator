@@ -717,6 +717,145 @@ void SavingAdoptsTheFolder() {
   Check(fs::exists(target / "DRUHY.BIN"), "zvysok zostal");
 }
 
+// Name bytes 1..11 of the first 16 directory entries, which is all these tests
+// ever use.  `match` is compared with bit 7 cleared, the way the firmware
+// compares; a free entry (0E5h) is taken when `match` is empty.
+bool SetDirectoryName(VirtualDisk& disk, const std::string& match,
+                      const std::string& exact) {
+  uint8_t sector[512]{};
+  if (!disk.ReadPhysicalSector(0, 0, 1, sector)) return false;
+  for (unsigned index = 0; index < 16; ++index) {
+    uint8_t* entry = sector + index * 32;
+    if (match.empty()) {
+      if (entry[0] != 0xe5) continue;
+      std::fill(entry, entry + 32, 0);
+    } else {
+      if (entry[0] > 0x1f) continue;
+      bool same = true;
+      for (unsigned i = 0; i < 11; ++i)
+        if ((entry[1 + i] & 0x7f) != static_cast<uint8_t>(match[i])) same = false;
+      if (!same) continue;
+    }
+    std::memcpy(entry + 1, exact.data(), 11);
+    return disk.WritePhysicalSector(0, 0, 1, sector);
+  }
+  return false;
+}
+
+bool HasDirectoryName(VirtualDisk& disk, const std::string& exact) {
+  uint8_t sector[512]{};
+  if (!disk.ReadPhysicalSector(0, 0, 1, sector)) return false;
+  for (unsigned index = 0; index < 16; ++index) {
+    const uint8_t* entry = sector + index * 32;
+    if (entry[0] <= 0x1f && std::memcmp(entry + 1, exact.data(), 11) == 0) return true;
+  }
+  return false;
+}
+
+bool EraseDirectoryName(VirtualDisk& disk, const std::string& exact) {
+  uint8_t sector[512]{};
+  if (!disk.ReadPhysicalSector(0, 0, 1, sector)) return false;
+  for (unsigned index = 0; index < 16; ++index) {
+    uint8_t* entry = sector + index * 32;
+    if (entry[0] > 0x1f || std::memcmp(entry + 1, exact.data(), 11) != 0) continue;
+    entry[0] = 0xe5;
+    return disk.WritePhysicalSector(0, 0, 1, sector);
+  }
+  return false;
+}
+
+unsigned HostFiles(const fs::path& folder) {
+  unsigned count = 0;
+  for (const auto& entry : fs::directory_iterator(folder)) {
+    const std::wstring leaf = entry.path().filename().wstring();
+    if (entry.is_regular_file() && !leaf.starts_with(L".eureka")) ++count;
+  }
+  return count;
+}
+
+// Copy protection that lives in the directory, not in any file (HANDOFF 6.36).
+// EUŠOU wants bit 7 on the O of its own AUTOEXEC.COM; Sokoban opens a file
+// with a lower-case h in its name, and after its crack the diskette holds that
+// one next to the upper-case one the import made -- two files to the firmware,
+// one name to Windows.  All of it has to come back from the folder, and a
+// folder that needs none of it must not grow a .eureka.
+void ExactNamesSurviveTheFolder() {
+  const fs::path folder = MakeFolder("presne-mena");
+  MakeFile(folder / L"AUTOEXEC.COM", 640, 21);
+  MakeFile(folder / L"7HEMRNA.U", 0, 22);
+  MakeFile(folder / L"OBYCAJNY.BIN", 300, 23);
+  const std::string plainAutoexec("AUTOEXECCOM", 11);
+  const std::string lockedAutoexec("AUTOEXECC\xCFM", 11);
+  const std::string upperHemrna("7HEMRNA U  ", 11);
+  const std::string lowerHemrna("7\xE8" "EMRNA \xD5  ", 11);
+
+  std::wstring error;
+  {
+    VirtualDisk disk;
+    Check(disk.Mount(folder, error), "presne_mena_pripojenie", Narrow(error));
+    // Rewriting the directory unchanged still leaves something owed.
+    uint8_t sector[512]{};
+    Check(disk.ReadPhysicalSector(0, 0, 1, sector) &&
+          disk.WritePhysicalSector(0, 0, 1, sector) && disk.Flush(error),
+          "bezna_disketa_sa_zapise", Narrow(error));
+    Check(!fs::exists(folder / L".eureka"), "bezna_disketa_nema_subor_eureka");
+
+    Check(SetDirectoryName(disk, plainAutoexec, lockedAutoexec),
+          "atribut_sa_nastavi_v_adresari");
+    Check(SetDirectoryName(disk, "", lowerHemrna), "subor_s_malym_pismenom_vznikne");
+    if (!Check(disk.Flush(error), "presne_mena_zapis", Narrow(error))) return;
+  }
+  Check(fs::exists(folder / L".eureka"), "subor_eureka_vznikol");
+  Check(HostFiles(folder) == 4, "dve_mena_lisiace_sa_velkostou_su_dva_subory",
+        "suborov " + std::to_string(HostFiles(folder)));
+  Check(ReadAll(folder / L"AUTOEXEC.COM").size() == 640,
+        "subor_s_atributom_zostal_cely");
+
+  VirtualDisk disk;
+  if (!Check(disk.Mount(folder, error), "presne_mena_znovu_pripojenie", Narrow(error)))
+    return;
+  Check(disk.StoredFiles() == 4, "po_nacitani_su_na_diskete_styri_subory",
+        std::to_string(disk.StoredFiles()));
+  Check(HasDirectoryName(disk, lockedAutoexec), "osmy_bit_prezil_priecinok");
+  Check(HasDirectoryName(disk, lowerHemrna), "male_pismeno_prezilo_priecinok");
+  Check(HasDirectoryName(disk, upperHemrna), "velke_meno_zostalo_vedla");
+
+  // Taking both back: the attribute cleared, the lower-case file deleted.
+  Check(SetDirectoryName(disk, plainAutoexec, plainAutoexec), "atribut_sa_zrusi");
+  Check(EraseDirectoryName(disk, lowerHemrna), "subor_s_malym_pismenom_sa_zmaze");
+  Check(disk.Flush(error), "presne_mena_druhy_zapis", Narrow(error));
+  Check(!fs::exists(folder / L".eureka"), "nepotrebny_subor_eureka_zmizol");
+  Check(HostFiles(folder) == 3, "zmazany_subor_odisiel_z_priecinka",
+        "suborov " + std::to_string(HostFiles(folder)));
+  Check(fs::exists(folder / L".eureka-trash" / L"7hEMRNA~1.U"),
+        "zmazany_subor_s_malym_pismenom_je_v_kosi");
+  Check(fs::exists(folder / L"7HEMRNA.U"), "velke_meno_zostalo_v_priecinku");
+}
+
+// Lines are looked up by host file name, so one for a file that is gone is
+// never asked about, a line that does not parse is skipped, and a recorded
+// name that would shadow a file already on the diskette gives way.
+void ExactNamesFileIsForgiving() {
+  const fs::path folder = MakeFolder("presne-mena-stare");
+  MakeFile(folder / L"PRVY.BIN", 100, 31);
+  MakeFile(folder / L"DRUHY.BIN", 100, 32);
+  {
+    std::ofstream list(folder / L".eureka", std::ios::binary);
+    list << "NEEXISTUJE.BIN\t4E45455849535455424249\n"
+         << "PRVY.BIN\tnezmysel\n"
+         << "DRUHY.BIN\t" << "445255485920202042494E" << "\r\n"
+         << "PRVY.BIN\t" << "445255485920202042494E" << "\n";
+  }
+  VirtualDisk disk;
+  std::wstring error;
+  if (!Check(disk.Mount(folder, error), "stary_subor_eureka_nevadi", Narrow(error))) return;
+  Check(disk.StoredFiles() == 2, "stary_subor_eureka_nestratil_subor",
+        std::to_string(disk.StoredFiles()));
+  Check(HasDirectoryName(disk, std::string("DRUHY   BIN", 11)) &&
+        HasDirectoryName(disk, std::string("PRVY    BIN", 11)),
+        "cudzie_meno_neprekryje_iny_subor");
+}
+
 // An unsaved diskette that has never been formatted still saves, and what
 // comes back is a diskette with a home -- and a home is a filesystem, so it
 // carries a format afterwards whether it did before or not.
@@ -1543,6 +1682,8 @@ int main() {
   StashKeepsTheLock();
   SlotGetsItsDisketteWhenItIsSetUp();
   SavingAdoptsTheFolder();
+  ExactNamesSurviveTheFolder();
+  ExactNamesFileIsForgiving();
   SavingAnUnsavedDisketteGivesItAHome();
   RamDisketteKeepsBinaryFilesWhole();
   FileTypeClassificationIsPinned();

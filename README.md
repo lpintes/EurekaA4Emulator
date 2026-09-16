@@ -617,6 +617,17 @@ doplnku; tu je prioritou verná činnosť ROM.
   bol roztrhnutý a súbor práve prepisovaný by vyzeral ako zmazaný.
 - Súbor zmazaný v Eureke sa kvôli obnove presunie do `.eureka-trash`, nemaže
   sa nevratne.
+- **Súbor `.eureka` drží mená, ktoré sa do mena súboru vo Windows nezmestia.**
+  Na diskete môže mať meno atribút v ôsmom bite znaku alebo malé písmeno a
+  niektoré programy na tom stoja — ochrana proti kopírovaniu dema EUŠOU aj
+  hry Sokoban od HEMRNA Software. Priečinok takú vec zapísať nevie, preto
+  emulátor presné meno uloží do `.eureka` vedľa súborov. Vznikne len vtedy,
+  keď ho niektorý súbor potrebuje, a zmizne, keď už nie. Nemažte ho: bez neho
+  sa po ďalšom štarte ochrana stratí a crack treba spustiť znovu.
+- Windows nerozlišuje veľké a malé písmená v mene, Eureka áno. Keď na diskete
+  vzniknú dva súbory, ktoré sa líšia len veľkosťou písmen, druhý dostane
+  v priečinku meno s `~1` (napríklad `7hEMRNA~1.U`) a jeho skutočné meno je
+  v `.eureka`.
 - **Podpriečinky sa ignorujú, a to bez hlásenia.** Je to zámer, nie chýbajúca
   funkcia: CP/M žiadne adresáre nepozná, takže do diskety niet kam ich dať.
   Prevedie sa len horná úroveň; podpriečinok aj s obsahom zostáva

@@ -2892,6 +2892,44 @@ kľúč `imported_` (dnes meno bez ôsmych bitov), na ktorom visí presun
 zmazaných súborov do `.eureka-trash`. Sokoban z dnešného priečinka
 (`7hEMRNA.U` sa načíta ako `7HEMRNA.U`) to samo neopraví, kým raz
 neprejde crackom a disketa sa neuloží.
+**Už neplatí „nezačaté“ (16. 9. 2026)** — urobené, viď nasledujúcu časť.
+Súbor sa podľa rozhodnutia majiteľa volá `.eureka`, nie `.eureka-mena`.
+
+#### Súbor `.eureka` — presné mená v priečinku diskety
+
+- `src/virtual_disk.cpp`: riadok `meno súboru v priečinku`, tabulátor,
+  22 šestnástkových znakov (bajty 1–11 položky adresára), UTF-8, LF.
+  Zapisuje ho `ExportImage` (pri `Flush` aj `SaveAs`) pre každý súbor,
+  ktorého meno má ôsmy bit alebo malé písmeno, **ešte pred skratkou pre
+  nezmenený obsah** — EUSPATH mení len atribút. Zapisuje sa cez
+  `.eureka-novy` a premenovanie, prepisuje sa len pri zmene a zmaže sa,
+  keď ho netreba. Bajty sa berú z položky s najnižším extentom.
+- `BuildImage` riadok použije podľa mena súboru v priečinku, len ak jeho
+  meno ešte nedrží iný súbor; inak súbor dostane obyčajné meno. Riadok,
+  ktorý sa nedá prečítať, sa preskočí; nečitateľný `.eureka` je chyba
+  pripojenia. `ScanFolder` preskakuje všetko, čo začína `.eureka`.
+- Kľúč `imported_` sa nezmenil: `DirectoryName` už predtým malé písmená
+  zachovávala a ôsmy bit zahadzovala, čo je presne porovnanie ROM.
+- Nová tichá chyba, ktorú to odkrylo: dve mená líšiace sa len veľkosťou
+  písmen (po SOKPATH `7HEMRNA.U` a `7hEMRNA.U`) sa predtým zapísali do
+  jedného súboru vo Windows. Teraz nový súbor dostane voľné meno s `~N`
+  (`FreeLeaf`); rezervované sú vopred mená všetkých súborov, ktoré
+  priečinok mal.
+- Test: `ExactNamesSurviveTheFolder` a `ExactNamesFileIsForgiving`
+  v `disk_test`. Overené mutáciou: bez zápisu riadku padne šesť kontrol,
+  bez `FreeLeaf` päť. Stále 16 riadkov `PASS`.
+- Naživo v sonde, na kópiách diskiet: EUŠOU → EUSPATH → uloženie → nový
+  štart emulátora bez cracku → „Firma HEMRNA Software uvádí fantastické
+  demo“; tá istá kópia bez `.eureka` → „Nepovolená manipulace“. Sokoban
+  pred crackom „Pozor, toto není originální disk“, po SOKPATH, uložení a
+  novom štarte „Logická hra Sokoban“; v priečinku pribudol `7hEMRNA~1.U`
+  a `.eureka` s `37E8454D524E4120D52020`. Rovnaký výsledok vznikol aj
+  v `C:\b\diskety` behom v okne.
+- Pasca v sonde, na ktorú sa pri tom narazilo: token `mount:` disketu pred
+  výmenou **neuloží** (`MountDisk` bez `FlushDisk`), hoci CLAUDE.md hovorí
+  opak; ukladajú `folder`, `ram` a `slot1`/`slot2`. Meranie uloženia preto
+  išlo cez `folder`. Stratu pred touto zmenou teda dokladá kód (`Trim`,
+  `NamePart`), nie beh so zápisom.
 
 ## 7. Nástroje
 
