@@ -46,6 +46,26 @@ projektom v dvoch bodoch protirečia. Platí toto, nie ony:**
   export ho **nevyváža** (`--include-memories` je vypnuté), takže by
   vznikol obsah, ktorý nie je nikde v gite a stratil by sa ticho.
 
+### Viacriadkový text do `bd` z PowerShellu
+
+**`--description=@'…'@` nie je here-string.** Keď je `@'` prilepené
+k prepínaču za `=`, PowerShell ho neberie ako začiatok reťazca, ale ako
+obyčajné znaky — do beadu sa uloží `@` a nový riadok na začiatku a nový
+riadok a `@` na konci. `bd` nič nenamietne, je to **ticho**. Takto skončil
+popis `ea4-68i` a dôvod zavretia `ea4-0vw` (ten zostal v
+`interactions.jsonl`, ktorý sa len pripisuje).
+
+- Here-string patrí do premennej a tá sa podá ako samostatný argument:
+  `$d = @'` … `'@` a potom `bd update ID --description $d`. To isté pre
+  `--reason`, `--notes` a `--design`.
+- Po zápise over, čo sa naozaj uložilo:
+  `(bd show ID --json | ConvertFrom-Json)[0].description` a pozri prvý
+  a posledný znak.
+- Oprava sa **nemusí dostať do `.beads/issues.jsonl`**: automatický export
+  beží najviac raz za 60 s, takže druhý zápis tesne po prvom v súbore
+  chýba. Pred commitom preto `bd export -o .beads/issues.jsonl` a
+  kontrola, že v ňom nie je `":"@\n` ani `\n@"`.
+
 Sekcia sem nie je vložená šablónou — `bd setup claude` sa zámerne
 nespustil, lebo jeho text hovorí to prvé z tých dvoch. Ak ho niekedy
 spúšťaš, výsledok najprv prečítaj.
