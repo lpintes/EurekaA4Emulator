@@ -3137,3 +3137,15 @@ si ho kopíruje sám.
 
 `TP.COM` a `TPS.COM` (Turbo Pascal) sú zatiaľ nevyskúšané a boli by
 podstatne tvrdším testom EurekaDOS.
+
+**Už neplatí (17. 9. 2026, `ea4-1s4`):** oba sú vyskúšané ručne v emulátore
+a prešli. Majiteľ nimi preložil program s 996 riadkami, a to **na disketu**,
+nie do pamäte, takže kompilátor výsledný `.COM` naozaj zapísal. Disketa mala
+domov (priečinok) a preložený program sa spustil a beží správne. Oproti
+`READ.COM` pribudol zápis nového súboru cez EurekaDOS a spustenie
+programu, ktorý nevznikol na dobovej diskete.
+
+Čo to **nerozhodlo**: `ea4-ary` (číslovanie logických sektorov, 6.12).
+Chyba sa neprejavila, ale to dokladá len toľko, že tieto dva programy
+na ňu nenarazili — nie že model čísluje správne. Automatický test z toho
+nie je; ručné meranie sa pri zmene diskovej vrstvy musí zopakovať ručne.
