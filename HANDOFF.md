@@ -2398,7 +2398,7 @@ povie „disk není založen“, ako na kremíku.
 
 Otvorená zostáva len zamknutá disketa z predošlého odseku. Model to
 zmerať vie (`+wp`), ale bez odpovede zo skutočného stroja nie je s čím
-porovnávať.
+porovnávať. Eviduje to bead `ea4-4gw`.
 
 ### 6.31 Vypnutá Eureka zostáva v okne — celá spravená
 
