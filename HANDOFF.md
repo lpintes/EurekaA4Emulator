@@ -2589,6 +2589,18 @@ V tejto ROM sa neprejaví nič z toho okrem TRAP pri cudzích programoch.
    (`0BB1E`, `183E7`), `LD A,I` ani raz.
 8. **Bežné inštrukcie Z80 nie sú overené ZEXDOC** (`ea4-z8y`); na disku
    nie je.
+
+   Už neplatí, 17. 9. 2026: overené. ZEXDOC (8 704 B, MD5
+   `be3691b6b910d2c2e05e194cd529e45c`, z `anotherlin/z80emu`) leží mimo
+   repozitára v `C:\b\z80-tests`. Púšťa ho `bin\zex_test.exe`
+   (`tests/zex_test.cpp`) na holom jadre bez stroja: **všetkých 67 skupín
+   OK**, „Tests complete“, 5 764 169 610 inštrukcií, 113 s. Prechádzajú
+   aj skupiny s IXH/IXL/IYH/IYL, ktoré by Z180 zachytil ako TRAP (bod 5),
+   a `<daa,cpl,scf,ccf>` — jadro tam počíta ako Z80, teda H po CCF podľa
+   Z80 (bod 6 to nerozhoduje). Obal chybu chytí: s NEG pokazeným v kópii
+   jadra (`subb(z, 0, z->a, z->cf)`) vypísal
+   `neg ... ERROR **** crc expected:6a3c3bbd found:5330202b` a `FAIL`
+   s kódom 1. V `run-tests.bat` nie je, lebo program nie je v repozitári.
 9. `tools/z180dis.py` nepozná OTIM, OTDM, OTIMR ani OTDMR a vypisuje ich ako
    `db ED,93` (`ea4-6lc`).
 

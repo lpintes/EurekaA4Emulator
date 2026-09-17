@@ -193,8 +193,11 @@ slučka, `NVDA+Ctrl+F3` ho načíta znovu. Pozor, v scratchpade nefunguje
 `addonHandler.initTranslation()` (nie je to doplnok) — modul to ošetruje.
 
 Sonda a testy: `build-tests.bat`. Zostaví `bin\diag_probe.exe`,
-`bin\integration_test.exe`, `bin\codec_test.exe` a `bin\disk_test.exe`,
-a linkuje ich proti objektom z `build\`.
+`bin\integration_test.exe`, `bin\codec_test.exe`, `bin\disk_test.exe`
+a `bin\settings_test.exe`, a linkuje ich proti objektom z `build\`. Zostaví aj `bin\zex_test.exe`, ktorý
+púšťa ZEXDOC na holom jadre; program je mimo repozitára
+v `C:\b\z80-tests`, preto nie je v `run-tests.bat` (`tests/README.md`,
+HANDOFF 6.33 bod 8). Keď siahneš na `z80.c`, pusti ho — trvá dve minúty.
 
 Všetky tri dávky sú len obálky nad `Makefile` — nastavia PATH, dopočítajú
 `-j` z počtu jadier a zavolajú `mingw32-make`. Meniť pravidlá prekladu má
@@ -235,7 +238,7 @@ Pozor na jednu vec v `Makefile`: `make` si shell vyberá podľa PATH — z
 používať `copy`, `if not exist` ani `mkdir -p`. `mkdir build` funguje v
 oboch, kopírovanie `READ.COM` nie, a preto ho robí `run-tests.bat`.
 
-Pozor: `codec_test`, `disk_test` a `settings_test` majú obyčajný `main`, takže
+Pozor: `codec_test`, `disk_test`, `settings_test` a `zex_test` majú obyčajný `main`, takže
 sa prekladajú **bez** `-municode`; s ním linker spadne na chýbajúcom `wWinMain`.
 
 `disk_test` beží bez ROM aj bez diskového priečinka — testovacie priečinky si

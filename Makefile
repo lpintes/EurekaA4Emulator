@@ -59,7 +59,7 @@ CORE_OBJS  := $(BUILD)/machine.o $(BUILD)/md5.o $(BUILD)/virtual_disk.o \
 
 EMU        := $(BIN)/EurekaA4Emulator.exe
 TEST_EXES  := $(BIN)/codec_test.exe $(BIN)/disk_test.exe \
-              $(BIN)/settings_test.exe \
+              $(BIN)/settings_test.exe $(BIN)/zex_test.exe \
               $(BIN)/diag_probe.exe $(BIN)/integration_test.exe
 
 .PHONY: all tests check clean
@@ -128,6 +128,11 @@ $(BIN)/disk_test.exe: $(BUILD)/test_disk_test.o $(BUILD)/virtual_disk.o \
 # shell32 a ole32 aj tu; FOLDERID_RoamingAppData je GUID z uuid.
 $(BIN)/settings_test.exe: $(BUILD)/test_settings_test.o $(BUILD)/settings.o | $(BIN)
 	$(CXX) $(STATIC) -o $@ $^ -lole32 -lshell32 -luuid
+
+# Hole jadro bez stroja; ZEXDOC nie je v repozitari, preto nie je ani
+# medzi check-* (ea4-z8y). Obycajny main, teda bez -municode.
+$(BIN)/zex_test.exe: $(BUILD)/test_zex_test.o $(BUILD)/z80.o | $(BIN)
+	$(CXX) $(STATIC) -o $@ $^
 
 $(BIN)/diag_probe.exe: $(BUILD)/test_diag_probe.o $(CORE_OBJS) | $(BIN)
 	$(CXX) $(STATIC) -municode -o $@ $^

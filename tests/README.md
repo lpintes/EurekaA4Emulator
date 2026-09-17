@@ -5,6 +5,22 @@ the emulator). The executables land in `bin\` next to the emulator.
 
 `codec_test.cpp` verifies Unicode ↔ Kamenicky conversion.
 
+`zex_test.cpp` runs ZEXDOC, the Z80 instruction exerciser, on the bare core
+with no machine around it. The manual check in `HANDOFF.md` 6.33 covered
+timing and the Z180 extensions; ZEXDOC covers what that could not, the
+results and documented flags of the ordinary Z80 instructions, as CRCs
+against a real Z80. The program is not in the tree (GPL, someone else's
+work) and is not part of `run-tests.bat`; pass its path:
+
+```text
+zex_test C:\b\z80-tests\zexdoc.com
+```
+
+It serves BDOS functions 2 and 9, stops on a jump to 0000h and prints
+`PASS` when the program reached "Tests complete" without an "ERROR". A run
+is 5.8 billion instructions, about two minutes. ZEXALL runs too, but it
+also checks the undocumented X and Y flags, which nothing here depends on.
+
 `settings_test.cpp` covers the settings file: where it goes (a `config` folder
 beside the EXE if there is one, `%APPDATA%\EurekaA4` otherwise), and that a
 hand-edited file cannot cost the user the slots in it. The round trip is

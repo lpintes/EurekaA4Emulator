@@ -25,4 +25,4 @@ rem nepreklada viac, nez treba.
 mingw32-make -j%JOBS% MINGW64="%MINGW64:\=/%" tests
 if errorlevel 1 exit /b 1
 
-echo Vytvorene: bin\codec_test.exe, bin\disk_test.exe, bin\settings_test.exe, bin\diag_probe.exe, bin\integration_test.exe
+echo Vytvorene: bin\codec_test.exe, bin\disk_test.exe, bin\settings_test.exe, bin\zex_test.exe, bin\diag_probe.exe, bin\integration_test.exe
