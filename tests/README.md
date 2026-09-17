@@ -108,14 +108,22 @@ them on the same diskette.
   in the drive (6.30). Measured: on an unformatted diskette the format now runs
   straight through on one `y`;
 
-- `hlaseni` asks the machine about three drives it cannot read and checks that
-  it says three different things: "disk neni zalozen" for an empty drive
-  (F8, the directory), "v jednotce neni disk" for the same drive through the
-  disk functions (Shift+F6), and "disk neni naformatovan, chces jej
-  naformatovat?" for a diskette that never was formatted. Every case also
-  checks that "vadny disk" did *not* come out, which is the whole point: that
-  sentence means a damaged diskette, and it used to be the answer to all
-  three. See 6.30 for where each sentence is composed in the ROM;
+- `hlaseni` asks the machine about drives it cannot read, entry point by
+  entry point, and checks it says what the real machine said when the owner
+  measured it (HANDOFF 6.30, 7. 9. 2026). An empty drive is "disk neni
+  zalozen" through F8, the word processor (reading and saving) and BASIC
+  (`LOAD` and `SAVE`, both with "chyba 21"), but "v jednotce neni disk"
+  through the disk functions (Shift+F6) -- and through formatting, where it
+  must come only after "mam formatovat disk, ano nebo ne?" has been answered;
+  the question arriving first, with no such sentence in the 30M instructions
+  before the answer, is checked. A diskette that never was formatted is
+  "vadny disk" through F8 and "disk neni naformatovan, chces jej
+  naformatovat?" through the disk functions. Every other case checks that
+  "vadny disk" did *not* come out, which is the whole point: that sentence
+  means a damaged diskette, and it used to be the answer to all of them.
+  Mutation-tested: BIOS answering an empty drive with 1 instead of 3 fails
+  the five cases that go through it, every verify succeeding fails the two
+  disk-function ones. See 6.30 for where each sentence is composed in the ROM;
 
 - `com` starts `READ.COM` through Shift+F7 and verifies its prompt;
 - `bas` opens Eureka BASIC, loads `BEEP.BAS`, issues `RUN`, and verifies that

@@ -1161,49 +1161,141 @@ bool CheckProtectedDiskRefusesFormat(EurekaMachine& machine) {
 // means the diskette is damaged.
 //
 // So this is one check per sentence, plus the one that matters most: none of
-// the three may be "vadny disk".
+// them may be "vadny disk" -- except F8 on an unformatted diskette, where the
+// real machine says exactly that (HANDOFF 6.30, measured 7. 9. 2026).
+//
+// The cases are the owner's table from the real machine, entry point by entry
+// point, and three things in it are easy to get wrong without noticing: one
+// medium says different sentences depending on where it is reached from, the
+// unformatted diskette too, and formatting asks before it looks.  That last
+// one is why a case is a sequence of steps, each with what must and what must
+// not be heard by then -- the question has to come, and "v jednotce neni disk"
+// must not, until the answer is given.
+//
+// Two lines of the table differ from the model in words, and the ROM sides
+// with the model on both: the word processor says "<name> neni ulozen" (the
+// only string it has, 75534) where the owner remembers "nebyl ulozen", and
+// "zadny soubor nebyl precten" where the owner remembers "nacten".  The
+// checks follow the ROM.
 bool CheckSaysWhichDiskProblem(EurekaMachine& machine) {
-  // The firmware keeps what it learned about the medium in RAM, so each case
-  // gets its own boot with the medium already in the drive.
-  struct Case {
-    const char* what;      // how the drive is set up
-    bool eject;            // empty drive, or an unformatted diskette
-    uint8_t key;           // C7h is F8 "adresar disku", D5h is Shift+F6
-    const char* expected;  // an ASCII stretch of the Kamenicky speech
-    const char* sentence;  // the same, readably, for the failure line
+  struct Step {
+    uint8_t key;       // a key code, or 0 to type `text` instead
+    const char* text;  // "\r" is Enter
+    // Stretches of the Kamenicky speech that have to be heard by the end of
+    // this step, and ones that must not have been.  A step listens until the
+    // case so far has said all of `expected`, and then a little longer; one
+    // with something forbidden listens its whole budget, because what it
+    // checks is a silence.
+    std::vector<const char*> expected;
+    std::vector<const char*> forbidden;
   };
+  struct Case {
+    const char* what;   // how the drive is set up and what is asked of it
+    bool eject;         // empty drive, or an unformatted diskette
+    bool damaged;       // "vadny disk" is the right answer here
+    std::vector<Step> steps;
+  };
+  const uint8_t kF6 = 0xc5, kF8 = 0xc7, kShiftF1 = 0xd0, kShiftF6 = 0xd5,
+                kShiftF8 = 0xd7;
+  // Shift+F1 inside the word processor asks "vloz souborovy prikaz"; r reads
+  // a file and s saves one (the ROM's own help text, 73752).
   const Case cases[] = {
-      {"prazdna mechanika, adresar", true, 0xc7, "disk nen", "disk neni zalozen"},
-      {"prazdna mechanika, diskove funkcie", true, 0xd5, "jednotce nen",
-       "v jednotce neni disk"},
-      {"nenaformatovana disketa, diskove funkcie", false, 0xd5, "naform",
-       "disk neni naformatovan"},
+      {"prazdna mechanika, adresar", true, false,
+       {{kF8, nullptr, {"disk nen"}, {}}}},
+      {"prazdna mechanika, diskove funkcie", true, false,
+       {{kShiftF6, nullptr, {"jednotce nen"}, {}}}},
+      {"prazdna mechanika, textovy procesor, citanie", true, false,
+       {{kShiftF1, nullptr, {}, {}},
+        {kShiftF1, nullptr, {}, {}},
+        {0, "r", {}, {}},
+        {0, "X\r", {"disk nen", "nebyl p"}, {}}}},
+      {"prazdna mechanika, textovy procesor, ukladanie", true, false,
+       {{kShiftF1, nullptr, {}, {}},
+        {kShiftF1, nullptr, {}, {}},
+        {0, "s", {}, {}},
+        {0, "X\r", {"disk nen", "X nen", "ulo"}, {}}}},
+      {"prazdna mechanika, BASIC, LOAD", true, false,
+       {{kF6, nullptr, {}, {}},
+        {0, "LOAD \"X\"\r", {"disk nen", "chyba 21"}, {}}}},
+      {"prazdna mechanika, BASIC, SAVE", true, false,
+       {{kF6, nullptr, {}, {}},
+        {0, "SAVE \"X\"\r", {"disk nen", "chyba 21"}, {}}}},
+      {"prazdna mechanika, formatovanie", true, false,
+       {{kShiftF8, nullptr, {"nebo ne"}, {"jednotce nen"}},
+        {0, "y", {"jednotce nen"}, {}}}},
+      {"nenaformatovana disketa, adresar", false, true,
+       {{kF8, nullptr, {"vadn"}, {}}}},
+      {"nenaformatovana disketa, diskove funkcie", false, false,
+       {{kShiftF6, nullptr, {"naform"}, {}}}},
   };
 
   bool passed = true;
   for (const Case& item : cases) {
+    // The firmware keeps what it learned about the medium in RAM, so each case
+    // gets its own boot with the medium already in the drive.
     if (item.eject) machine.EjectDisk();
     else machine.CreateEmptyDisk(false);
     machine.Reset();
     for (int step = 0; step < 8'000'000; ++step)
       if (!machine.Step()) break;
-
     machine.TakeSpeechInput();
-    machine.QueueKey(item.key);
-    // Generously long: an empty drive is the slow case on purpose.  The
-    // firmware finds out the drive is empty by timing the controller out --
-    // it polls the status two thousand times (19A16) before it gives up --
-    // and that wait is the shape of the answer, not overhead to be trimmed.
-    const std::vector<uint8_t> spoken = RunAndListen(machine, 120'000'000);
 
-    if (!Contains(spoken, item.expected)) {
-      std::cout << "  " << item.what << ": necakal som \"" << item.sentence
-                << "\"\n";
-      Say("  stroj povedal", spoken);
-      passed = false;
-    } else if (Contains(spoken, "vadn")) {
+    std::vector<uint8_t> spoken;
+    bool failed = false;
+    for (const Step& step : item.steps) {
+      if (step.key) machine.QueueKey(step.key);
+      else if (!Type(machine, step.text)) return false;
+
+      auto heard = [&] {
+        for (const char* stretch : step.expected)
+          if (!Contains(spoken, stretch)) return false;
+        return true;
+      };
+      // An empty drive is the slow case on purpose: the firmware finds out by
+      // timing the controller out -- it polls the status two thousand times
+      // (19A16) before it gives up -- and that wait is the shape of the
+      // answer.  Measured, every expected sentence is out within 5M
+      // instructions of the key, so 120M is only a ceiling for a model gone
+      // slow.  A silence is listened to for 30M, fifteen times what the
+      // format dialogue takes to find the drive empty once answered; a step
+      // that only moves the dialogue on gets 12M.
+      const uint64_t budget = !step.forbidden.empty() ? 30'000'000
+                              : !step.expected.empty() ? 120'000'000
+                                                       : 12'000'000;
+      const uint64_t deadline = machine.instructions() + budget;
+      uint64_t tail = 0;
+      while (machine.instructions() < deadline) {
+        const auto chunk = RunAndListen(machine, 1'000'000);
+        spoken.insert(spoken.end(), chunk.begin(), chunk.end());
+        if (machine.powered_off()) break;
+        // What comes after the expected sentence is still listened to: a
+        // "vadny disk" said right after it is the very regression this is for.
+        if (!step.expected.empty() && step.forbidden.empty() && heard() &&
+            ++tail > 10)
+          break;
+      }
+
+      for (const char* stretch : step.expected)
+        if (!Contains(spoken, stretch)) {
+          std::cout << "  " << item.what << ": necakal som \"" << stretch
+                    << "\"\n";
+          failed = true;
+        }
+      for (const char* stretch : step.forbidden)
+        if (Contains(spoken, stretch)) {
+          std::cout << "  " << item.what << ": \"" << stretch
+                    << "\" zaznelo priskoro\n";
+          failed = true;
+        }
+      if (failed) break;
+    }
+    if (!failed && !item.damaged && Contains(spoken, "vadn")) {
       std::cout << "  " << item.what << ": stroj povedal aj \"vadny disk\","
                 << " co znamena poskodenu disketu\n";
+      failed = true;
+    }
+    if (failed) {
+      Say("  stroj povedal", spoken);
       passed = false;
     }
   }

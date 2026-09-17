@@ -2362,6 +2362,44 @@ odpovede podľa toho, odkiaľ sa na ňu siahne.
 znie rovnako zo všetkých vstupných bodov, alebo sa tiež líši. Majiteľ si
 tým nie je istý (7. 9. 2026), takže sa to nesmie predpokladať.
 
+#### Porovnané s modelom 17. 9. 2026 (ea4-2ll)
+
+Model sedí so všetkými deviatimi riadkami tabuľky vyššie, vrátane poradia
+pri formátovaní. Odmerané sondou a pribité režimom `hlaseni`, ktorý sa
+rozšíril z troch prípadov na deväť. Nový režim nepribudol, testov je
+naďalej trinásť. Tým je uzavretá aj **druhá polovica otvoreného odseku
+vyššie**: zápis na prázdnu mechaniku z textového procesora aj z BASIC-u
+povie „disk není založen“, ako na kremíku.
+
+- **Ako sa na to siaha.** V textovom procesore otvorí `Shift+F1` výzvu
+  „vlož souborový příkaz“, `r` číta a `s` ukladá, za tým meno a Enter.
+  Stojí to v nápovede v ROM (`73752`). V BASIC-u `LOAD "X"` a `SAVE "X"`;
+  na SAVE netreba program, prázdny dopadne rovnako.
+- **Formátovanie sa naozaj pýta skôr, než sa pozrie.** Sonda s `trace`
+  ukázala pred odpoveďou nula prístupov na porty radiča `98h`–`9Bh` a po
+  `Y` 392. Test počúva 30 M inštrukcií pred odpoveďou a „v jednotce není
+  disk“ v nich zaznieť nesmie; po `Y` ho model povie do 2 M.
+- **Dve vety znejú inak, než si ich pamätá majiteľ, a ROM dáva za pravdu
+  modelu.** Textový procesor pri ukladaní povie „X není uložen“, nie „nebyl
+  uložen“: „nebyl“ je v celom dumpe len dvakrát, v „záznam nebyl přijat“
+  (`62873`) a „žádný soubor nebyl přečten“ (`75821`), a pri čítaní teda
+  zaznie „přečten“, nie „načten“. Test sa drží ROM.
+- **Dve mutácie, každá zhodí iné prípady.** BIOS, ktorý na prázdnu
+  mechaniku vráti `1` namiesto `3`, zhodí päť prípadov, ktoré idú cez neho
+  (`F8`, oba prípady textového procesora aj BASIC-u). Verify, ktorý vždy
+  uspeje, zhodí oba prípady diskových funkcií. Formátovanie nezhodí ani
+  jedna, lebo prázdnu mechaniku zisťuje cez `fdc_ctl_disk_in`. Že kontrola
+  poradia vie zazvoniť, je overené na teste. Model, ktorý sa pozrie pred
+  otázkou, vyrobiť nevieme.
+- Každá očakávaná veta zaznie do 5 M inštrukcií od klávesu, aj pri
+  prázdnej mechanike. Test preto počúva, kým ju nepočuje, a potom ešte
+  10 M. Režim tak trvá 21 s namiesto pôvodných 27 s, hoci prípadov je
+  trikrát viac.
+
+Otvorená zostáva len zamknutá disketa z predošlého odseku. Model to
+zmerať vie (`+wp`), ale bez odpovede zo skutočného stroja nie je s čím
+porovnávať.
+
 ### 6.31 Vypnutá Eureka zostáva v okne — celá spravená
 
 **Uzavreté 9. 9. 2026, celé znenie v `HANDOFF-archiv.md`.** Vypnutie je
