@@ -1590,6 +1590,81 @@ bool CheckAlarmWake(EurekaMachine& machine) {
   return served;
 }
 
+// An undefined op code has to trap, not run as a Z80 would.  TRAP.COM says
+// "pred", executes ED 77, which a Z180 does not know, and says "po"; the owner
+// ran these exact bytes on a real Eureka on 18.9.2026 and heard "pred", then
+// "ahoj" and the Main Menu (HANDOFF 6.33, point 5).  Without the trap the
+// emulator said "pred po ahoj".  The program gets a folder of its own because
+// the shared test diskette is mounted by every mode at once.
+bool CheckUndefinedOpcodeTraps(EurekaMachine& machine) {
+  static constexpr uint8_t kTrapCom[] = {
+      0x11, 0x15, 0x01, 0x0e, 0x09, 0xcd, 0x05, 0x00,  // ld de,pred / bdos 9
+      0xed, 0x77,                                      // undefined on a Z180
+      0x11, 0x1c, 0x01, 0x0e, 0x09, 0xcd, 0x05, 0x00,  // ld de,po / bdos 9
+      0xc3, 0x00, 0x00,                                // jp 0
+      'p', 'r', 'e', 'd', '\r', '\n', '$', 'p', 'o', '\r', '\n', '$'};
+  std::error_code ec;
+  const fs::path dir = fs::temp_directory_path(ec) / L"ea4_trap";
+  fs::remove_all(dir, ec);
+  fs::create_directories(dir, ec);
+  {
+    std::ofstream out(dir / L"TRAP.COM", std::ios::binary);
+    out.write(reinterpret_cast<const char*>(kTrapCom), sizeof kTrapCom);
+    if (!out) {
+      std::cout << "  TRAP.COM sa do " << dir.string() << " nezapisal\n";
+      return false;
+    }
+  }
+  std::wstring err;
+  if (!machine.MountDisk(dir.wstring(), err)) {
+    std::wcout << L"  priecinok s TRAP.COM sa nepripojil: " << err << L"\n";
+    fs::remove_all(dir, ec);
+    return false;
+  }
+  machine.Reset();
+
+  const uint64_t kQuiet = EurekaMachine::kCpuHz / 2;
+  std::vector<uint8_t> spoken;
+  uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
+  unsigned fed = 0;
+  bool typed = true;
+  while (machine.instructions() < 40'000'000) {
+    const auto said = machine.TakeSpeechInput();
+    if (!said.empty()) {
+      spoken.insert(spoken.end(), said.begin(), said.end());
+      lastOut = machine.cycles();
+    }
+    machine.TakeConsoleOutput();
+    machine.TakeAudio();
+    if (fed < 2 && machine.cycles() > lastOut + kQuiet) {
+      lastOut = machine.cycles();
+      // Shift+F7 is "spustit program z disku", then the program's name.
+      if (fed == 0) machine.QueueKey(0xd6);
+      else typed = Type(machine, "TRAP\r");
+      if (!typed) break;
+      ++fed;
+    }
+    if (!machine.Step() && machine.powered_off()) break;
+    if (fed >= 2 && machine.cycles() > lastOut + 3 * kQuiet) break;
+  }
+  fs::remove_all(dir, ec);
+  if (!typed) return false;
+
+  // "po" is short enough to hide in other words, so only the stretch between
+  // the program's first line and the machine's goodbye is searched for it.
+  const std::string pred = "pred", ahoj = "ahoj", po = "po";
+  const auto start = std::search(spoken.begin(), spoken.end(), pred.begin(),
+                                 pred.end());
+  const auto end = start == spoken.end()
+      ? spoken.end()
+      : std::search(start + pred.size(), spoken.end(), ahoj.begin(), ahoj.end());
+  const bool passed =
+      end != spoken.end() &&
+      std::search(start, end, po.begin(), po.end()) == end;
+  if (!passed) Say("TRAP.COM povedal", spoken);
+  return passed;
+}
+
 // Typing goes on the keys the ROM's own tables put the characters on, so a
 // character that is on none of them cannot be typed at all.  That has to be
 // said out loud: dropping it silently, or worse typing whatever is near it,
@@ -1619,10 +1694,11 @@ int wmain(int argc, wchar_t** argv) {
        std::wstring(argv[3]) != L"hlaseni" &&
        std::wstring(argv[3]) != L"snimka" &&
        std::wstring(argv[3]) != L"akord" &&
-       std::wstring(argv[3]) != L"budik")) {
+       std::wstring(argv[3]) != L"budik" &&
+       std::wstring(argv[3]) != L"trap")) {
     std::wcerr << L"usage: integration_test ROM DISK_FOLDER "
                   L"com|bas|kbd|power|dc|rtc|hudba|format|wp|hlaseni|snimka|"
-                  L"akord|budik\n";
+                  L"akord|budik|trap\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -1680,6 +1756,12 @@ int wmain(int argc, wchar_t** argv) {
   if (std::wstring(argv[3]) == L"budik") {
     const bool passed = CheckAlarmWake(*machine);
     std::cout << (passed ? "PASS" : "FAIL") << " mode=BUDIK\n";
+    return passed ? 0 : 1;
+  }
+
+  if (std::wstring(argv[3]) == L"trap") {
+    const bool passed = CheckUndefinedOpcodeTraps(*machine);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=TRAP\n";
     return passed ? 0 : 1;
   }
 

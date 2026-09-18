@@ -110,7 +110,7 @@ Nezlučuj ich. A `IOPORT.LIB` si s textom prílohy H protirečí v číslovaní
 (HANDOFF 6.29).
 
 **Po zásahu do hlavičky spusti `python tools/check_io_names.py`.** Prehodená
-maska prejde prekladom aj všetkými pätnástimi testami — sú to nezávislé veci.
+maska prejde prekladom aj všetkými testami — sú to nezávislé veci.
 Tento skript porovná každú konštantu s tým, čo o nej hovorí manuál, a je
 jediné, čo taký preklep chytí.
 
@@ -326,14 +326,14 @@ Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spú�
 
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých šestnásť naraz — tri
-samostatné testy a trinásť režimov `integration_test`. Sú to nezávislé
+`run-tests.bat` zostaví testy a pustí všetkých sedemnásť naraz — tri
+samostatné testy a štrnásť režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `eurekatech\TECHMAN1\READ.COM`, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`.
 
-Výstup drží pohromade `--output-sync=target`; bez neho sa riadky šestnástich
+Výstup drží pohromade `--output-sync=target`; bez neho sa riadky sedemnástich
 procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
 
 **Pasca, do ktorej som už spadol:** režimy sa v `Makefile` generujú ako
@@ -342,7 +342,7 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť šestnásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
+byť sedemnásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
 
 ## Diagnostická sonda
 
@@ -735,7 +735,7 @@ toto je jedno z miest, ktoré by ho zaseklo.
 Kým toto neplatí, nehlás hotovo — a nehlás ani „malo by to fungovať“:
 
 1. `build.bat` prejde bez jediného varovania.
-2. `run-tests.bat` dá **šestnásť** riadkov `PASS`. Že sa to preložilo, nie je
+2. `run-tests.bat` dá **sedemnásť** riadkov `PASS`. Že sa to preložilo, nie je
    výsledok merania.
 3. Dokumentácia dobehla **v tom istom kroku**, nie „potom“. README, keď sa
    zmenilo správanie; HANDOFF, keď v ňom niečo prestalo platiť — ten odsek sa

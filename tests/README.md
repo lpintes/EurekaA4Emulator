@@ -231,6 +231,14 @@ them on the same diskette.
   and reads it every 13.7 to 20.0 ms, so a tap too short to span one read
   would miss; a zero-length tap fails it (verified by mutation).  Needs no
   files on the disk.
+- `trap` pins the Z180 trap on an undefined op code (ea4-cyq, HANDOFF 6.33
+  point 5).  It writes the 33 bytes of TRAP.COM into a folder of its own in
+  `%TEMP%` -- the shared test diskette is mounted by every mode at once --
+  and runs it with Shift+F7.  The program says "pred", executes `ED 77` and
+  says "po".  A real Eureka said "pred", then "ahoj" and went back to the Main
+  Menu, so "ahoj" has to follow "pred" with no "po" between them.  Verified
+  by mutation: with `z180_traps` off the machine says "pred po ahoj" and the
+  mode fails.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
 A genuine `READ.COM` ships with the Technical Manual's development disk and is

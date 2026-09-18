@@ -2635,6 +2635,8 @@ V tejto ROM sa neprejaví nič z toho okrem TRAP pri cudzích programoch.
    a UFO do `ITC` hneď po inštrukcii, zápis do `ITC` TRAP len zhadzuje
    a UFO nemení (HD64180Z Hardware Manual, `ITC`). Sonda s `TRAP.COM`
    (`seq 15000000 kD6 TRAP~ . .`) teraz dáva „pred..ahoj“ ako stroj.
+   Drží to režim `trap` v `integration_test`; s vypnutým `z180_traps`
+   zlyhá na „pred..po..ahoj“ (overené mutáciou).
 6. **CCF a príznak H** (`ea4-aze`). Oba manuály uvádzajú H=0, jadro kopíruje predošlé C
    ako Z80. Bez stroja sa to rozhodnúť nedá; prejaví sa to len pri DAA hneď
    po CCF.
@@ -3130,12 +3132,13 @@ integration_test ROM DISK_FOLDER hlaseni -> PASS (tri stavy mechaniky, tri vety)
 integration_test ROM DISK_FOLDER snimka -> PASS (RAM do súboru a späť, tri odmietnutia)
 integration_test ROM DISK_FOLDER akord -> PASS (postupné skladanie akordu bodmi)
 integration_test ROM DISK_FOLDER budik -> PASS (budík zobudí vypnutý stroj a uspí ho)
+integration_test ROM DISK_FOLDER trap  -> PASS (TRAP.COM povie „pred ahoj“, nie „po“)
 disk_test                              -> PASS (214 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 settings_test                          -> PASS (75 kontrol, bez ROM)
 ```
 
-Všetkých **šestnásť** naraz spustí `run-tests.bat`: paralelne, s jedným
+Všetkých **sedemnásť** naraz spustí `run-tests.bat`: paralelne, s jedným
 súhrnom na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
 diskety si pripraví sám, takže ručne netreba nič.
 
@@ -3145,7 +3148,7 @@ nevidno inak než spočítaním riadkov `PASS`. Presne to sa aj stalo — `wp`
 tu chýbal a text hovoril „jedenásť“, kým `run-tests.bat` už dávno púšťal
 dvanásť procesov. Trinásty je `hlaseni` (6.30), štrnásty `snimka` (6.15),
 pätnásty `akord` (ea4-v1j, 11. 9. 2026) a šestnásty `budik` (6.32, v ten
-istý deň).
+istý deň). Sedemnásty je `trap` (6.33 bod 5, 18. 9. 2026).
 
 Pozor: `com` potrebuje `READ.COM` v priečinku disku a bez neho zlyhá.
 Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`, a `run-tests.bat`
