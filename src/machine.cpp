@@ -215,6 +215,7 @@ void EurekaMachine::PowerOn() {
   io_[hw::kTcr] = 0;
   io_[hw::kRldr0l] = io_[hw::kRldr0h] = io_[hw::kRldr1l] = io_[hw::kRldr1h] = 0xff;
   z80_init(&cpu_);
+  cpu_.z180_traps = true;
   cpu_.read_byte = ReadMemory;
   cpu_.write_byte = WriteMemory;
   cpu_.port_in = CpuReadPort;
@@ -901,6 +902,11 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
           (machine->io_[hw::kTcr] & (hw::kTcrTif0 | hw::kTcrTif1)) |
           (value & hw::kTcrWritable));
       break;
+    case hw::kItc:
+      machine->io_[hw::kItc] = static_cast<uint8_t>(
+          (value & ~(hw::kItcTrap | hw::kItcUfo)) |
+          (previous & value & hw::kItcTrap) | (previous & hw::kItcUfo));
+      break;
     case hw::kTmdr1l: machine->WriteTimerData(1, false, value); break;
     case hw::kTmdr1h: machine->WriteTimerData(1, true, value); break;
     case hw::kDstat: {
@@ -1554,6 +1560,12 @@ bool EurekaMachine::Step() {
   // interrupt off, still take one -- three times in a sweep (HANDOFF 6.33).
   unsigned long before = cpu_.cyc;
   z80_execute(&cpu_);
+  if (cpu_.trap) {
+    io_[hw::kItc] = static_cast<uint8_t>(
+        (io_[hw::kItc] & ~hw::kItcUfo) | hw::kItcTrap |
+        (cpu_.trap == 2 ? hw::kItcUfo : 0));
+    cpu_.trap = 0;
+  }
   Advance(static_cast<uint32_t>(cpu_.cyc - before));
   ScheduleInterrupt();
   before = cpu_.cyc;

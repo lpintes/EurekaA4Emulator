@@ -17,8 +17,9 @@ Oficiálne názvy signálov sú prevzaté z `IOPORT.LIB`.
 - Reset na 0000h najprv prečíta `ITC` (`IN0 A,(ITC)`, `LD C,00h`). Keď je
   nastavený bit TRAP, teda sem neviedol reset, ale nedefinovaný operačný kód,
   skočí na `C006h` — vstup BDOS, ktorý warm boot zapisuje na `0005h`
-  (`196FA`), s C=0, čo je v CP/M funkcia 0 (System Reset). Táto cesta nie je
-  zmeraná; emulátor TRAP nemá (HANDOFF 6.33). Inak nastaví CBAR=D1h,
+  (`196FA`), s C=0, čo je v CP/M funkcia 0 (System Reset). Na skutočnom
+  stroji je to potvrdené: program s `ED 77` skončí, akoby zavolal koniec,
+  a emulátor TRAP od 18. 9. 2026 robí tiež (HANDOFF 6.33). Inak nastaví CBAR=D1h,
   CBR=0Bh, vypne refresh, ICR=0 a skočí na D000h.
 - Časovanie: tabuľky Z180 (Zilog UM005004) a jeden T-stav navyše na každé
   načítanie operačného kódu — tak ho počíta výrobca v `KEYSCAN.MAC` a ROM

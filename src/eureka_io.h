@@ -139,6 +139,12 @@ constexpr uint8_t kBbr = 0x39;   // bbr
 constexpr uint8_t kCbar = 0x3a;  // cbar
 constexpr uint8_t kIcr = 0x3f;   // icr
 
+// HD64180Z manual, ITC: TRAP is set by an undefined op code and software can
+// only write it to 0; UFO says whether the third op code byte was the
+// undefined one and is read-only.  WBOOT at E6B3h (196B3) tests TRAP.
+constexpr uint8_t kItcTrap = 0x80;
+constexpr uint8_t kItcUfo = 0x40;
+
 // Data sheet: IL supplies bits 7-5 of the vector for every internal source.
 constexpr uint8_t kIlVectorBase = 0xe0;
 

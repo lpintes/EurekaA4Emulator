@@ -294,6 +294,73 @@ static inline void z180_otim(z80* const z, bool decrement, bool repeat) {
   }
 }
 
+// Z180 TRAP (UM005004 p. 70-71, HD64180Z manual on ITC): the stacked PC
+// points one byte past the start of the instruction when the second op code
+// byte was undefined (UFO=0) and two bytes past it when the third was (UFO=1).
+// Execution restarts at logical 0000h.  Measured on a real Eureka with ED 77
+// (HANDOFF 6.33, point 5): the program stops there and nothing after it runs.
+static bool z180_trap(z80* const z, uint16_t start, bool ufo) {
+  if (!z->z180_traps) return false;
+  z->trap = ufo ? 2 : 1;
+  pushw(z, start + (ufo ? 2 : 1));
+  z->pc = 0;
+  return true;
+}
+
+// UM005004 Table 50 plus the g=110 forms Table 46 documents for IN and IN0.
+static bool z180_ed_defined(uint8_t op) {
+  if (op < 0x40) {
+    switch (op & 7) {
+    case 0: return true;             // in0
+    case 1: return op != 0x31;       // out0
+    case 4: return true;             // tst
+    default: return false;
+    }
+  }
+  if (op < 0x80) {
+    switch (op & 7) {
+    case 0: return true;             // in r,(c)
+    case 1: return op != 0x71;       // out (c),r
+    case 2: case 3: return true;     // sbc, adc, ld (nn),rr, ld rr,(nn)
+    case 4: return op == 0x44 || op == 0x4c || op == 0x5c || op == 0x6c ||
+                   op == 0x7c || op == 0x64 || op == 0x74;  // neg, mlt, tst
+    case 5: return op == 0x45 || op == 0x4d;                // retn, reti
+    case 6: return op == 0x46 || op == 0x56 || op == 0x5e ||
+                   op == 0x76;                              // im, slp
+    default: return op == 0x47 || op == 0x4f || op == 0x57 || op == 0x5f ||
+                    op == 0x67 || op == 0x6f;
+    }
+  }
+  switch (op) {
+  case 0x83: case 0x8b: case 0x93: case 0x9b:  // otim, otdm, otimr, otdmr
+  case 0xa0: case 0xa1: case 0xa2: case 0xa3:
+  case 0xa8: case 0xa9: case 0xaa: case 0xab:
+  case 0xb0: case 0xb1: case 0xb2: case 0xb3:
+  case 0xb8: case 0xb9: case 0xba: case 0xbb:
+    return true;
+  default:
+    return false;
+  }
+}
+
+// The IX/IY forms UM005004 Tables 38-45 list.  Everything else after DD/FD,
+// the IXH/IXL halves among it, traps on a Z180.
+static bool z180_ddfd_defined(uint8_t op) {
+  switch (op) {
+  case 0x09: case 0x19: case 0x29: case 0x39:
+  case 0x21: case 0x22: case 0x23: case 0x2a: case 0x2b:
+  case 0x34: case 0x35: case 0x36:
+  case 0x46: case 0x4e: case 0x56: case 0x5e: case 0x66: case 0x6e: case 0x7e:
+  case 0x70: case 0x71: case 0x72: case 0x73: case 0x74: case 0x75: case 0x77:
+  case 0x86: case 0x8e: case 0x96: case 0x9e:
+  case 0xa6: case 0xae: case 0xb6: case 0xbe:
+  case 0xcb: case 0xe1: case 0xe3: case 0xe5: case 0xe9: case 0xf9:
+    return true;
+  default:
+    return false;
+  }
+}
+
 // MARK: opcodes
 // jumps to an address
 static inline void jump(z80* const z, uint16_t addr) {
@@ -891,6 +958,8 @@ void z80_init(z80* const z) {
   z->int_pending = 0;
   z->nmi_pending = 0;
   z->int_data = 0;
+  z->z180_traps = 0;
+  z->trap = 0;
 }
 
 // executes the next instruction in memory
@@ -1397,6 +1466,7 @@ void exec_opcode(z80* const z, uint8_t opcode) {
 void exec_opcode_ddfd(z80* const z, uint8_t opcode, uint16_t* const iz) {
   z->cyc += m1_wait + cyc_ddfd[opcode];
   inc_r(z);
+  if (!z180_ddfd_defined(opcode) && z180_trap(z, z->pc - 2, false)) return;
 
 #define IZD displace(z, *iz, nextb(z))
 #define IZH (*iz >> 8)
@@ -1548,6 +1618,8 @@ void exec_opcode_ddfd(z80* const z, uint8_t opcode, uint16_t* const iz) {
 // executes a CB opcode
 void exec_opcode_cb(z80* const z, uint8_t opcode) {
   inc_r(z);
+  const bool sll = (opcode & 0xf8) == 0x30;
+  if (sll && z180_trap(z, z->pc - 2, false)) return;
 
   // decoding instructions from http://z80.info/decoding.htm#cb
   uint8_t x_ = (opcode >> 6) & 3; // 0b11
@@ -1611,6 +1683,11 @@ void exec_opcode_cb(z80* const z, uint8_t opcode) {
 
 // executes a displaced CB opcode (DDCB or FDCB)
 void exec_opcode_dcb(z80* const z, uint8_t opcode, uint16_t addr) {
+  // The Z180 has only the (IX+d) forms without a register copy, and no SLL.
+  // The op code is the fourth byte but the third op code byte: d does not
+  // count, hence UFO=1.
+  const bool undefined = (opcode & 7) != 6 || (opcode & 0xf8) == 0x30;
+  if (undefined && z180_trap(z, z->pc - 4, true)) return;
   uint8_t val = rb(z, addr);
   uint8_t result = 0;
 
@@ -1673,6 +1750,7 @@ void exec_opcode_dcb(z80* const z, uint8_t opcode, uint16_t addr) {
 void exec_opcode_ed(z80* const z, uint8_t opcode) {
   z->cyc += m1_wait + cyc_ed[opcode];
   inc_r(z);
+  if (!z180_ed_defined(opcode) && z180_trap(z, z->pc - 2, false)) return;
   switch (opcode) {
   case 0x00: case 0x08: case 0x10: case 0x18:
   case 0x20: case 0x28: case 0x30: case 0x38:

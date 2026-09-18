@@ -30,6 +30,14 @@ struct z80 {
   bool iff1 : 1, iff2 : 1;
   bool halted : 1;
   bool int_pending : 1, nmi_pending : 1;
+
+  // Z180 undefined op code trap (UM005004 p. 70-71).  Off, an undefined code
+  // runs as it would on a Z80, which is what ZEXDOC checks on the bare core.
+  // On, it pushes the PC and jumps to 0000h, and trap says which byte was
+  // undefined: 1 the second (UFO=0), 2 the third (UFO=1).  The caller moves
+  // it into ITC and clears it.
+  bool z180_traps : 1;
+  uint8_t trap;
 };
 
 void z80_init(z80* const z);

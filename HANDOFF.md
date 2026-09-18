@@ -2619,6 +2619,22 @@ V tejto ROM sa neprejaví nič z toho okrem TRAP pri cudzích programoch.
      cudzích programov.
 
    Rozhodne test na skutočnom stroji (`ea4-r1c`).
+
+   Rozhodnuté 18. 9. 2026: skutočná Eureka povedala **„pred“, potom „ahoj“**
+   a vrátila sa do hlavného menu, „po“ nezaznelo a „chybný operační kód“
+   tiež nie. HD64180 v Eureke kód `ED 77` teda zachytí a stroj ide tou
+   istou cestou ako model v kópii jadra (`0000h` → `C103h` → `CF25h`).
+   Dnešný emulátor („pred po ahoj“) sa od stroja líši a TRAP patrí
+   doplniť tak, ako bol odskúšaný (`ea4-cyq`). Či na stroji zostane bit
+   TRAP v `ITC` nastavený, tento test nerozhodol — počuť sa to nedá.
+
+   Spravené 18. 9. 2026 (`ea4-cyq`): TRAP z kópie je prenesený do jadra bez
+   dočasných počítadiel. Jadro ho robí len so zapnutým `z180_traps`, ktorý
+   zapína stroj; holé jadro v `zex_test` ho má vypnuté, lebo ZEXDOC skúša
+   aj tvary IXH/IXL, ktoré by Z180 zachytil (bod 8). Stroj prenesie TRAP
+   a UFO do `ITC` hneď po inštrukcii, zápis do `ITC` TRAP len zhadzuje
+   a UFO nemení (HD64180Z Hardware Manual, `ITC`). Sonda s `TRAP.COM`
+   (`seq 15000000 kD6 TRAP~ . .`) teraz dáva „pred..ahoj“ ako stroj.
 6. **CCF a príznak H** (`ea4-aze`). Oba manuály uvádzajú H=0, jadro kopíruje predošlé C
    ako Z80. Bez stroja sa to rozhodnúť nedá; prejaví sa to len pri DAA hneď
    po CCF.
