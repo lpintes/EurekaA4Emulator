@@ -490,6 +490,27 @@ swap prehliadne, dostane hodiny prehodené so sekundami a mesiac s dňom.
 Zapisovacia rutina (0DF5A, 0DF7C) používa oproti čítacej zrkadlené
 poradie bufferu, čo tú istú pascu kladie druhýkrát.
 
+### Stopky
+
+Stopky (F2 v hodinách a kalendári) nič nepočítajú. Pri štarte si uložia
+čas z RTC a pri každom hlásení ho odčítajú od času, ktorý RTC ukazuje
+práve vtedy. Stav je päť bajtov v trvalých dátach (`C43Ch`–`C508h`),
+takže prežije vypnutie aj zachovanie RAM. Zmerané sondou (HANDOFF 6.37).
+
+| fyzicky | logicky | význam |
+|---|---|---|
+| 7C44E–7C451 | C44E–C451 | hodiny, minúty, sekundy, stotiny, binárne |
+| 7C452 | C452 | stav: `00` vynulované, `FEh` bežia, `FFh` zastavené |
+
+- Kým stopky bežia, štyri bajty času nesú **čas štartu** z RTC; po
+  zastavení **nameraný čas**. Poradie je to isté ako v bufferi
+  `CB88`–`CB8B` po prehodení opísanom vyššie.
+- Zapisujú ich: čas štartu `0DAF7`, nameraný čas `0DADD`, stav `0DB05`.
+- Vynulovanie zapíše len stav `00`; čas v štyroch bajtoch zostane, ale
+  už sa nečíta.
+- **Dátum sa neukladá.** Rozdiel sa ráta modulo 24 hodín: prechod cez
+  polnoc vyjde správne, celé dni sa stratia.
+
 ## Braillova klávesnica
 
 Dvadsať klávesov v troch riadkoch, každý riadok jeden port len na

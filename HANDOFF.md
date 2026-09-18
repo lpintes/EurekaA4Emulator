@@ -2999,6 +2999,58 @@ Súbor sa podľa rozhodnutia majiteľa volá `.eureka`, nie `.eureka-mena`.
   išlo cez `folder`. Stratu pred touto zmenou teda dokladá kód (`Trim`,
   `NamePart`), nie beh so zápisom.
 
+### 6.37 Stopky si pamätajú čas štartu, nie uplynulý čas
+
+Otázka majiteľa 18. 9. 2026: stopky spustené v emulátore bežia ďalej aj po
+jeho zatvorení a novom spustení (každú sekundu „píp“). Ako to firmvér drží?
+Manuál hovorí len toľko, že stopky merajú cez RTC (`HARDWARE.1`, riadok 68;
+`SERVICE.3`, riadok 61). Premennú ani volanie pre ne neuvádza.
+
+Ovládanie podľa majiteľa: F2 z hlavného menu, ďalšie F2 štart, ďalšie
+zastaví a povie čas a „stop“, ďalšie „vynulováno“. F3 povie medzičas,
+pri stojacich stopkách „0 vteřin“.
+
+#### Zmerané
+
+Stav je päť bajtov na `7C44E`–`7C452` (logicky `C44E`–`C452`), v bloku
+trvalých dát `C43Ch`–`C508h`. Význam bajtov, adresy zápisov a pravidlo
+o dátume sú v `hardware-map.md`, sekcia Stopky. Pri štarte sa ukladá
+**absolútny čas z RTC bez dátumu**, pri hlásení sa odčíta.
+
+Teplé vypnutie so štartom stopiek, Escape do menu, `vypni`, posunom
+hodín, `zapni`, F2, F3, F2, F2 (stav zostal `FEh`):
+
+- `cas:+2h`: „2 HODINY0 VTERIN27 SETIN.“, potom „STOP.“ a „VYNULOVANO.“.
+  Čas vo vypnutom stroji sa **započíta**, rovnako ako na skutočnom stroji,
+  kde RTC beží z batérie.
+- `cas:+5h` cez polnoc (20:47 → 01:47): „5 HODIN0 VTERIN35 SETIN.“.
+- `cas:+1d`: „0 VTERIN35 SETIN.“. Celý deň sa stratil. Je to vlastnosť
+  firmvéru, emulátor ju nemá čo opravovať.
+
+Príkazy sondy (F2 = `s3C`, F3 = `s3D`, Escape = `s01`):
+
+```
+diag_probe ROM DISK seq 15000000 . . s3C . . . s3C . . s01 . . vypni cas:+2h zapni . s3C . . . . s3D . . . . s3C . . . . s3C . . . .
+```
+
+Adresy sa hľadali dočasnými tokenmi sondy (snímka a rozdiel RAM, výpis
+bajtov, sledovanie zápisov do rozsahu, záznam čítaní RTC). Tie sú len
+v kópii mimo repozitára, `C:\b\eureka-a4-scratch\stopky\`.
+
+#### Otvorené
+
+- V prepise reči prišlo hlásenie času aj „STOP.“ o jedno F2 neskôr, než
+  by zodpovedalo opisu majiteľa, a zápis nameraného času do RAM sa ukázal
+  tiež až pri ďalšom F2. Či reč len mešká za klávesom, alebo kláves čaká
+  vo fronte, nie je overené. Na emulátore v okne si to majiteľ nevšimol.
+  Vstup do hodín to nie je: prvé F2 po zapnutí povie čas dňa („23 HODINY.“,
+  „1 MINUTA.“), F3 medzičas, ďalšie F2 „2 HODINY0 VTERIN34 SETINY.“ a potom
+  štyri čakania `.` ticho. „STOP.“ a hneď za ním „VYNULOVANO.“ prišli až po
+  ďalšom F2. Zopakované 18. 9. 2026 s rovnakým výsledkom.
+  **Uzavreté 18. 9. 2026:** v okne firmvér povie čas aj „stop“ pri tom
+  istom F2, potvrdil majiteľ. Posun je len časovanie sondy a na stav
+  stopiek ani na adresy vplyv nemá.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
