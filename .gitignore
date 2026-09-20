@@ -20,3 +20,10 @@ __pycache__/
 .beads-credential-key
 .beads/proxieddb/
 p.md
+
+# Beadsove behove subory, ktore vzniknu az pri prvom pouziti v novom klone.
+# .beads/.gitignore ich nekryje: .beads.gate.lock lezi v koreni, nie v .beads/,
+# a .auto-import-issues.jsonl tam ziadny vzor nema. Bez tychto dvoch riadkov
+# sa pri prvom `git add -A` commitnu.
+.beads.gate.lock
+.beads/.auto-import-issues.jsonl
