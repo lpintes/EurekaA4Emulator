@@ -146,13 +146,22 @@ $(BIN)/integration_test.exe: $(BUILD)/test_integration_test.o $(CORE_OBJS) | $(B
 # Kazdy test je samostatny ciel, aby ich make -j pustil naraz -- su to
 # nezavisle procesy, nic nezdielaju. Priecinok diskety pripravuje
 # run-tests.bat: kopirovanie sa v neutralnom recepte spravit neda a rezim
-# `com` bez eurekatech/TECHMAN1/READ.COM zlyha.
+# `com` bez prveho READ.COM z Technical Manualu zlyha.
+#
+# Manual je material tretich stran a v repozitari nie je (ROM-NOTICE.txt).
+# Ked ho run-tests.bat nenajde, nastavi v PROSTREDI SKIP_MODES na `com wp` --
+# READ.COM potrebuju oba, `wp` nim overuje citanie z chranenej diskety.
+# Testov je potom patnast, nie sedemnast. Prostredim a nie argumentom preto,
+# ze su to dve slova a make by to druhe vzal ako dalsi ciel.
+#
+# Zoznam rezimov je len tu. Druha kopia inde by sa s touto rozisla potichu.
 
 A4ROM ?= C:/b/a4rom.dmp
 ROM   ?= $(A4ROM)
 DISK  ?= $(BUILD)/testdisk
 
-MODES  := bas com kbd power dc rtc hudba format wp hlaseni snimka akord budik trap
+ALL_MODES := bas com kbd power dc rtc hudba format wp hlaseni snimka akord budik trap
+MODES  := $(filter-out $(SKIP_MODES),$(ALL_MODES))
 CHECKS := check-codec check-disk check-settings $(addprefix check-,$(MODES))
 
 .PHONY: $(CHECKS)

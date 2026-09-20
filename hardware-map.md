@@ -4,8 +4,9 @@ Zdroj: `a4rom.dmp`, 262144 B, MD5 9aa101ab69fc367e114e1a84b08feea1.
 
 Pôvodne bolo všetko nižšie odvodené výhradne z kódu v tejto ROM. Od
 24. 8. 2026 je k dispozícii aj **oficiálny Eureka A4 Technical Manual**
-v `eurekatech/` (príloha H `IOPORT.H` a súbor `IOPORT.LIB` sú úplnou
-mapou externých portov). Tam, kde sa odvodené a doložené líšilo, je
+(príloha H `IOPORT.H` a súbor `IOPORT.LIB` sú úplnou mapou externých
+portov). Od 20. 9. 2026 leží mimo repozitára, v `%EUREKATECH%`, inak
+`C:\b\eurekatech` — je to materiál tretích strán, viď `ROM-NOTICE.txt`. Tam, kde sa odvodené a doložené líšilo, je
 nižšie uvedené oboje aj s vysvetlením, prečo odvodenie zlyhalo — inak by
 sa tá istá chyba dala urobiť znovu.
 

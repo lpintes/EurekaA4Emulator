@@ -31,6 +31,12 @@ zdrojové knižnice s pomenovanými adresami a bitovými maskami
 `TECHMAN2/` je len Borlandov tutoriál k Turbo Pascalu, pre tento projekt
 bez hodnoty.
 
+**Zmenené 20. 9. 2026 (`ea4-fo1`): priečinok už nie je v repozitári.**
+O obsahu platí všetko vyššie aj nižšie, len leží mimo stromu — je to
+materiál Robotronu a Borlandu a projekt sa má dať zverejniť. Cesta je
+v premennej `EUREKATECH`, inak `C:\b\eurekatech`; odkazy tvaru
+`eurekatech/TECHMAN1/…` čítaj ako relatívne voči nej.
+
 Čo je kde:
 
 - `IOPORT.H` + `IOPORT.LIB` — úplná mapa externých I/O portov
@@ -2948,6 +2954,13 @@ istý deň). Sedemnásty je `trap` (6.33 bod 5, 18. 9. 2026).
 Pozor: `com` potrebuje `READ.COM` v priečinku disku a bez neho zlyhá.
 Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`, a `run-tests.bat`
 si ho kopíruje sám.
+
+**Doplnené 20. 9. 2026 (`ea4-fo1`):** priečinok je mimo repozitára, takže
+`run-tests.bat` ho hľadá cez `%EUREKATECH%` (inak `C:\b\eurekatech`). Keď
+ho nenájde, vynechá `com` **aj `wp`** a `PASS` je pätnásť. Že ten súbor
+potrebujú dva režimy a nie jeden, sa ukázalo až meraním: `wp` ním overuje
+čítanie z chránenej diskety (`CheckProtectedDiskStillReads`) a bez neho
+padne na `citanie=chyba`.
 
 `TP.COM` a `TPS.COM` (Turbo Pascal) sú zatiaľ nevyskúšané a boli by
 podstatne tvrdším testom EurekaDOS.

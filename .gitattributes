@@ -15,9 +15,8 @@
 # s CRLF a nikto by si toho nevsimol.
 *.py text eol=lf
 
-# Obsah eurekatech/ su dobove subory z roku 1992 vratane CP/M binarok.
-# Konverzia koncov riadkov by ich poskodila a integracny test zavisi na
-# tom, ze READ.COM je bajt na bajt taky, aky prisiel z diskety. Toto
-# pravidlo musi zostat POSLEDNE: pri zhode viacerych vzorov vyhrava ten
-# nizsie, takze prave ono prebije `* text=auto` nad nim.
-eurekatech/** -text
+# Tu stavalo `eurekatech/** -text`, ktore chranilo dobove subory z roku 1992
+# pred konverziou koncov riadkov. Priecinok je od 20. 9. 2026 mimo
+# repozitara (ROM-NOTICE.txt), takze pravidlo nema co chranit. Keby sa sem
+# niekedy vratil, patri mu vlastne pravidlo a musi byt POSLEDNE: pri zhode
+# viacerych vzorov vyhrava ten nizsie, takze len tak prebije `* text=auto`.

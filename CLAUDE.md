@@ -72,12 +72,17 @@ spúšťaš, výsledok najprv prečítaj.
 
 ## Máme oficiálny manuál — pozri doň skôr, než začneš odvodzovať
 
-V `eurekatech/` je **Eureka A4 Technical Manual** od Robotronu aj
-s vývojárskou diskétou. Nie je to doplnok, je to **prameň**: príloha H
+**Eureka A4 Technical Manual** od Robotronu aj s vývojárskou diskétou
+existuje a je po ruke. Nie je to doplnok, je to **prameň**: príloha H
 (`TECHMAN1/IOPORT.H` a `IOPORT.LIB`) je úplná mapa externých I/O portov
 s názvami signálov a bitovými maskami, `DEVICES.10` má volania
 zariadení, `SYSRAM.A` pomenované premenné, `MEMMAP.E` mapy pamäte
 a `FILE-FMT.D` formáty súborov.
+
+**V repozitári ho nehľadaj — nie je v ňom.** Od 20. 9. 2026 leží mimo
+stromu rovnako ako ROM, lebo je to materiál tretích strán a projekt sa má
+dať zverejniť. Cesta je v premennej `EUREKATECH`, inak `C:\b\eurekatech`;
+odkazy nižšie typu `TECHMAN1/IOPORT.LIB` sú relatívne voči nej.
 
 Dvakrát sa už stalo, že odvodenie zo samotnej ROM vyzeralo doložene
 a bolo nesprávne — vždy tak, že si **susednosť pomýlilo s príčinnosťou**
@@ -85,15 +90,16 @@ a bolo nesprávne — vždy tak, že si **susednosť pomýlilo s príčinnosťou
 Manuál to oba razy rozhodol za pár minút. Keď narazíš na port, bit alebo
 volanie, hľadaj najprv tam.
 
-Pozor: obsah `eurekatech/` je materiál tretích strán (Robotron
-a Borland) a MIT licencia projektu sa naň nevzťahuje. Viď
-`eurekatech/PUVOD.md`.
+Pozor: obsah toho priečinka je materiál tretích strán (Robotron
+a Borland) a MIT licencia projektu sa naň nevzťahuje. Viď `PUVOD.md`
+v ňom a `ROM-NOTICE.txt` tu. **Nekopíruj z neho súbory do repozitára** —
+to je presne tá cesta, ktorou by sa do zverejneného stromu vrátili.
 
 ### Čísla portov a bitov sú v `src/eureka_io.h`, s menami z manuálu
 
 Namiesto `0xa0` a `0x40` má kód `hw::kPowerLatch` a `hw::kVmselMask`.
 Mená sú tie, ktoré používa ich prameň, len prepísané do `kPascalCase`, a pri
-každej konštante je v komentári napísané, ktorý súbor v `eurekatech/` ju
+každej konštante je v komentári napísané, ktorý súbor manuálu ju
 dokladá. To je celý zmysel: meno sa dá grepnúť a spor o to, čo bit robí,
 rozhodne Robotron.
 
@@ -112,7 +118,10 @@ Nezlučuj ich. A `IOPORT.LIB` si s textom prílohy H protirečí v číslovaní
 **Po zásahu do hlavičky spusti `python tools/check_io_names.py`.** Prehodená
 maska prejde prekladom aj všetkými testami — sú to nezávislé veci.
 Tento skript porovná každú konštantu s tým, čo o nej hovorí manuál, a je
-jediné, čo taký preklep chytí.
+jediné, čo taký preklep chytí. Teraz kontroluje 108 konštánt; keď manuál
+nenájde, skončí s **návratovým kódom 2** a povie to — mlčanie by sa čítalo
+ako „skontrolované, v poriadku“, a to je presne tá tichá chyba, proti
+ktorej celý skript stojí.
 
 ## O používateľovi
 
@@ -329,9 +338,17 @@ Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spú�
 `run-tests.bat` zostaví testy a pustí všetkých sedemnásť naraz — tri
 samostatné testy a štrnásť režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
-`build\testdisk` a skopíruje doň `eurekatech\TECHMAN1\READ.COM`, bez
+`build\testdisk` a skopíruje doň `TECHMAN1\READ.COM` z manuálu, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
-`C:\b\a4rom.dmp`.
+`C:\b\a4rom.dmp`; manuál z `%EUREKATECH%`, inak `C:\b\eurekatech`.
+
+**Keď manuál nie je po ruke, je `PASS` pätnásť a nie je to regresia.**
+Dávka vynechá cez `SKIP_MODES` režimy `com` **aj `wp`** a napíše, prečo.
+Že sú to dva a nie jeden, ukázalo až meranie 20. 9. 2026: `wp` spúšťa ten
+istý `READ.COM` a overuje ním, že z chránenej diskety sa dá čítať
+(`CheckProtectedDiskStillReads`), takže bez neho padne na `citanie=chyba`.
+Odhad hovoril, že ide len o `com`. Zoznam režimov je len v `Makefile`
+(`ALL_MODES`), aby sa druhá kópia nemala ako rozísť.
 
 Výstup drží pohromade `--output-sync=target`; bez neho sa riadky sedemnástich
 procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
@@ -342,7 +359,8 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť sedemnásť — a raz to skús s nezmyselnou ROM, či poistka naozaj zvoní.
+byť sedemnásť, alebo pätnásť bez manuálu — a raz to skús s nezmyselnou ROM
+aj s nezmyselným `EUREKATECH`, či poistky naozaj zvonia.
 
 ## Diagnostická sonda
 
@@ -735,7 +753,8 @@ toto je jedno z miest, ktoré by ho zaseklo.
 Kým toto neplatí, nehlás hotovo — a nehlás ani „malo by to fungovať“:
 
 1. `build.bat` prejde bez jediného varovania.
-2. `run-tests.bat` dá **sedemnásť** riadkov `PASS`. Že sa to preložilo, nie je
+2. `run-tests.bat` dá **sedemnásť** riadkov `PASS` — alebo pätnásť, keď na
+   stroji nie je Technical Manual a dávka to ohlási. Že sa to preložilo, nie je
    výsledok merania.
 3. Dokumentácia dobehla **v tom istom kroku**, nie „potom“. README, keď sa
    zmenilo správanie; HANDOFF, keď v ňom niečo prestalo platiť — ten odsek sa
@@ -758,9 +777,11 @@ Commituj len keď o to používateľ požiada. Nepushuj bez vyzvania.
 
 Konce riadkov drží `.gitattributes`, nie ty: `* text=auto` ukladá do
 repozitára LF, `*.bat` zostáva CRLF (`cmd.exe` na LF-only dávkach vie
-zlyhať na `if/else` a `goto`, a až za behu) a `eurekatech/**` je z
-konverzie vyňatý úplne, lebo je v ňom osemnásť binárok z roku 1992 a
-test `com` závisí na tom, že `READ.COM` je bajt na bajt z diskety.
+zlyhať na `if/else` a `goto`, a až za behu) a `*.py` LF kvôli štýlu NVDA.
+Pravidlo `eurekatech/** -text` tam stálo do 20. 9. 2026, kým bol manuál
+v strome; teraz je mimo neho, takže konverzia sa ho netýka a pravidlo je
+preč. V súbore po ňom zostal komentár — keby sa priečinok vrátil, musí sa
+vrátiť aj ono.
 
 Ak na ten súbor siahneš, over, že pravidlo pre `eurekatech/` zostalo
 **posledné** — pri zhode viacerých vzorov vyhráva to nižšie. A keď

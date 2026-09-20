@@ -5,8 +5,13 @@ IOPORT.LIB, IOREG.LIB or SYSEQU.LIB equate, or a KB.H define -- is looked up in 
 matching file under eurekatech/ and compared.  A swapped mask survives both
 the compiler and run-tests.bat, so this is the only thing that catches one.
 
-Run from the repository root:  python tools/check_io_names.py
-Exits non-zero if anything disagrees.
+eurekatech/ is third-party material and lives outside the repository, so
+point EUREKATECH at it.  Run from the repository root:
+
+    python tools/check_io_names.py
+
+Exits non-zero if anything disagrees, and 2 if the manual is not there --
+silence would read as "checked, all fine".
 """
 
 import os
@@ -15,7 +20,13 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HEADER = os.path.join(ROOT, 'src', 'eureka_io.h')
-TECHMAN = os.path.join(ROOT, 'eurekatech', 'TECHMAN1')
+
+# eurekatech/ holds Robotron's and Borland's material, so it is not in the
+# repository -- the same arrangement the ROM already has, see ROM-NOTICE.txt.
+# The fallback is where it sits on the author's machine, matching how
+# run-tests.bat falls back to C:\b\a4rom.dmp for the ROM.
+EUREKATECH = os.environ.get('EUREKATECH') or r'C:\b\eurekatech'
+TECHMAN = os.path.join(EUREKATECH, 'TECHMAN1')
 
 # The libraries are 1992 DOS text: plain ASCII, but read them as latin-1 so a
 # stray high byte cannot stop the check with a decode error.
@@ -85,6 +96,14 @@ def read_header():
 
 
 def main():
+    # Without the manual there is nothing to compare against.  Exiting 0 here
+    # would be the silent failure this whole script exists to prevent.
+    if not os.path.isdir(TECHMAN):
+        print(f'Nenasiel som Technical Manual: {TECHMAN}')
+        print('Je to material tretich stran a do repozitara nepatri.')
+        print('Cestu k priecinku eurekatech zadajte premennou EUREKATECH.')
+        return 2
+
     equates = read_equates('IOPORT.LIB', 'IOREG.LIB', 'SYSEQU.LIB')
     defines = read_kb_defines()
 

@@ -241,11 +241,18 @@ them on the same diskette.
   mode fails.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
-A genuine `READ.COM` ships with the Technical Manual's development disk and is
-in the tree at `eurekatech/TECHMAN1/READ.COM`; copy it into the disk folder.
-It is third-party material and not covered by the emulator's MIT licence, so
-`.gitattributes` keeps it out of line-ending conversion -- the test depends on
-it being byte for byte what came off the original diskette.
+A genuine `READ.COM` ships with the Technical Manual's development disk, which
+is third-party material and therefore **not in this repository** -- see
+`ROM-NOTICE.txt`.  Point `EUREKATECH` at your copy of that folder (the default
+is `C:\b\eurekatech`) and `run-tests.bat` copies the file in for you.
+
+Without it the `com` and `wp` modes are skipped and the suite reports fifteen
+`PASS` lines instead of seventeen, saying so as it goes.  Both modes run that
+same `READ.COM`: `com` to start it, `wp` to show a write-protected diskette
+still reads (`CheckProtectedDiskStillReads`).  Nothing else needs the manual.
+Copy the file yourself only if you are running `integration_test.exe` by hand
+-- and keep it byte for byte as it came off the original diskette, because
+both modes depend on that.
 
 `diag_probe.cpp` boots the ROM with diagnostics enabled and prints the report.
 It needs no application files, only the ROM and any folder to act as a disk:

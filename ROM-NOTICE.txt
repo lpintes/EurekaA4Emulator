@@ -7,5 +7,15 @@ firmware into the binary is still distribution of the firmware, only less
 visible. If the emulator is ever published, the ROM must stay a separate
 file that the user supplies from their own machine.
 
-The same applies to eurekatech/, which holds third-party documentation and
-software from two different rights holders. See eurekatech/PUVOD.md.
+The same applies to the Eureka A4 Technical Manual and its development disk
+(Robotron, and Turbo Pascal from Borland). That material was in eurekatech/
+until 20 September 2026 and now lives outside the tree, exactly like the
+ROM: set EUREKATECH to point at it. Its own PUVOD.md, which lists who holds
+what, moved with it.
+
+Two things need it and both say so when it is missing rather than passing
+quietly: tools/check_io_names.py exits 2, and run-tests.bat skips the `com`
+and `wp` modes -- both run READ.COM from the development disk -- leaving
+fifteen tests instead of seventeen. Everything else builds and runs without
+it: the findings taken from the manual are written up in our own words in
+hardware-map.md, HANDOFF.md and src/eureka_io.h.
