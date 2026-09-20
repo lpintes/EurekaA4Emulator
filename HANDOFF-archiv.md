@@ -244,6 +244,346 @@ raz s medzerníkom a raz bez ničoho: bez druhého behu by test prešiel aj
 na znelke, ktorá dohrala sama. Odskúšané mutáciou — keď sa medzerník
 pošle do fronty ROM namiesto na riadok, test spadne s RMS 5028.
 
+### 6.10 Hudba v emulátore hrá o 14,5 % pomalšie
+
+**Zmerané 25. 8. 2026** proti nahrávke skutočnej Eureky (mobil, majiteľ
+stroja). Emulátor hrá **1,145-krát pomalšie** a **výšku má správnu na
+0,006 %**. Tým je rozhodnutá otvorená otázka, ktorá tu stála predtým:
+dĺžky nôt sa nepočítajú z rýchlosti DAC.
+
+#### Ako sa to meralo
+
+Kópia sondy v scratchpade poháňa skutočný `EurekaMachine` tou istou
+slučkou ako `main.cpp`, ale **bez regulátora latencie**, takže hosťovské
+hodiny idú presne 6,144 MHz; všetko z DAC ide cez `TakeAudio()` do WAV.
+Kontrola sedí na vzorku: 25,001 s hosťovského času = 1 200 047 vzoriek
+pri 48 kHz. Do tej istej kópie sa pridal histogram PC za zvolené okno
+hosťovského času — bez neho by sa mechanizmus hľadal odvodzovaním.
+
+Noty sa z oboch nahrávok vytiahli jedným skriptom: FFT v 40 ms okne
+s posunom 10 ms, doplnenie núl na osemnásobok a parabolická interpolácia
+vrcholu (bez nej sa 18 centov v 25 Hz koši nedá vidieť), potom zlúčenie
+susedných rámcov s rovnakým poltónom. Že ide o tú istú znelku, potvrdzuje
+zhodná sedemtónová postupnosť E5 C5 D5 A#4 C5 A4 A#4 aj korelácia obálok
+nábehov, ktorá o notách nevie nič.
+
+#### Čísla
+
+| meranie | skutočný stroj | emulátor | pomer |
+|---|---|---|---|
+| úvodný tón -> E5 | 1,158 s | 1,320 s | 1,140 |
+| úvodný tón -> záverečné F5 | 3,762 s | 4,310 s | 1,146 |
+| rozostup tónov v behu | 236,2 ms | 272,9 ms | 1,155 |
+| korelácia obálok nábehov | — | — | 1,141 |
+
+Výška: skutočný stroj −18,4 centa, emulátor −18,5 centa oproti A = 440 Hz.
+
+Tá odchýlka **nie je vlastnosť skutočného stroja** — je to aritmetika
+v ROM, lebo emulátor s presne 6,144 MHz vyrobí tú istú. (Skorší výklad,
+že skutočnej Eureke ide kryštál o 1 % pomalšie, bol nesprávny.)
+
+A práve tá zhoda je dôkaz, kde chyba **nie je**: výšku určuje prerušenie
+od časovača, takže keby jeho frekvencia bola vedľa o 2 %, výška by sa
+posunula o 35 centov. Namerané je 0,1 centa. **Časovač je správne na
+0,06 % a tempo je napriek tomu o 14,5 % vedľa.**
+
+#### Kde tempo vzniká
+
+Dĺžku noty odmeriava **prázdna čakacia slučka v ROM na 10E5D**, žiadny
+časovač:
+
+```
+10E5A  LD HL,(B0B0h)
+10E5D  DEC HL
+10E5E  LD A,H
+10E5F  OR L
+10E60  JR NZ,10E5Dh
+10E62  RET
+```
+
+Rozdelenie procesora počas tónu (histogram PC, okno 0,2 s):
+
+- **11 378-krát za sekundu** beží obsluha generátora tónov v RAM na
+  `7B01D`–`7B051`. To je φ / (20 × 27), teda RLDR0 = `26` — pre generátor
+  tónov, nie tých 7,5 kHz, ktoré patria reči.
+- Čakacia slučka urobí **26 400 obehov za sekundu**. Pri 26 T-stavoch
+  (časovanie Z80) je to **11,2 %** cyklov; zvyšných **88,8 %** spotrebuje
+  obsluha.
+
+Z toho plynie páka, ktorá je na tomto celá podstatná. Na jedno prerušenie
+pripadá **540 T-stavov**, z toho obsluha zoberie asi 480 a na slučku
+zostane 60. Slučka teda dostáva **iba zvyšok**, a preto sa **chyba 1 %
+v cene obsluhy premietne do 8 % v tempe**.
+
+#### Obsluha generátora tónov, presne
+
+Vytiahnutá z RAM trasovaním (logická `B000`–`B051`). Je to štvorhlasý
+fázový akumulátor: pre každý hlas `HL += BC`, index do 256-bajtovej
+tabuľky priebehu je horný bajt `HL`, vzorky sa sčítajú a idú na DAC.
+
+```
+B000  EXX / EX AF,AF'         B046  OUT (88h),A
+B002  LD DE,(B0A5h)           B048  EXX
+B006  4x { LD HL,(fáza)       B049  IN0 A,(TCR)
+           LD BC,(prírastok)  B04C  IN0 A,(TMDR0L)
+           ADD HL,BC          B04F  EX AF,AF'
+           LD (fáza),HL       B050  EI
+           LD L,H / LD H,0    B051  RET
+           ADD HL,DE
+           ADD A,(HL) }
+```
+
+Opravené 12. 9. 2026: na `B049` tu stálo `IN0 A,(ITC)`. V ROM je
+`IN0 A,(TCR)` (`0FB70`) — dvojica s `IN0 A,(TMDR0L)` sa v nej s `ITC`
+nevyskytuje ani raz. Čítanie `TCR` a potom `TMDR0L` zhadzuje príznak
+časovača; na číslach nižšie to nič nemení.
+
+Zmerané v emulátore (nie odvodené):
+
+| veličina | hodnota |
+|---|---|
+| perióda prerušenia | **540,00 T-stavu** (φ/540 = 11 377,8 Hz) |
+| jeden obeh čakacej slučky | **26 T-stavov** |
+| obehov slučky na prerušenie | **2,286** = 59,43 T |
+| obsluha vrátane prijatia prerušenia | **480,58 T = 89,0 %** |
+
+Aby tempo sedelo, musí slučka stihnúť 2,286 × 1,145 = **2,617 obehu**,
+teda obsluha smie stáť **472 T namiesto 480,6** — o **1,8 % menej**.
+Rovnomerne rozložené je to zrýchlenie vykonávania o **1,6 %**.
+
+#### Rozpočet 540 T-stavov, presne
+
+Zmerané priamo, nie dopočítané. Telo obsluhy `B000`–`B050` stojí
+**443,00 T-stavu** (zhoduje sa s ručným súčtom podľa tabuliek v `z80.c`),
+`RET` 10, prijatie prerušenia v IM 2 pridáva 19.
+
+| položka | kde beží | T-stavov na prerušenie | podiel inštrukcií |
+|---|---|---|---|
+| obsluha + prijatie | RAM | 472,0 | 80,6 % |
+| čakacia slučka `10E5D` | ROM | 59,4 (2,286 × 26) | 17,6 % |
+| prehrávač melódie `10C9x`–`10FCx` | ROM | 9,0 | 1,9 % |
+| **spolu** | | **540,0** | |
+
+Aby tempo sedelo, musí slučka dostať 68,0 T namiesto 59,4 — teda všetko
+ostatné musí zlacnieť o **8,6 T-stavu, čo je 1,8 %**.
+
+#### Prečo časovanie Z180 nie je tá oprava (s prameňom)
+
+Časovanie je z **Zilog Z8018x Family MPU User Manual UM005004**, tabuľka
+Instruction Summary a kapitola o zbernicových cykloch. Základné pravidlo:
+zbernicový strojový cyklus má **3 takty**, vnútorný **1**; Z80 má načítanie
+operačného kódu za 4.
+
+| inštrukcia | Z80 (dnes v jadre) | Z180 (manuál) |
+|---|---|---|
+| `ADD HL,ww` | 11 | **7** |
+| `DEC ww` | 6 | **4** |
+| `JR cc,j` splnené | 12 | **8** |
+| `LD ww,(mn)` (`ED 4B`) | 20 | **18** |
+| `LD HL,(mn)` | 16 | **15** |
+| `LD g,m` | 7 | **6** |
+| `ADD A,(HL)` | 7 | **6** |
+| `EXX` | 4 | **3** |
+| `RET` | 10 | **9** |
+
+Po dosadení: telo obsluhy klesne zo 443 na **385**, `RET` na 9, obeh
+slučky z 26 na **20**. Aj keď sa pripočítajú tri čakacie stavy pre I/O,
+ktoré si firmvér objednáva sám (`DCNTL = 38h` na `00012`: **0 pre pamäť,
+3 pre I/O**, tri I/O prístupy v obsluhe = +9 T), vyjde obsluha okolo
+**422 T** a slučka by dostala vyše 100 T. Znelka by hrala **asi
+dvojnásobne rýchlejšie než skutočný stroj**.
+
+#### Čo z toho zostáva ako model
+
+Aby čísla sedeli, musí skutočný stroj niekde stratiť okolo 40 T-stavov na
+prerušenie. Jediné miesto, kde sa môžu stratiť a firmvér o nich nevie, sú
+**čakacie stavy z vývodu WAIT**. Dve možnosti a ich dôsledky:
+
+- **Rovnomerne na každý prístup do pamäte:** vychádza **0,44** čakacieho
+  stavu na prístup. To hardvér nerobí, takže tento model je vylúčený.
+- **Len na ROM, RAM bez čakania:** vychádza **asi 3,6**. To hardvér robiť
+  môže, a hlavne to sedí s tým, čo firmvér sám robí — **obsluhu si kopíruje
+  do RAM**, hoci ju má v ROM na `0FB6D`. Nikto nekopíruje kód do RAM pre
+  zábavu; robí sa to práve vtedy, keď je ROM na obsluhu prerušenia
+  11 378-krát za sekundu príliš pomalá.
+
+Je to však **jedna rovnica na jednu neznámu, dopasovaná na jedno meranie**.
+Kým nie je druhé, nezávislé meranie, je to hypotéza, nie výsledok.
+
+#### Kadiaľ ísť
+
+1. **Netreba meniť tabuľky samotné.** Dnešné Z80 hodnoty trafia skutočný
+   stroj na 1,8 %; samotné Z180 by minuli o 100 %. Zmena tabuliek bez
+   čakacích stavov by emulátor **zhoršila**, nie zlepšila.
+2. Zaviesť oboje naraz: časovanie Z180 **a** počet čakacích stavov zvlášť
+   pre ROM a pre RAM. Počet pre ROM nakalibrovať na znelku; ak vyjde blízko
+   celého čísla, je to model hardvéru, ak nie, je to prispôsobenie a treba
+   to tak napísať.
+3. Nájsť druhé nezávislé meranie, ktoré ten model overí. Ideálne niečo,
+   čo beží celé z ROM a čoho dĺžku vidieť na nahrávke.
+4. Pozor, taký zásah sa dotkne **všetkého** — disku, reči, klávesnice.
+   Reč beží na časovači a nemala by sa hnúť; treba to overiť, nie
+   predpokladať.
+
+#### Doplnené 12. 9. 2026: výrobca udáva cenu slučky, manuál Z180 opravuje I/O
+
+Prameň: Zilog **UM005004-0918** (`zilog.com/docs/z180/um0050.pdf`)
+a Hitachi **HD64180Z Hardware Manual, 4. vydanie** (bitsavers). V repozitári
+nie sú, je to materiál tretích strán.
+
+**Čo vyššie neplatí.** Veta o „troch čakacích stavoch pre I/O, +9 T“ je
+nesprávna dvakrát. `DCNTL = 38h` dáva IWI = 11, teda **4** čakacie stavy
+(`SYSEQU.LIB`: `slowio equ true ;for 4 wait states on IO`), ale podľa
+Tabuľky 4 **len pre externé porty**. Porty procesora `00h`–`3Fh` sa IWI
+neriadia: `TCR` má 0 čakacích stavov, dátový register PRT (`TMDR0L`) **0 až
+4** podľa vnútornej synchronizácie — presné číslo manuál nedáva. V obsluhe
+je to teda +4 za `OUT (88h)` a +0 až +4 za `TMDR0L`. Prijatie vnútorného
+prerušenia má **vždy 2** automatické čakacie stavy bez ohľadu na IWI
+(Tabuľka 4, obr. 43): `T1 T2 Tw Tw T3 Ti`, dva zápisy PC a dve čítania
+vektora, spolu **18 T**; jadro ráta 19. Záver „holé Z180 hrá asi dvakrát
+rýchlejšie“ platí ďalej: obsluha 416–420 T, obeh slučky 20 T.
+
+**Výrobca udáva cenu presne tejto slučky.** `eurekatech/TECHMAN1/KEYSCAN.MAC`
+(riadky 37–44) má tú istú slučku `DEC HL / LD A,H / OR L / JR NZ` s rozpisom
+**5 + 5 + 5 + 9 = 24 T = 3,9 µs** a 5120 obehov ako „about 20 ms“. Nie je to
+tabuľka Z80 (26) ani Z180 (20), je to **Z180 plus jeden T-stav na cyklus M1**.
+
+**Firmvér počíta s tým istým.** `rtc_ctl_wait_de_ms` (`DEVICES.10`) je na
+`19CD9` (logická `ECD9h`): štvrtá položka tabuľky RTC na `19CA3` s počtom 4
+(`NUM_STD_RTC_CTL`), prvé tri siahajú na `rtc_status` a `rtc_command`.
+Vnútorná slučka má `LD HL,0100h`, a **256 × 24 = 6144 T je presne 1 ms**
+pri φ = 6,144 MHz. Aj 5120 z `KEYSCAN.MAC` je 20 × 256. Pozor: je to **ten
+istý predpoklad tých istých autorov**, nie nezávislé meranie.
+
+**Fyzická kotva je pulzná voľba.** `190D8` pulzuje `loop_mask` (bit 7
+portu `80h`, podľa `IOPORT.H` „pulse dialling“) — 60 ms rozopnuté, 40 ms
+zopnuté cez `E2ECh` → `ECD9h`, 800 ms medzi číslicami (`19102`). To je norma
+10 impulzov za sekundu s pomerom 60 : 40, odmeriavaná slučkou **v ROM**.
+Pri 40 T na obeh by stroj vytáčal 6 impulzov za sekundu a s ústredňou by sa
+nedohodol; pri 26 T (dnešné jadro) 9,2. Je to inžiniersky argument, nie
+meranie, ale **model „čakacie stavy len na ROM“ (vyššie, 3,6 na prístup)
+tým prakticky padá** — dal by práve tých 40 T. Medzi 24 a 26 to nerozlíši.
+
+Prepočet na 540 T na prerušenie, skutočný stroj potrebuje 2,617 obehu:
+
+- **+1 T na cyklus M1** (inštrukcia s `ED` má dva, Tabuľka 51): obsluha
+  465–470 T, slučke zostane 62–67 T, teda 2,58–2,79 obehu — od 1,4 %
+  pomalšie po 6,6 % rýchlejšie než skutočný stroj. **Nič nie je
+  kalibrované.** Rozptyl robia 0–4 čakacie stavy `TMDR0L` a odhad
+  prehrávača (asi 8 T).
+- +1 T na inštrukciu, `ED` raz: 10–18 % rýchlejšie.
+- Čakací stav na každý prístup do pamäte: obsluha má 118 prístupov a slučke
+  nezostane takmer nič. Vylúčené.
+- 4 čakacie stavy len na ROM: na znelku sedí (4,0–4,3), ale odporuje
+  `KEYSCAN.MAC` aj pulznej voľbe.
+
+Čo ten T-stav navyše na doske robí, manuál Z180 nevysvetľuje — pamäť má
+`MWI = 0` a refresh je vypnutý (`RCR = 0` na `00018`). Doložené je číslo od
+výrobcu, nie mechanizmus.
+
+Kadiaľ ísť teraz: jadro na tabuľky Z180, +1 T na cyklus M1, čakacie stavy
+z `DCNTL` pre externé porty a 18 T za prijatie vnútorného prerušenia.
+Znelku zmerať ako 25. 8.; ak zostane odchýlka, jediný voľný kus sú čakacie
+stavy `TMDR0L` a musí sa napísať, že je nastavený. Bod 4 vyššie platí ďalej.
+
+**Zavedené v ten istý deň.** `z80.c` má tabuľky Z180 (Tabuľky 38–47; pri
+`SRL (HL)` tlačí manuál 3, čo je preklep medzi súrodencami s 13), `m1_wait`
+= 1 na každé načítanie operačného kódu vrátane prefixov a 18 T za prijatie
+prerušenia. `machine.cpp` pripočíta čakacie stavy externých portov podľa
+`DCNTL` (`ChargeIoWaits`); prenos cez DMA nie. `TMDR0L` dostáva 0.
+
+Zmerané sondou, `seq … kC6 spin:2000000`, teda to isté okno znelky pred
+zmenou aj po nej:
+
+- pred: `10E5D` 88 165-krát, obsluha 38 363-krát — **2,298 obehu** na
+  prerušenie;
+- po: 100 995 a 37 012 — **2,729 obehu**.
+
+Znelka je 1,187-krát rýchlejšia, skutočný stroj chce 1,145. Emulátor teda
+hrá asi **o 3,7 % rýchlejšie** než skutočná Eureka, predtým o 14,5 %
+pomalšie — v pásme predpovede a bez kalibrácie. Keby sa zvyšok pripísal
+`TMDR0L`, zodpovedal by asi dvom čakacím stavom; **nenastavené**, lebo by to
+bola kalibrácia na jedno meranie. Všetkých 16 testov prešlo.
+
+**Vypočuté naživo 12. 9. 2026** majiteľom skutočného stroja: stroj sa
+správa rovnako ako predtým, hudba je jednoznačne lepšia a subjektívne
+„o chlp“ rýchlejšia než skutočná Eureka — sedí to s nameranými 3,7 %.
+Zmena je prijatá. Otvorené zostáva len rozhodnutie o `TMDR0L`; majiteľ to
+dá vypočuť aj iným, a kým sa nevyjadria, zostáva 0.
+
+#### Rozhodnuté 20. 9. 2026: `TMDR0L` dostáva 3, nie 0
+
+Veta o tom, že zostáva 0, kým to vypočujú aj iní, **už neplatí**. Rozhodlo
+meranie proti **druhej, nezávislej nahrávke** skutočného stroja — mobil,
+iný stroj a iný človek, 13. 12. 2023, v `audio/`, teda mimo gitu. Je na
+nej tá istá znelka hudobného skladateľa (`C6h`, F7).
+
+Nahrávka najprv potvrdila referenciu z 25. 8.: úvodný tón → E5 **1,150 s**
+(vtedy 1,158), → záverečné F5 **3,760 s** (3,762), výška **−18,5 centa**
+(−18,4). Dva nezávisle nahrané stroje teda hrajú znelku rovnako na 0,05 %,
+a to je to druhé meranie, ktoré si bod 3 v „Kadiaľ ísť“ pýtal.
+
+**Znelka je viachlasá**, čo v tejto sekcii predtým nestálo a mieru to mýli:
+v 8,700 s znejú D5 (581,07 Hz) a A#4 (461,34 Hz) takmer rovnako silno,
+záverečný tón je F5+C5 a aj „úvodný tón“ je A4+F5. Sledovanie vrcholu
+spektra preto dáva **najsilnejší hlas v rámci**, nie melódiu. Tempo sa meria
+spektrálnym tokom, ktorý o notách nevie nič; z neho vyšlo, že hlasy sa
+prepínajú **naraz**, takže mriežka nábehov je jedna pre celý akord a
+rozostup **236,7 ms** platí (vtedy 236,2).
+
+Emulátor znelku nahrá do WAV bez regulátora latencie, takže hosťovské hodiny
+idú presne 6,144 MHz — kontrola sedí na vzorku, 576 000 vzoriek = 12,000 s.
+Na obe strany potom ide tá istá miera, a sú dve nezávislé: regresia cez
+nábehy spárované podľa času a mierka, ktorá najlepšie zosúvisí obálky. Podľa
+počtu čakacích stavov `TMDR0L`:
+
+| čakacie stavy | emulátor proti skutočnému stroju |
+|---|---|
+| 0 (dovtedy) | +3,88 % rýchlejšie |
+| 1 | +2,50 % |
+| 2 | +1,16 % |
+| **3** | **−0,22 %** |
+| 4 | −1,64 % |
+
+Jeden čakací stav stojí 1,37 percentuálneho bodu. Odhad „asi dva“ z 12. 9.
+bol teda o jeden vedľa — vychádzal z 3,7 % namiesto nameraných 3,88 %
+a z 20 T na obeh slučky namiesto 24.
+
+**Nie je to kalibračná konštanta.** UM005004, Tabuľka 4 dáva dátovému
+registru PRT **0 až 4** a presné číslo nedáva; manuál ho ohraničuje,
+neurčuje. Meranie iba vybralo, ktorú z piatich dovolených hodnôt tento stroj
+používa. V kóde je to `hw::kTmdr0lWaits` a účtuje ho `ChargeIoWaits`. ASCI
+a CSI/O zostávajú na 0, lebo ich nemeria nič — číslo tam by bolo vymyslené.
+
+**Bod 4 je overený, nie predpokladaný: reč sa nepohla.** Štartová hláška má
+pri 0 dĺžku **2,665729 s**, pri 3 **2,666542 s**, a začína na **tom istom
+vzorku** (33 006). Rozdiel 0,8 ms je 0,03 %, kým znelka sa hla o 3,9 % —
+stotridsaťnásobok. Presne to hovorí model: reč beží z časovača, tempo hudby
+z počítacej slučky na `10E5D`.
+
+**Vypočuté 20. 9. 2026** majiteľom, a nie ako jeden beh: skutočný stroj
+a emulátor zmiešané do sterea a zarovnané na prvý tón, raz s nulou a raz
+s trojkou. Pri nule sa kanály na poslednom tóne rozídu o **140 ms**, pri
+trojke o **10 ms**. Majiteľ rozhodol pre trojku. Tak sa to meralo preto, že
+**rozchod je počuť, kým tempo samo osebe nie** — 3,9 % v izolácii nechytí
+ani ten, kto stroj pozná roky, a práve preto sa to nedalo rozhodnúť
+počúvaním jedného behu.
+
+#### Vedľajší nález: jednosmerná zložka v hudobnom editore
+
+Keď editor dohrá a čaká na kláves, ROM nechá DAC na hodnote **65**
+namiesto stredných 128. Výstup ju drží ďalej, takže má
+konštantnú jednosmernú zložku −49 % rozsahu — overené, od 10. do 25.
+sekundy je každá vzorka presne −16128. Skutočný stroj to nemá kam pustiť,
+v emulátore to lupne pri nábehu a zoberie polovicu odstupu od orezania
+všetkému, čo príde potom. Overenie zo sekcie 6.1, že držaná hodnota je
+stred stupnice, platí **pre parkovanie po reči, nie po hudbe**.
+
+Doplnené 26. 8. 2026: nie je to zvláštnosť editora. Rovnaké to je po
+každej aplikácii, len s inou hodnotou, a príčina je jedna — chýbajúca
+hornopriepusť. **Opravené**, viď 6.16 — držaná hodnota už na výstup
+neprejde a tento odsek platí len ako záznam, čo sa dialo predtým.
+
 ### 6.11 Funkčné klávesy hladujú: emulátor odreže ROM od jej vlastnej fronty
 
 *Otvorený zvyšok zostal v `HANDOFF.md` 6.11: meno súboru pri `SAVE`, ktoré

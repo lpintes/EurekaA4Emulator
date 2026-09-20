@@ -735,11 +735,17 @@ void EurekaMachine::PressBraille(uint8_t dots, bool shift) {
 // The instruction tables in z80.c leave out the wait states of an I/O cycle.
 // UM005004 Table 4: an external port takes 1 to 4 of them as DCNTL says, the
 // on-chip registers none -- except the PRT, ASCI and CSI/O data registers,
-// which take 0 to 4 "as a function of internal synchronization".  Those are
-// charged 0, the one count here no source pins down, and the tone generator's
-// interrupt reads TMDR0L every time it runs (HANDOFF 6.10).
+// which take 0 to 4 "as a function of internal synchronization".  Of those
+// only TMDR0L is charged, at kTmdr0lWaits: the tone generator's interrupt
+// reads it every time it runs, so it is the one cost the note-timing loop
+// feels 11 378 times a second (HANDOFF 6.10).  The ASCI and CSI/O data
+// registers stay at 0 -- nothing measures them, so a number there would be
+// invented rather than found.
 void EurekaMachine::ChargeIoWaits(z80* cpu, uint16_t port) {
-  if (static_cast<uint8_t>(port) < hw::kInternalIoEnd) return;
+  if (static_cast<uint8_t>(port) < hw::kInternalIoEnd) {
+    if (static_cast<uint8_t>(port) == hw::kTmdr0l) cpu->cyc += hw::kTmdr0lWaits;
+    return;
+  }
   auto* machine = static_cast<EurekaMachine*>(cpu->userdata);
   cpu->cyc +=
       1 + ((machine->io_[hw::kDcntl] & hw::kDcntlIwi) >> hw::kDcntlIwiShift);

@@ -130,6 +130,15 @@ constexpr uint8_t kDcntlIwi = 0x30;
 constexpr unsigned kDcntlIwiShift = 4;
 constexpr uint8_t kInternalIoEnd = 0x40;
 
+// The one exception among the on-chip registers.  UM005004 Table 4 gives the
+// PRT data registers 0 to 4 wait states "as a function of internal
+// synchronization" and does not say which; the manual bounds this number, it
+// does not fix it.  Measured against a recording of the real machine: the
+// tone generator's interrupt reads TMDR0L once per run, so this is the one
+// free cost in the 540 T-states a note-timing loop has to share, and 3 is
+// what makes the jingle land within 0,2 % (HANDOFF 6.10).
+constexpr unsigned kTmdr0lWaits = 3;
+
 // Interrupts, refresh and the MMU.
 constexpr uint8_t kIl = 0x33;    // il
 constexpr uint8_t kItc = 0x34;   // itc
