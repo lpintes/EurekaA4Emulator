@@ -783,7 +783,8 @@ v strome; teraz je mimo neho, takže konverzia sa ho netýka a pravidlo je
 preč. V súbore po ňom zostal komentár — keby sa priečinok vrátil, musí sa
 vrátiť aj ono.
 
-Ak na ten súbor siahneš, over, že pravidlo pre `eurekatech/` zostalo
-**posledné** — pri zhode viacerých vzorov vyhráva to nižšie. A keď
-uvidíš diff, v ktorom je prepísaný celý súbor namiesto zmenených
-riadkov, nie je to tvoja zmena, sú to konce riadkov.
+Keby si tam niekedy pridával pravidlo pre binárky, musí byť **posledné** —
+pri zhode viacerých vzorov vyhráva to nižšie, takže len tak prebije
+`* text=auto` nad sebou. A keď uvidíš diff, v ktorom je prepísaný celý
+súbor namiesto zmenených riadkov, nie je to tvoja zmena, sú to konce
+riadkov.

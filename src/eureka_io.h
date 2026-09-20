@@ -6,8 +6,11 @@
 // emulator models.  Nothing here is a decision: every name is the one its
 // source document uses, transcribed into the project's kPascalCase.  Keeping
 // the original spelling is the point -- a name in this file can be grepped in
-// eurekatech/ and the question of what a bit means is then settled by the
-// manufacturer rather than by whoever wrote the code.
+// the manual's own sources and the question of what a bit means is then
+// settled by the manufacturer rather than by whoever wrote the code.  The
+// manual is third-party material and therefore not in this repository: set
+// EUREKATECH to your copy of it (see ROM-NOTICE.txt), and read the file names
+// below as relative to that.
 //
 // Four sources, in descending order of authority for this machine:
 //
