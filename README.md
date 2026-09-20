@@ -5,6 +5,31 @@ Natívny 64-bitový emulátor počítača Eureka A4 pre Windows. Používa pôvo
 hudba a zvuky vznikajú tým istým algoritmom a z tej istej fonémovej databázy
 ako v Eureke.
 
+## ROM si musíte dodať sami
+
+**Bez ROM emulátor nenabehne, a v tomto repozitári ani v žiadnom vydaní
+nie je.** `A4ROM.DMP` je firmvér Eureky A4, nie je náš a nemáme právo ho
+šíriť. Dodáte si ho zo svojho stroja alebo zo svojej zálohy.
+
+Potrebujete súbor s **presne 262 144 bajtmi**. Ten, na ktorom je emulátor
+vyvíjaný, má MD5 `9aa101ab69fc367e114e1a84b08feea1`; keď sa váš líši,
+neznamená to nutne chybu, ale hlas a časovanie sa môžu správať inak.
+
+Emulátor ho hľadá v tomto poradí:
+
+1. cesta zadaná prepínačom `--rom CESTA`
+2. premenná prostredia `A4ROM`
+3. súbor `A4ROM.DMP` vedľa `EurekaA4Emulator.exe`
+4. `A4ROM.DMP` o priečinok vyššie
+5. `A4ROM.DMP` v aktuálnom pracovnom priečinku
+
+Najjednoduchšie je položiť `A4ROM.DMP` vedľa `EurekaA4Emulator.exe`. Keď
+ho emulátor nenájde, otvorí dialóg so zoznamom všetkých ciest, na ktorých
+hľadal, a skončí — čítačka obrazovky ten dialóg ohlási a prečíta, takže
+sa dá zistiť, kam súbor patrí, bez hádania.
+
+Podrobnosti o právach sú v `ROM-NOTICE.txt`.
+
 ## Rýchly štart
 
 1. Spustite `EurekaA4Emulator.exe`.
@@ -732,10 +757,37 @@ Výsledok je `bin\eurekaA4Emulator.nvda-addon`. Preklad hlások potrebuje
 bez prekladu. `build-addon.bat scratchpad` modul namiesto toho nakopíruje
 do vývojového priečinka NVDA.
 
-ROM nie je súčasťou licencie zdrojového kódu; pozrite `ROM-NOTICE.txt`.
-Použité jadro Z80 má vlastné MIT oznámenie v `src\LICENSE.superzazu-z80.txt`.
-Doplnok v `nvda-addon\` je pod GPL v2+, lebo NVDA považuje doplnky za
-odvodené dielo; pozrite `nvda-addon\COPYING.txt`.
+### Testy
+
+```text
+run-tests.bat
+```
+
+Zostaví testy a pustí ich naraz. ROM si vezme z cesty zadanej ako argument,
+inak z premennej `A4ROM`. Väčšina testov nepotrebuje nič ďalšie.
+
+Dva z nich spúšťajú pôvodný program `READ.COM` z vývojárskej diskety
+k Technical Manuálu Eureky A4 — jeden ho štartuje, druhý ním overuje, že
+z diskety chránenej proti zápisu sa dá čítať. Ten manuál je materiál
+tretích strán a **v repozitári nie je**, rovnako ako ROM. Keď ho máte,
+nasmerujte naň premennú `EUREKATECH`; keď nie, tie dva testy sa vynechajú,
+dávka napíše prečo a ostatné prebehnú normálne. Podrobnosti sú
+v `tests/README.md`.
+
+To isté platí pre `tools/check_io_names.py`, ktorý porovnáva konštanty
+v `src/eureka_io.h` s tým, čo o nich hovorí manuál. Bez neho skončí
+s návratovým kódom 2 a povie to.
+
+### Licencie
+
+Emulátor je pod licenciou MIT; pozrite `LICENSE.txt`. Tri veci k tomu:
+
+- **ROM nie je súčasťou licencie zdrojového kódu** a v repozitári nie je;
+  pozrite `ROM-NOTICE.txt`.
+- **Doplnok v `nvda-addon\` je pod GPL v2+**, lebo NVDA považuje doplnky
+  za odvodené dielo; pozrite `nvda-addon\COPYING.txt`.
+- Použité jadro Z80 má vlastné MIT oznámenie
+  v `src\LICENSE.superzazu-z80.txt`.
 
 Technické referencie k procesoru: [Hitachi HD64180 User's Manual](https://www.bitsavers.org/components/hitachi/64180/HD64180_Users_Manual_Oct85.pdf),
 [Zilog Z180 User Manual](https://www.zilog.com/docs/z180/um0050.pdf) a
