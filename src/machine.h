@@ -304,6 +304,23 @@ class EurekaMachine {
   // The matching IN.  Reading a port is not always free -- rtc_status clears
   // itself when read -- so this issues a real input cycle, side effects and all.
   uint8_t debug_in(uint16_t port) { return ReadPort(&cpu_, port); }
+  // Hooks for the interrupt-sampling rule of HANDOFF 6.33 and 6.42.  They
+  // exist to *build* the one situation that tells the right rule from the
+  // wrong one -- timer 0 pending and enabled, with the very next instruction
+  // switching it off -- because waiting for it is not an option: it arose 3
+  // times in 542 824 interrupts and never once while a tune plays.
+  void debug_set_pc(uint16_t address) { cpu_.pc = address; }
+  void debug_set_a(uint8_t value) { cpu_.a = value; }
+  bool debug_iff1() const { return cpu_.iff1 != 0; }
+  // Accepting an interrupt clears IFF1, so two armed scenarios in a row need
+  // this between them or the second one measures nothing.
+  void debug_set_iff1(bool on) { cpu_.iff1 = on ? 1 : 0; }
+  void debug_make_timer0_pending();
+  // Writes through the MMU exactly as the guest would, so a test can put an
+  // instruction somewhere and run it.  Reaching for one in the ROM instead
+  // does not work: with the firmware's own mapping, logical 027Ch is physical
+  // 7027Ch and the routine there is not reachable at all.
+  void debug_poke(uint16_t address, uint8_t value);
   uint64_t debug_bios_reads() const { return biosReads_; }
   uint16_t debug_bios_track() const { return biosTrack_; }
   uint16_t debug_bios_sector() const { return biosSector_; }

@@ -1416,6 +1416,18 @@ void EurekaMachine::Advance(uint32_t cpuCycles) {
 // Decided from scratch after every instruction: the request is a level, not a
 // latch.  Kept from one instruction to the next, it was taken even when that
 // instruction had just cleared or disabled its source (HANDOFF 6.33).
+// The flag lives in two places -- the counter's own bookkeeping and TIF0 in
+// TCR -- and a test that set only one of them would be testing a state the
+// machine cannot reach.
+void EurekaMachine::debug_make_timer0_pending() {
+  timerPending_[0] = true;
+  io_[hw::kTcr] |= hw::kTcrTif0;
+}
+
+void EurekaMachine::debug_poke(uint16_t address, uint8_t value) {
+  WritePhysical(PhysicalAddress(address) & kPhysicalMask, value, cpu_.pc);
+}
+
 void EurekaMachine::ScheduleInterrupt() {
   cpu_.int_pending = 0;
   if (!cpu_.iff1) return;

@@ -883,6 +883,91 @@ bool CheckZ180IoAddressHighByte() {
   return ok;
 }
 
+// A Z180 samples its interrupt inputs at the **end** of an instruction
+// (UM005004 Table 47, note 7).  Step used to decide the request before the
+// instruction, so an instruction that switched a source off could still take
+// an interrupt from it -- three times in a sweep, always from timer 0 behind
+// the OUT0 (TCR),A at 0027C (HANDOFF 6.33).
+//
+// The situation is *built*, not waited for, and that is the point.  Watching
+// the firmware reach 0027C looks like the obvious test and is worthless: it
+// was tried, and it passed with the bug put back, because the collision needs
+// timer 0 to expire during the AND at 0027A and that never happens while a
+// tune plays.  Three times in 542 824 interrupts is not something to sample.
+//
+// So: one ED-prefixed instruction in RAM, timer 0 pending and enabled, and A
+// holding EEh.  With OUT0 (TCR),A the interrupt must not be taken, because
+// that instruction is what forbids it.  With IN0 A,(TCR) -- same state, same
+// two-byte length, but it disables nothing -- it must be taken.  The second
+// half is not decoration: without it a machine that never took an interrupt
+// at all would pass the first.
+bool CheckInterruptSampledAtEndOfInstruction(EurekaMachine& machine) {
+  // Somewhere in RAM, out of the way of anything the firmware is in the
+  // middle of.  This is the last check in the mode, so the machine is not
+  // needed afterwards.
+  constexpr uint16_t kScratch = 0x8000;
+  bool ok = true;
+
+  machine.Reset();
+  for (int step = 0; step < 8'000'000; ++step)
+    if (!machine.Step()) break;
+  if (!machine.debug_iff1()) {
+    std::cout << "  stroj ma po nabehu zakazane prerusenia, scenar by nemeral "
+                 "nic\n";
+    return false;
+  }
+
+  // Both halves start from the same armed state: timer 0 counting, its
+  // interrupt enabled and its flag already up, and A holding EEh -- the value
+  // the firmware's own AND at 0027A leaves there, which clears TDE0 and TIE0.
+  const auto arm = [&machine](uint8_t second) {
+    machine.debug_poke(kScratch + 0, 0xed);
+    machine.debug_poke(kScratch + 1, second);
+    machine.debug_poke(kScratch + 2, hw::kTcr);
+    machine.debug_out(hw::kTcr, hw::kTcrTde0 | hw::kTcrTie0);
+    machine.debug_make_timer0_pending();
+    machine.debug_set_a(0xee);
+    machine.debug_set_pc(kScratch);
+    // The halves have to be independent: if the first one does accept an
+    // interrupt -- which is the failure it is there to catch -- that clears
+    // IFF1, and the second would then report "not armed" about a state the
+    // first one broke.
+    machine.debug_set_iff1(true);
+  };
+
+  if (machine.debug_poke(kScratch, 0xed), machine.debug_peek(kScratch) != 0xed) {
+    std::cout << "  do 8000h sa neda zapisat, tam RAM nie je\n";
+    return false;
+  }
+
+  // OUT0 (TCR),A with A=EEh switches timer 0's interrupt off, so the
+  // instruction that forbids the source must not be the one that takes an
+  // interrupt from it.  Sampling after the instruction is what makes that
+  // true; sampling before it does not.
+  arm(0x39);  // out0 (m),a
+  machine.Step();
+  if (machine.pc() != kScratch + 3) {
+    std::cout << "  prerusenie prislo za OUT0 (TCR),A: PC=" << std::hex
+              << machine.pc() << " namiesto " << (kScratch + 3) << std::dec
+              << "\n";
+    ok = false;
+  }
+
+  // The control, and the whole reason the check above means anything: the
+  // same armed state in front of an instruction that leaves TIE0 alone has to
+  // be taken.  Without it a machine that never accepted the interrupt at all
+  // would sail through, and that is exactly how the earlier attempt at this
+  // test passed while the bug was back in place.
+  arm(0x38);  // in0 a,(m)
+  machine.Step();
+  if (machine.pc() == kScratch + 3) {
+    std::cout << "  prerusenie neprislo ani za IN0 A,(TCR), scenar nie je "
+                 "nabity\n";
+    ok = false;
+  }
+  return ok;
+}
+
 // Flags of the block-I/O instructions, from UM005004 Table 46 and its two
 // notes: (5) Z is 1 when B-1 is 0, (6) **N is the top bit of the byte
 // transferred** -- not the constant 1 this core wrote for years.  Hitachi's
@@ -2111,13 +2196,16 @@ int wmain(int argc, wchar_t** argv) {
     const bool internal = CheckInternalRegistersNeedZeroHighByte(*machine);
     const bool highByte = CheckZ180IoAddressHighByte();
     const bool blockFlags = CheckBlockIoFlags();
-    const bool passed = settles && aliases && internal && highByte && blockFlags;
+    const bool sampling = CheckInterruptSampledAtEndOfInstruction(*machine);
+    const bool passed =
+        settles && aliases && internal && highByte && blockFlags && sampling;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=DC"
               << " ticho=" << (settles ? "ok" : "chyba")
               << " porty=" << (aliases ? "ok" : "chyba")
               << " interne=" << (internal ? "ok" : "chyba")
               << " hornybajt=" << (highByte ? "ok" : "chyba")
-              << " priznaky=" << (blockFlags ? "ok" : "chyba") << "\n";
+              << " priznaky=" << (blockFlags ? "ok" : "chyba")
+              << " vzorkovanie=" << (sampling ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 

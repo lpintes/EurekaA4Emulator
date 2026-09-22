@@ -2325,6 +2325,12 @@ Zmerané po oprave:
 - Tempo znelky, `seq 20000000 kC6 spin:2000000`: pred opravou 100 994 obehov
   `10E5D` na 37 012 prerušení (2,729), po nej 100 971 na 37 012 (2,728).
   Závery 6.10 platia ďalej.
+
+**Od 22. 9. 2026 to drží test** (`ea4-q6x`, viď 6.42). Dovtedy platilo, že
+opravu nedrží nič a že by sa vrátenie chyby nepoznalo — to už neplatí. Platí
+však naďalej, že **sledovať `0027C` za behu nestačí**: taký test prešiel aj
+s vrátenou chybou, lebo tá kolízia potrebuje, aby časovač dobehol práve počas
+`AND EEh`, a pri hraní znelky sa to nestane ani raz.
 - Testy 16 zo 16 pred opravou aj po nej.
 
 Test, ktorý by opravu držal, zatiaľ nie je (`ea4-q6x`).
@@ -3055,6 +3061,58 @@ komentár v `z80.c`.
 Overené tromi mutáciami, každá zazvonila na svojej vetve a inde nie:
 `N = 1` v `ini`, `P/V = 0` v pevnej pätici, a dotyk na `H` v `outi`.
 `zex_test` po zásahu do jadra: `errors=0`.
+
+### 6.42 Vzorkovanie prerušenia na konci inštrukcie konečne niečo drží (`ea4-q6x`)
+
+Oprava zo 6.33 (žiadosť o prerušenie sa rozhoduje po inštrukcii, nie pred ňou)
+bola doložená len meraním dočasným počítadlom. Teraz ju drží
+`CheckInterruptSampledAtEndOfInstruction` v režime `dc`.
+
+**Prvý pokus o ten test bol zlý a stojí za to vedieť prečo.** Sledoval, či
+firmvér po `OUT0 (TCR),A` na `0027C` pokračuje na `RET` na `0027F`. Cez znelku
+sa tam stroj dostane trikrát a kontrola prechádzala — lenže **prechádzala aj
+s vrátenou chybou**. Aby kolízia nastala, musí časovač 0 dobehnúť práve počas
+`AND EEh` na `0027A`, a to sa pri hraní nestane ani raz; pôvodné meranie malo
+3 prípady na 542 824 prerušení. Taká vec sa nedá vzorkovať čakaním — test
+postavený na nej by chybu prestal chytať pri hocijakom posune v časovaní,
+a **ticho**.
+
+**Situácia sa preto stavia.** Do RAM sa položí jedna inštrukcia s prefixom
+`ED`, časovač 0 sa nastaví ako čakajúci a povolený a do `A` sa dá `EEh` —
+hodnota, ktorú tam nechá firmvérov vlastný `AND` na `0027A` a ktorá zhodí
+`TDE0` aj `TIE0`. Potom jeden krok:
+
+- `OUT0 (TCR),A` (`ED 39 10`) prerušenie dostať **nesmie** — je to práve tá
+  inštrukcia, ktorá ho zakazuje.
+- `IN0 A,(TCR)` (`ED 38 10`) — rovnaký stav, rovnaká dĺžka, ale nezakazuje
+  nič — ho dostať **musí**.
+
+Druhá polovica nie je ozdoba: bez nej by stroj, ktorý prerušenie neprijme
+nikdy, prešiel prvou. A medzi polovicami sa `IFF1` nasadzuje späť, lebo
+prijatie prerušenia ho zhadzuje a druhá kontrola by potom hlásila „scenár nie
+je nabitý“ o stave, ktorý pokazila prvá.
+
+**Prečo cez RAM a nie cez ROM.** S mapovaním, ktoré má firmvér za behu, je
+logická `027Ch` fyzická `7027C` — rutina na `00277` sa v tom stave nedá
+zavolať vôbec. Zmerané, nie odhadnuté; test si to overuje aj sám tým, že po
+zápise prečíta bajt späť, takže ak by `8000h` prestala byť RAM, povie to
+namiesto toho, aby meral nezmysel.
+
+Pribudli kvôli tomu ladiace háčiky v `machine.h`: `debug_set_pc`,
+`debug_set_a`, `debug_iff1`, `debug_set_iff1`, `debug_make_timer0_pending`
+a `debug_poke`. Ten posledný píše cez MMU tak, ako by písal hosť.
+`debug_make_timer0_pending` nastaví **oboje** — vlastnú evidenciu časovača aj
+`TIF0` v `TCR` — lebo stav s jedným bez druhého stroj dosiahnuť nevie.
+
+**Overené mutáciou:** vrátené poradie (`ScheduleInterrupt()` pred
+`z80_execute`) zhodí presne prvú polovicu a druhú nechá prejsť —
+`prerusenie prislo za OUT0 (TCR),A: PC=cc12 namiesto 8003`.
+
+Kontrolnú polovicu mutáciou v kóde overiť **nejde** a je to vlastnosť, nie
+medzera: každý zásah, ktorý vypne prerušenie časovača 0, rozbije boot, lebo je
+to srdcový tep firmvéru — a zazvoní skôr poistka o RAM. Že tá polovica vie
+zlyhať, je doložené inak: kým `IFF1` medzi polovicami ešte nenasadzovala,
+ohlásila sa sama.
 
 ## 7. Nástroje
 
