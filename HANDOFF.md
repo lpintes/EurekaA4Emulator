@@ -2797,6 +2797,109 @@ v kópii mimo repozitára, `C:\b\eureka-a4-scratch\stopky\`.
   istom F2, potvrdil majiteľ. Posun je len časovanie sondy a na stav
   stopiek ani na adresy vplyv nemá.
 
+### 6.38 Praskanie pri hudbe — DAC sa čítal v okamihu, nie cez interval (`ea4-wr1`)
+
+Majiteľ ohlásil 22. 9. 2026 praskanie pri prehrávaní melódií. Meralo sa na
+`BACH.MEL` (896 B, mimo repozitára v `C:\b\xx`), načítanej do hudobného
+editora z diskety a prehranej na mieste.
+
+Cesta k nej je v sonde jeden riadok a stojí za to si ju zapísať, lebo ju
+nikto neuhádne: `kC6` (F7, hudobný editor), `kD4` (Shift+F5, „nahrání
+skladby z disku“), `bach~`, `kC2` (F3, prehrať). Firmvér odpovie „nahrávám
+skladbu z disku“ a „oukej“.
+
+#### Čo sa ukázalo nepravdivé
+
+Prvá hypotéza bola podtečenie zvukovej fronty — vlákno emulátora spí 2 ms
+na normálnej priorite, kým cieľ je 22 ms, a jedno oneskorenie plánovača by
+stačilo. **Zmerané a nepravda.** Počas hudby: fronta najnižšie 16,4–16,9 ms,
+nikdy pod 3 ms, najdlhší krok slučky 3,2–3,7 ms, zahodených blokov nula.
+To, čo emulátor odovzdáva zvukovke, bolo porovnané so sondou a nemá oproti
+nej žiadne diskontinuity navyše (`|diff|` p999 k rozkmitu 0,189 naživo proti
+0,156–0,179 zo sondy). Real-time cesta je čistá a nič sa v nej neopravovalo.
+
+Pozor na pascu v tom meraní: bežali v ňom chvíľu **dva emulátory naraz** a
+písali do toho istého záznamu, takže prvé čísla ukazovali šestnásťnásobok
+reálneho času. Kto to opakuje, nech si najprv overí, že proces je jeden.
+
+#### Príčina
+
+`RenderAudio` bral hodnotu DAC **v okamihu** výstupnej vzorky. Pri melódii
+DAC kročí každých 540 cyklov (`RLDR0` = 26, 6.10), čo je pri 48 kHz **4,22
+výstupnej vzorky** — nie celé číslo. Bodovým čítaním vyšiel jeden schod
+štyri vzorky široký a ďalší päť, takže hrana schodu kmitala až o celú
+vzorkovaciu periódu. Ten jitter nie je v stroji, je v spôsobe, akým sa
+stroj odčítava, a prejaví sa ako šum položený pod signál — teda najhlasnejší
+tam, kde je signál najhlasnejší. Preto sa počul ako praskanie hudby a nie
+ako sykot.
+
+Zmerané na syntetickom tóne 440 Hz cez ten istý 11 378 Hz hold, šum
+v pásme 100 Hz – 8 kHz mimo harmonických:
+
+| čítanie DAC | odstup šumu |
+|---|---|
+| bodové (pôvodné) | **43,3 dB** |
+| integrované cez interval vzorky | **63,5 dB** |
+
+Reč to trápilo menej iba náhodou: pri 7,5 kHz takte DAC je schod 6,4 vzorky,
+takže tá istá chyba je menšia časť jedného kroku.
+
+#### Oprava
+
+Výstupná vzorka je úroveň DAC vážená počtom cyklov, počas ktorých na
+výstupe naozaj bola (`audioAcc_`). **Nie je to aproximácia integrálu, je to
+integrál**: medzi zápismi je signál konštantný, takže váženie cyklami
+rekonštruuje presne tú vzorku, akú by hardvér podal ideálnemu 48 kHz
+rekordéru. Stojí to jedno násobenie na inštrukciu.
+
+Na skladbe, úsek 10.–20. sekunda: `|diff|` p99 klesol z 2816 na 2464, p999
+z 4541 na 3953, teda o 13 % menej strmých prechodov pri rovnakom rozkmite.
+Majiteľ aj druhý posluchač potvrdili, že je to **oveľa čistejšie**.
+
+#### Čo sa pritom vylúčilo
+
+Nové tokeny sondy (`wav:SUBOR`, `dac:N`) dali tri odpovede, ktoré by sa inak
+hádali:
+
+- **Prerušenie PRT0 sa nikdy nestratí.** 360 080 zápisov DAC a rozostup
+  medzi nimi je vždy presne 540 cyklov, ani raz dvojnásobok. Pozor: merať sa
+  musia **zápisy, nie zmeny hodnoty** — generátor tónov podá vzorku pri
+  každom prerušení aj keď sa hodnota nepohla, takže sledovanie zmien ukáže
+  falošné medzery (najprv ich takto ukázalo 15 311).
+- **Bajt DAC nepretečie.** Najväčší skok hodnoty je 78; wrap by bol okolo
+  250. Firmvér sčítava štyri hlasy po −32..+31, čo sa do bajtu práve vojde.
+- **Rekonštrukčný filter sa počas hudby neprepína.** `filtersel` (`B0h`
+  bit 4) hýbe len rečový modul (`0174h`/`0187h`); počas melódie stojí
+  `B0h` na `6Ch`, teda na **otvorenom** filtre. Prepnutie by skokom zmenilo
+  `b0` z 0,48 na 0,81 a lupnutie by z toho bolo, ale nedeje sa.
+
+#### Test
+
+`integration_test ROM DISK zvuk` (`CheckDacReconstruction`). Nepúšťa
+firmvér vôbec: podá DAC 440 Hz sínus cez `debug_feed_dac` v takte melódie
+a Goertzelom zmeria odstup šumu mimo harmonických. Prah je 55 dB, teda
+desať decibelov rezervy na obe strany. **Overené mutáciou:** vrátenie
+bodového vzorkovania dá 43,42 dB a test padne — pričom režim `hudba`
+prejde aj tak, takže je to jediné, čo túto vlastnosť drží.
+`ALL_MODES` má odvtedy pätnásť režimov a `run-tests.bat` dáva **osemnásť**
+riadkov `PASS`, bez manuálu šestnásť.
+
+#### Otvorené
+
+Zostalo „sem tam malé lupnutie“ na hlasitých miestach, ktoré obaja
+posluchači počujú aj po oprave. Zmerané o ňom je zatiaľ len to, čo je
+vyššie — teda že to **nie je** vynechané prerušenie, pretečenie bajtu ani
+prepnutý filter. Najpravdepodobnejšie sú to vrcholy pílového priebehu:
+skok DAC o 78 je 30 % plného rozsahu naraz a hardvér ho urobí tiež.
+Rozhodnúť to môže nahrávka skutočného stroja, nie ďalšia úvaha.
+
+Druhá vec, ktorá je tesná a nie je dokázaná ako príčina: pri plnej
+hlasitosti dosahuje `BACH.MEL` **30 073 z 32 767**, teda 0,76 dB pod
+orezaním v `std::clamp`. Táto skladba neoreže ani raz, ale hlasnejšia
+melódia by narazila a znelo by to presne ako praskanie. Majiteľ má
+posuvník prakticky na maxime (rozkmit jeho živého behu sedí s rozkmitom
+sondy pri zisku 1,0).
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
@@ -2934,12 +3037,13 @@ integration_test ROM DISK_FOLDER snimka -> PASS (RAM do súboru a späť, tri od
 integration_test ROM DISK_FOLDER akord -> PASS (postupné skladanie akordu bodmi)
 integration_test ROM DISK_FOLDER budik -> PASS (budík zobudí vypnutý stroj a uspí ho)
 integration_test ROM DISK_FOLDER trap  -> PASS (TRAP.COM povie „pred ahoj“, nie „po“)
+integration_test ROM DISK_FOLDER zvuk  -> PASS (rekonštrukcia DAC, odstup šumu nad 55 dB)
 disk_test                              -> PASS (214 kontrol, bez ROM)
 codec_test                             -> PASS (bez ROM)
 settings_test                          -> PASS (75 kontrol, bez ROM)
 ```
 
-Všetkých **sedemnásť** naraz spustí `run-tests.bat`: paralelne, s jedným
+Všetkých **osemnásť** naraz spustí `run-tests.bat`: paralelne, s jedným
 súhrnom na konci a nenulovým návratovým kódom, keď čokoľvek zlyhá. Priečinok
 diskety si pripraví sám, takže ručne netreba nič.
 
@@ -2949,7 +3053,8 @@ nevidno inak než spočítaním riadkov `PASS`. Presne to sa aj stalo — `wp`
 tu chýbal a text hovoril „jedenásť“, kým `run-tests.bat` už dávno púšťal
 dvanásť procesov. Trinásty je `hlaseni` (6.30), štrnásty `snimka` (6.15),
 pätnásty `akord` (ea4-v1j, 11. 9. 2026) a šestnásty `budik` (6.32, v ten
-istý deň). Sedemnásty je `trap` (6.33 bod 5, 18. 9. 2026).
+istý deň). Sedemnásty je `trap` (6.33 bod 5, 18. 9. 2026), osemnásty `zvuk`
+(6.38, 22. 9. 2026).
 
 Pozor: `com` potrebuje `READ.COM` v priečinku disku a bez neho zlyhá.
 Netreba ho hľadať — je v `eurekatech/TECHMAN1/READ.COM`, a `run-tests.bat`
@@ -2957,7 +3062,7 @@ si ho kopíruje sám.
 
 **Doplnené 20. 9. 2026 (`ea4-fo1`):** priečinok je mimo repozitára, takže
 `run-tests.bat` ho hľadá cez `%EUREKATECH%` (inak `C:\b\eurekatech`). Keď
-ho nenájde, vynechá `com` **aj `wp`** a `PASS` je pätnásť. Že ten súbor
+ho nenájde, vynechá `com` **aj `wp`** a `PASS` je šestnásť. Že ten súbor
 potrebujú dva režimy a nie jeden, sa ukázalo až meraním: `wp` ním overuje
 čítanie z chránenej diskety (`CheckProtectedDiskStillReads`) a bez neho
 padne na `citanie=chyba`.

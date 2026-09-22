@@ -838,6 +838,84 @@ bool CheckDacDecodesWholeBlock(EurekaMachine& machine) {
 // A third taps shift, as a tap on Ctrl does in the window: the player stops
 // only on a bit its previous read of row 8Ch lacked (10F16, shadow refreshed at
 // 10F1B), so a pulse too short to span one of its reads would miss.
+// What the output stage does to a waveform the test chose itself.
+//
+// The DAC steps every 540 cycles while a tune plays, which is 4.22 output
+// samples at 48 kHz -- not a whole number, and that is the whole point.  Read
+// at the instant each output sample falls, one step comes out four samples
+// wide and the next five, so the edge jitters by up to a full sample period.
+// The jitter is not in the machine, it is in the act of reading it, and it
+// lands as noise spread under the signal: measured 43.3 dB below the
+// fundamental sampled, 63.5 dB integrated (HANDOFF 6.38).  Music is where it
+// was heard, because music is where the DAC runs fastest.
+//
+// Nothing here involves the firmware.  A 440 Hz sine is fed to the pin at the
+// tune's own DAC rate and the output is asked one question: how much energy
+// sits away from the fundamental and its harmonics.  A return to point
+// sampling drops that by twenty decibels, so the threshold has ten to spare
+// in both directions and does not need retuning when the filters move.
+bool CheckDacReconstruction(EurekaMachine& machine) {
+  constexpr double kPi = 3.14159265358979323846;
+  constexpr double kDacPeriodCycles = 540.0;  // RLDR0 = 26, HANDOFF 6.10
+  const double dacHz = EurekaMachine::kCpuHz / kDacPeriodCycles;
+  constexpr double kToneHz = 440.0;
+  constexpr std::size_t kWanted = 1 << 15;
+
+  machine.SetVolume(1.0);
+  machine.TakeAudio();
+  std::vector<int16_t> samples;
+  for (uint64_t step = 0; samples.size() < kWanted; ++step) {
+    const double t = static_cast<double>(step) / dacHz;
+    const double v = 128.0 + 127.0 * std::sin(2.0 * kPi * kToneHz * t);
+    machine.debug_feed_dac(
+        static_cast<uint8_t>(std::clamp(std::lround(v), 0L, 255L)),
+        static_cast<uint32_t>(kDacPeriodCycles));
+    for (int16_t sample : machine.TakeAudio()) samples.push_back(sample);
+  }
+  samples.resize(kWanted);
+
+  // Hann window, then one Goertzel per frequency asked about.  A full FFT
+  // would answer questions nobody has: only the fundamental and a sparse comb
+  // across the audible band are needed.
+  std::vector<double> windowed(kWanted);
+  for (std::size_t i = 0; i < kWanted; ++i)
+    windowed[i] = samples[i] *
+                  (0.5 - 0.5 * std::cos(2.0 * kPi * i / kWanted));
+  const double binHz = static_cast<double>(EurekaMachine::kAudioHz) / kWanted;
+  auto magnitude = [&](double hz) {
+    const double w = 2.0 * kPi * hz / EurekaMachine::kAudioHz;
+    const double coeff = 2.0 * std::cos(w);
+    double s1 = 0.0, s2 = 0.0;
+    for (double x : windowed) {
+      const double s0 = x + coeff * s1 - s2;
+      s2 = s1;
+      s1 = s0;
+    }
+    return std::sqrt(s1 * s1 + s2 * s2 - coeff * s1 * s2);
+  };
+
+  double fundamental = 0.0;
+  for (int offset = -1; offset <= 1; ++offset)
+    fundamental = std::max(fundamental, magnitude(kToneHz + offset * binHz));
+  double noise = 0.0;
+  for (double hz = 100.0; hz < 8000.0; hz += 50.0) {
+    bool harmonic = false;
+    for (int h = 1; h <= 18; ++h)
+      if (std::abs(hz - h * kToneHz) < 40.0) harmonic = true;
+    if (harmonic) continue;
+    const double m = magnitude(hz);
+    noise += m * m;
+  }
+  noise = std::sqrt(noise);
+
+  const double db = 20.0 * std::log10(fundamental / noise);
+  const bool ok = db > 55.0;
+  if (!ok)
+    std::cout << "  rekonstrukcia DAC: odstup sumu " << db
+              << " dB, ocakava sa nad 55 (bodove vzorkovanie dava 43)\n";
+  return ok;
+}
+
 bool CheckMusicStops(EurekaMachine& machine) {
   // Measured: the jingle runs about 6.3 s of guest time from the F7 press, so
   // pressing at 1 s and looking at 2.5-3.0 s is well inside it either way.
@@ -1690,6 +1768,7 @@ int wmain(int argc, wchar_t** argv) {
        std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power" &&
        std::wstring(argv[3]) != L"dc" && std::wstring(argv[3]) != L"rtc" &&
        std::wstring(argv[3]) != L"hudba" &&
+       std::wstring(argv[3]) != L"zvuk" &&
        std::wstring(argv[3]) != L"format" && std::wstring(argv[3]) != L"wp" &&
        std::wstring(argv[3]) != L"hlaseni" &&
        std::wstring(argv[3]) != L"snimka" &&
@@ -1697,7 +1776,7 @@ int wmain(int argc, wchar_t** argv) {
        std::wstring(argv[3]) != L"budik" &&
        std::wstring(argv[3]) != L"trap")) {
     std::wcerr << L"usage: integration_test ROM DISK_FOLDER "
-                  L"com|bas|kbd|power|dc|rtc|hudba|format|wp|hlaseni|snimka|"
+                  L"com|bas|kbd|power|dc|rtc|hudba|zvuk|format|wp|hlaseni|snimka|"
                   L"akord|budik|trap\n";
     return 2;
   }
@@ -1713,6 +1792,12 @@ int wmain(int argc, wchar_t** argv) {
   if (std::wstring(argv[3]) == L"hudba") {
     const bool passed = CheckMusicStops(*machine);
     std::cout << (passed ? "PASS" : "FAIL") << " mode=HUDBA\n";
+    return passed ? 0 : 1;
+  }
+
+  if (std::wstring(argv[3]) == L"zvuk") {
+    const bool passed = CheckDacReconstruction(*machine);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=ZVUK\n";
     return passed ? 0 : 1;
   }
 

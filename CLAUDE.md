@@ -309,6 +309,17 @@ naň aj prvá stránka sprievodcu, aby ho používateľ počul pred plánom, nie
 ňom. Do zdroja zapisuje jediná funkcia, `WriteSpolu`, a len na výslovný pokyn.
 Overené mutáciou: vypnutá kontrola prázdneho cieľa zhodí dve kontroly.
 
+
+Režim `zvuk` (`integration_test ROM DISK zvuk`) drží **rekonštrukciu DAC**,
+a je jediné, čo ju drží. Firmvér v ňom nebeží vôbec: cez `debug_feed_dac`
+dostane DAC 440 Hz sínus v takte melódie (540 cyklov na krok) a Goertzel
+zmeria, koľko energie sedí mimo základnej a jej harmonických. Prah je 55 dB.
+Nie je to kozmetika: kým sa DAC čítal **v okamihu** vzorky namiesto cez jej
+interval, hrana schodu kmitala až o celú vzorkovaciu periódu (540 cyklov je
+4,22 vzorky, nie celé číslo) a šum vyšiel 43 dB pod signálom namiesto 63 —
+počulo sa to ako praskanie hudby (HANDOFF 6.38). Režim `hudba` tú mutáciu
+prejde bez zamrmlania, preto je tento test samostatný.
+
 `settings_test` beží tiež bez ROM a v `%TEMP%`. Drží formát súboru
 s nastaveniami a hlavne to, že cesta s diakritikou prežije zápis aj čítanie.
 Drží aj **zámok diskety proti zápisu** (`zamok1=`, `zamok2=`… so zoznamom
@@ -335,14 +346,14 @@ Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spú�
 
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých sedemnásť naraz — tri
-samostatné testy a štrnásť režimov `integration_test`. Sú to nezávislé
+`run-tests.bat` zostaví testy a pustí všetkých osemnásť naraz — tri
+samostatné testy a pätnásť režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `TECHMAN1\READ.COM` z manuálu, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`; manuál z `%EUREKATECH%`, inak `C:\b\eurekatech`.
 
-**Keď manuál nie je po ruke, je `PASS` pätnásť a nie je to regresia.**
+**Keď manuál nie je po ruke, je `PASS` šestnásť a nie je to regresia.**
 Dávka vynechá cez `SKIP_MODES` režimy `com` **aj `wp`** a napíše, prečo.
 Že sú to dva a nie jeden, ukázalo až meranie 20. 9. 2026: `wp` spúšťa ten
 istý `READ.COM` a overuje ním, že z chránenej diskety sa dá čítať
@@ -350,7 +361,7 @@ istý `READ.COM` a overuje ním, že z chránenej diskety sa dá čítať
 Odhad hovoril, že ide len o `com`. Zoznam režimov je len v `Makefile`
 (`ALL_MODES`), aby sa druhá kópia nemala ako rozísť.
 
-Výstup drží pohromade `--output-sync=target`; bez neho sa riadky sedemnástich
+Výstup drží pohromade `--output-sync=target`; bez neho sa riadky osemnástich
 procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
 
 **Pasca, do ktorej som už spadol:** režimy sa v `Makefile` generujú ako
@@ -359,7 +370,7 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť sedemnásť, alebo pätnásť bez manuálu — a raz to skús s nezmyselnou ROM
+byť osemnásť, alebo šestnásť bez manuálu — a raz to skús s nezmyselnou ROM
 aj s nezmyselným `EUREKATECH`, či poistky naozaj zvonia.
 
 ## Diagnostická sonda
@@ -418,6 +429,17 @@ Tokeny sekvencie:
   klávesu cez `.spchar` zámerne nie (HANDOFF sekcia 3). Kým bral len
   `.speak`, bol po F2 prepis prázdny, hoci reproduktor dostal 48 000 vzoriek
   na plný rozkmit. Keď sa zdá, že stroj mlčí, over to týmto.
+- `wav:SUBOR` — tie isté vzorky ako WAV 48 kHz mono. `zvuk` odpovie, či sa
+  reproduktor pohol; praskanie je **tvar**, a ten sa musí dať pozrieť. Je to
+  výstup samotného modelu — bez zariadenia, bez fronty, bez steerovaného
+  taktu — takže chyba, ktorá prežije do súboru, je v modeli, a tá, ktorá
+  neprežije, je v real-time ceste (HANDOFF 6.38).
+- `dac:N` — prebehne N inštrukcií a vypíše dva histogramy o tom, ako je DAC
+  naozaj poháňaný: rozostupy medzi **zápismi** (pri melódii vždy 540 cyklov;
+  dvojnásobok by znamenal stratené prerušenie PRT0) a veľkosti skokov hodnoty
+  (skok k 256 by bol pretečený súčet štyroch hlasov). Meria zápisy, **nie
+  zmeny hodnoty** — generátor tónov podá vzorku pri každom prerušení aj keď
+  sa hodnota nepohla, takže sledovanie zmien ukáže medzery, ktoré nie sú.
 - `rychlost:N`, `hlasitost:N` — posuvníky, v tých istých polohách ako okno
   (`src/sliders.h`: rýchlosť 0–31, hlasitosť 0–20). Posuvník rýchlosti firmvér
   sleduje len počas reči (`001BB`), takže v tichu sa nič nestane až do
@@ -753,7 +775,7 @@ toto je jedno z miest, ktoré by ho zaseklo.
 Kým toto neplatí, nehlás hotovo — a nehlás ani „malo by to fungovať“:
 
 1. `build.bat` prejde bez jediného varovania.
-2. `run-tests.bat` dá **sedemnásť** riadkov `PASS` — alebo pätnásť, keď na
+2. `run-tests.bat` dá **osemnásť** riadkov `PASS` — alebo šestnásť, keď na
    stroji nie je Technical Manual a dávka to ohlási. Že sa to preložilo, nie je
    výsledok merania.
 3. Dokumentácia dobehla **v tom istom kroku**, nie „potom“. README, keď sa

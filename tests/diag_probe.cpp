@@ -17,6 +17,7 @@
 // "vypni"/"zapni"/"studeno" for the power switch and the two ways back on,
 // "cas:+7d" to move the clock the RTC answers with, "budik" to print it
 // beside the alarm the firmware armed, "zvuk" for what the loudspeaker got,
+// "wav:SUBOR" to write those samples out as a WAV instead of counting them,
 // "rychlost:N" and "hlasitost:N" to move the two sliders (sliders.h),
 // or a literal string typed on the emulated PC keyboard.  A switched-off
 // machine can wake itself on the alarm the same way it does on the hardware
@@ -328,6 +329,87 @@ int wmain(int argc, wchar_t** argv) {
           std::printf("%-10ls -> [hlasitost x%.4f]\n", token.c_str(),
                       sliders::VolumeGain(position));
         }
+        continue;
+      }
+      if (token.starts_with(L"dac:")) {
+        // How the DAC is actually being driven, which is the question behind
+        // every complaint about the sound.  Two histograms: how many cycles
+        // pass between writes -- 540 while a tune plays, and a gap of twice
+        // that means an interrupt went missing -- and how far the value moves
+        // when it does, where a jump near 256 would be the firmware's sum of
+        // four voices wrapping through the byte.
+        const uint64_t steps = _wcstoui64(token.substr(4).c_str(), nullptr, 10);
+        uint8_t last = machine->debug_dac();
+        uint64_t lastAt = machine->cycles();
+        uint64_t seen = machine->debug_dac_writes();
+        uint64_t writes = 0;
+        uint64_t gaps[8] = {};   // by multiple of the 540 cycle period
+        uint64_t jumps[9] = {};  // by size, 32 apart
+        uint64_t worst = 0;
+        for (uint64_t step = 0; step < steps; ++step) {
+          if (!machine->Step() && machine->powered_off()) break;
+          if (machine->debug_dac_writes() == seen) continue;
+          seen = machine->debug_dac_writes();
+          const uint8_t now = machine->debug_dac();
+          ++writes;
+          const uint64_t span = machine->cycles() - lastAt;
+          gaps[std::min<uint64_t>(span / 540, 7)]++;
+          const unsigned jump =
+              static_cast<unsigned>(std::abs(int(now) - int(last)));
+          jumps[std::min<unsigned>(jump / 32, 8)]++;
+          if (jump > worst) worst = jump;
+          last = now;
+          lastAt = machine->cycles();
+        }
+        std::printf("%-10ls -> [zapisov=%llu, rozostupy po 540 cykloch:",
+                    token.c_str(), static_cast<unsigned long long>(writes));
+        for (unsigned i = 0; i < 8; ++i)
+          if (gaps[i]) std::printf(" %ux=%llu", i,
+                                   static_cast<unsigned long long>(gaps[i]));
+        std::printf(", skoky po 32:");
+        for (unsigned i = 0; i < 9; ++i)
+          if (jumps[i]) std::printf(" %ux=%llu", i,
+                                    static_cast<unsigned long long>(jumps[i]));
+        std::printf(", najvacsi %llu]\n",
+                    static_cast<unsigned long long>(worst));
+        continue;
+      }
+      if (token.starts_with(L"wav:")) {
+        // The samples themselves, on disk.  "zvuk" answers whether the
+        // loudspeaker moved at all, which is enough to tell sound from
+        // silence and nothing else; a crackle is a shape, and a shape has to
+        // be looked at.  This is the machine's own output at kAudioHz with
+        // nothing of the host's in it -- no device, no queue, no clock being
+        // steered -- so a defect that survives into the file is in the model,
+        // and one that does not is in the real time path (HANDOFF 6.37).
+        const std::vector<int16_t> samples = machine->TakeAudio();
+        const std::wstring path = token.substr(4);
+        FILE* out = _wfopen(path.c_str(), L"wb");
+        if (!out) {
+          std::printf("%-10ls -> [nepodarilo sa zapisat]\n", token.c_str());
+          continue;
+        }
+        const uint32_t rate = EurekaMachine::kAudioHz;
+        const uint32_t bytes = static_cast<uint32_t>(samples.size() * 2);
+        auto put32 = [out](uint32_t value) { std::fwrite(&value, 4, 1, out); };
+        auto put16 = [out](uint16_t value) { std::fwrite(&value, 2, 1, out); };
+        std::fwrite("RIFF", 1, 4, out);
+        put32(36 + bytes);
+        std::fwrite("WAVEfmt ", 1, 8, out);
+        put32(16);
+        put16(1);
+        put16(1);
+        put32(rate);
+        put32(rate * 2);
+        put16(2);
+        put16(16);
+        std::fwrite("data", 1, 4, out);
+        put32(bytes);
+        std::fwrite(samples.data(), 1, bytes, out);
+        std::fclose(out);
+        std::printf("%-10ls -> [vzoriek=%zu, %.2f s pri %u Hz]\n", token.c_str(),
+                    samples.size(),
+                    double(samples.size()) / double(rate), unsigned(rate));
         continue;
       }
       if (token == L"zvuk") {

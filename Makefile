@@ -160,7 +160,7 @@ A4ROM ?= C:/b/a4rom.dmp
 ROM   ?= $(A4ROM)
 DISK  ?= $(BUILD)/testdisk
 
-ALL_MODES := bas com kbd power dc rtc hudba format wp hlaseni snimka akord budik trap
+ALL_MODES := bas com kbd power dc rtc hudba zvuk format wp hlaseni snimka akord budik trap
 MODES  := $(filter-out $(SKIP_MODES),$(ALL_MODES))
 CHECKS := check-codec check-disk check-settings $(addprefix check-,$(MODES))
 

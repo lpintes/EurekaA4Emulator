@@ -231,6 +231,16 @@ them on the same diskette.
   and reads it every 13.7 to 20.0 ms, so a tap too short to span one read
   would miss; a zero-length tap fails it (verified by mutation).  Needs no
   files on the disk.
+- `zvuk` pins what the output stage does to the DAC, and it is the only thing
+  that does.  The firmware never runs: `debug_feed_dac` puts a 440 Hz sine on
+  the pin at the tune's own DAC rate (540 cycles a step, `RLDR0` = 26) and a
+  Goertzel measures how much energy lands away from the fundamental and its
+  harmonics.  The threshold is 55 dB with ten to spare either way.  Reading
+  the DAC at the instant of each output sample instead of integrating it over
+  the sample's interval -- 540 cycles is 4.22 samples at 48 kHz, so the edge
+  of every step jitters -- drops that to 43 dB, and it was heard as the music
+  crackling (HANDOFF 6.38).  Verified by mutation: that change fails this mode
+  while `hudba` passes regardless.  Needs no files on the disk.
 - `trap` pins the Z180 trap on an undefined op code (ea4-cyq, HANDOFF 6.33
   point 5).  It writes the 33 bytes of TRAP.COM into a folder of its own in
   `%TEMP%` -- the shared test diskette is mounted by every mode at once --
@@ -246,8 +256,8 @@ is third-party material and therefore **not in this repository** -- see
 `ROM-NOTICE.txt`.  Point `EUREKATECH` at your copy of that folder (the default
 is `C:\b\eurekatech`) and `run-tests.bat` copies the file in for you.
 
-Without it the `com` and `wp` modes are skipped and the suite reports fifteen
-`PASS` lines instead of seventeen, saying so as it goes.  Both modes run that
+Without it the `com` and `wp` modes are skipped and the suite reports sixteen
+`PASS` lines instead of eighteen, saying so as it goes.  Both modes run that
 same `READ.COM`: `com` to start it, `wp` to show a write-protected diskette
 still reads (`CheckProtectedDiskStillReads`).  Nothing else needs the manual.
 Copy the file yourself only if you are running `integration_test.exe` by hand
@@ -388,6 +398,18 @@ never gets far enough to take the digits, the alarm registers stay at zero and
 nothing says why.  `spin:8000000` per step is what the sequence in 6.15 uses
 instead.  `zvuk` prints how many samples the loudspeaker got and how far they
 swung, which is the one report no hole in the speech capture can fool.
+`wav:FILE` writes those samples out instead of counting them: the swing tells
+sound from silence and nothing else, while a crackle is a shape that has to be
+looked at.  What comes out is the model alone -- no device, no queue, no
+steered clock -- so a defect that survives into the file is in the model and
+one that does not is in the real time path.  `dac:N` asks the other half of
+the question, how the DAC is being driven: the gaps between **writes** (always
+540 cycles while a tune plays; twice that would be a lost PRT0 interrupt) and
+how far the value moves when they come (a jump near 256 would be the
+firmware's sum of four voices wrapping through the byte).  It counts writes
+and not changes of value on purpose -- the tone generator hands over a sample
+on every interrupt whether the value moved or not, so watching for changes
+invents gaps that are not there (HANDOFF 6.38).
 `rychlost:N` and `hlasitost:N` move the two sliders, by the positions the
 window uses (`src/sliders.h`: rate 0-31, volume 0-20).  The firmware looks at
 the rate pot only while it speaks (`001BB`), and `zvuk` counts samples over a

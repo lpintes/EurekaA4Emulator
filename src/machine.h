@@ -281,6 +281,24 @@ class EurekaMachine {
   // the two, so whoever asks it has to be able to read both sides of it.
   std::array<uint8_t, 8> debug_rtc_now() const { return CurrentRtcRegisters(); }
   uint8_t debug_io(uint8_t port) const { return io_[port]; }
+  // The DAC is not in io_ -- it is the one port whose value the model keeps
+  // as sound rather than as a register -- so watching it needs its own way in.
+  uint8_t debug_dac() const { return dac_; }
+  // Writes, not changes: the tone generator hands the DAC a sample on every
+  // PRT0 interrupt whether or not the value moved, so a dropped interrupt can
+  // only be seen by counting the writes themselves.
+  uint64_t debug_dac_writes() const { return dacWrites_; }
+  // Drives the DAC by hand: puts value on the pin and lets it sit there for
+  // the given number of CPU cycles, rendering audio as if the machine had
+  // spent them.  Nothing else moves, so a test can feed the output stage a
+  // waveform it chose and measure what came out -- which is the only way to
+  // ask what the reconstruction does without the firmware's own signal in the
+  // answer.  See CheckDacReconstruction.
+  void debug_feed_dac(uint8_t value, uint32_t cycles) {
+    dac_ = value;
+    ++dacWrites_;
+    RenderAudio(cycles);
+  }
   // An OUT as a program would issue it, without assembling one into RAM.
   void debug_out(uint16_t port, uint8_t value) { WritePort(&cpu_, port, value); }
   uint64_t debug_bios_reads() const { return biosReads_; }
@@ -376,6 +394,7 @@ class EurekaMachine {
   uint8_t bbr_ = 0;
   uint8_t outputLatch_ = 0;
   uint8_t dac_ = 0x80;
+  uint64_t dacWrites_ = 0;
   bool romLoaded_ = false;
 
   uint64_t cycles_ = 0;
@@ -385,6 +404,9 @@ class EurekaMachine {
   bool timerControlRead_[2]{};
   bool timerPending_[2]{};
   uint64_t audioPhase_ = 0;
+  // The DAC's held level integrated over the output sample being built, in
+  // level times CPU cycles; see RenderAudio for why it is not sampled.
+  double audioAcc_ = 0.0;
   std::vector<int16_t> audio_;
 
   // One scanned state of the 20-key braille keyboard.  The rows are the three

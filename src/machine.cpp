@@ -157,6 +157,7 @@ void EurekaMachine::PowerOn() {
   timerControlRead_[0] = timerControlRead_[1] = false;
   timerPending_[0] = timerPending_[1] = false;
   audioPhase_ = 0;
+  audioAcc_ = 0.0;
   audioState_[0] = audioState_[1] = 0.0;
   couplingState_[0] = couplingState_[1] = 0.0;
   audio_.clear();
@@ -939,7 +940,10 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
       if (machine->diag_.enabled())
         machine->diag_.NoteLatch(cpu->pc, low, previous, value);
       break;
-    case hw::kDacPort: machine->dac_ = value; break;
+    case hw::kDacPort:
+      machine->dac_ = value;
+      ++machine->dacWrites_;
+      break;
     // The strobe answers to a write just as it does to a read.  This ROM only
     // ever reads it (1D144 is the single access in the whole image), but the
     // port is documented R/W and a program loaded from disk may well write it.
@@ -1293,10 +1297,7 @@ void EurekaMachine::WriteTimerData(unsigned channel, bool high, uint8_t value) {
 }
 
 void EurekaMachine::RenderAudio(uint32_t cpuCycles) {
-  audioPhase_ += static_cast<uint64_t>(cpuCycles) * kAudioHz;
-  if (audioPhase_ < kCpuHz) return;
-
-  // The DAC holds its value between writes, so sampling it is a zero order
+  // The DAC holds its value between writes, so its output is a zero order
   // hold and the images that produces are real -- they exist on the hardware
   // too.  What the hardware also has, and this did not, is the analogue low
   // pass that removes them.  filtersel_mask (B0h bit 4) picks its cutoff:
@@ -1304,12 +1305,41 @@ void EurekaMachine::RenderAudio(uint32_t cpuCycles) {
   const Biquad& b =
       (outputLatch_ & hw::kFilterselMask) != 0 ? kSpeechFilter : kOpenFilter;
   const double input = (static_cast<double>(dac_) - 128.0) * 256.0;
-  while (audioPhase_ >= kCpuHz) {
+
+  // Each output sample is the held level averaged over the sample's own
+  // interval, not the level that happened to be there when the sample fell.
+  //
+  // Reading it at the instant is what this did before, and it is wrong for a
+  // reason that only shows up on music.  The DAC steps every 540 cycles while
+  // a tune plays (RLDR0=26, HANDOFF 6.10), which is 4.22 output samples at
+  // 48 kHz -- so point sampling gives a step four samples wide, then five,
+  // then four, jittering the edge by up to a whole sample period.  That jitter
+  // is not in the machine; it is in the act of reading it.  Measured on a
+  // synthetic 440 Hz tone through the same 11 378 Hz hold: noise in the 100 Hz
+  // to 8 kHz band sits 43.3 dB below the fundamental when sampled, 63.5 dB
+  // when integrated.  Twenty decibels, and it is loudest where the signal is,
+  // which is why it was heard as the music crackling rather than as hiss.
+  // Speech is steadier only by luck: its 7.5 kHz DAC rate is 6.4 samples per
+  // step, so the same jitter is a smaller fraction of one.
+  //
+  // The integral is exact, not an approximation of one: the input is piecewise
+  // constant between writes, so weighting each level by the cycles it was
+  // actually on the pin reconstructs the sample the hardware would have
+  // handed an ideal 48 kHz recorder.  It also costs one multiply per
+  // instruction, which is why it can be done on every one of them.
+  uint64_t remaining = static_cast<uint64_t>(cpuCycles) * kAudioHz;
+  while (audioPhase_ + remaining >= kCpuHz) {
+    const uint64_t take = kCpuHz - audioPhase_;
+    audioAcc_ += input * static_cast<double>(take);
+    remaining -= take;
+    audioPhase_ = 0;
+    const double held = audioAcc_ / static_cast<double>(kCpuHz);
+    audioAcc_ = 0.0;
     // Direct form II transposed: the state carries over when the cutoff
     // switches, so retuning the filter mid-utterance does not click.
-    const double out = b.b0 * input + audioState_[0];
-    audioState_[0] = b.b1 * input - b.a1 * out + audioState_[1];
-    audioState_[1] = b.b2 * input - b.a2 * out;
+    const double out = b.b0 * held + audioState_[0];
+    audioState_[0] = b.b1 * held - b.a1 * out + audioState_[1];
+    audioState_[1] = b.b2 * held - b.a2 * out;
     // Then the coupling capacitor, which is what keeps the resting value of
     // the DAC from becoming a standing offset on the output.
     const Biquad& c = kCouplingFilter;
@@ -1320,8 +1350,10 @@ void EurekaMachine::RenderAudio(uint32_t cpuCycles) {
     // so it scales the result and leaves the filters' state alone.
     audio_.push_back(static_cast<int16_t>(
         std::clamp(coupled * volume_, -32768.0, 32767.0)));
-    audioPhase_ -= kCpuHz;
   }
+  // What is left of this instruction belongs to the sample still being built.
+  audioAcc_ += input * static_cast<double>(remaining);
+  audioPhase_ += remaining;
 }
 
 // Hands the next byte from the keyboard to the serial port when the receiver
