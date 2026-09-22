@@ -925,6 +925,12 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
           (value & ~(hw::kItcTrap | hw::kItcUfo)) |
           (previous & value & hw::kItcTrap) | (previous & hw::kItcUfo));
       break;
+    // MWI reaches the core, where it is charged on each memory cycle.  IWI is
+    // not mirrored anywhere: ChargeIoWaits reads it straight out of io_.
+    case hw::kDcntl:
+      cpu->mem_wait =
+          static_cast<uint8_t>((value & hw::kDcntlMwi) >> hw::kDcntlMwiShift);
+      break;
     case hw::kTmdr1l: machine->WriteTimerData(1, false, value); break;
     case hw::kTmdr1h: machine->WriteTimerData(1, true, value); break;
     case hw::kDstat: {

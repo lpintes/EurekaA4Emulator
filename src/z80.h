@@ -15,6 +15,13 @@ struct z80 {
 
   unsigned long cyc; // cycle count (t-states)
 
+  // Wait states added to **every** memory cycle, the M1 opcode fetch included:
+  // DCNTL bits 7-6 (MWI1, MWI0) on a Z180, 0 to 3 of them (UM005004 Table 4).
+  // The instruction tables in z80.c count three T-states per memory cycle, so
+  // this is charged per access instead of being baked into them.  Zero unless
+  // the host sets it, which is what the Eureka's firmware leaves it at.
+  uint8_t mem_wait;
+
   uint16_t pc, sp, ix, iy; // special purpose registers
   uint16_t mem_ptr; // "wz" register
   uint8_t a, b, c, d, e, h, l; // main registers

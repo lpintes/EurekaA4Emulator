@@ -133,6 +133,13 @@ constexpr uint8_t kDcntlIwi = 0x30;
 constexpr unsigned kDcntlIwiShift = 4;
 constexpr uint8_t kInternalIoEnd = 0x40;
 
+// UM005004 Table 4 again: DCNTL bits 7-6 (MWI1, MWI0) put 0 to 3 wait states
+// into every **memory** cycle, the M1 opcode fetch included.  The firmware
+// writes 38h at 00012, so MWI is 0 and stays there -- but the built-in BASIC
+// can change it, and `OUT 50,240` is precisely that (HANDOFF 6.39 and 6.43).
+constexpr uint8_t kDcntlMwi = 0xc0;
+constexpr unsigned kDcntlMwiShift = 6;
+
 // The I/O address is sixteen bits wide and the on-chip registers answer only
 // when the top eight of them are zero.  TECHMAN1/64180.4 says so outright and
 // warns that Turbo Pascal's 8-bit port[] array cannot reach them for exactly

@@ -3114,6 +3114,46 @@ to srdcový tep firmvéru — a zazvoní skôr poistka o RAM. Že tá polovica v
 zlyhať, je doložené inak: kým `IFF1` medzi polovicami ešte nenasadzovala,
 ohlásila sa sama.
 
+### 6.43 MWI sa modeluje — `OUT 50,240` už stroj naozaj spomalí (`ea4-vii`)
+
+Dokončenie 6.39. Tvrdenie bolo overené a cesta k DCNTL opravená, ale samotný
+účinok chýbal: `OUT 50,240` z BASICu zapísalo `F0h` a nestalo sa nič.
+
+**Odhad, ktorý bol v beade, bol pesimistický a mýlil sa.** Hovoril, že poctivé
+domodelovanie naráža na to, že tabuľky v `z80.c` nesú celkové T-stavy, nie
+počet pamäťových cyklov na inštrukciu. To je pravda o tabuľkách, ale nie
+o jadre: **každý** pamäťový prístup ide cez `rb` alebo `wb`, a `z->read_byte`
+so `z->write_byte` sa nikde inde nevolajú. Načítanie operačného kódu tiež
+(`nextb` → `rb`), čo je presne to, čo Z180 robí — MWI sa vkladá aj do cyklu M1.
+
+Zavedené: `z80` má pole `mem_wait`, `rb` a `wb` ho pripočítajú k `cyc`,
+a `WritePort` ho pri zápise do DCNTL naplní z bitov 7–6 (`hw::kDcntlMwi`).
+`rw` a `ww` sa pri tej príležitosti prepísali cez `rb`/`wb`; dovtedy volali
+`read_byte` priamo, a to v poradí, ktoré C nemá definované.
+
+**Pri MWI = 0 je to nulový zásah, a to je zmerané, nie odhadnuté.** Tempo
+znelky, `seq 20000000 kC6 spin:2000000`: so zavedeným účtovaním
+**97 850** obehov `10E5D` na **37 343** prerušení, s dočasne vyradeným
+účtovaním **97 850 na 37 343** — do posledného obehu to isté. Firmvér drží
+MWI na nule, takže sa pripočítava nula.
+
+Drží to `CheckMemoryWaitStates` v režime `dc`: `NOP`, `LD A,(HL)` a
+`LD (HL),A` v RAM, každá raz s MWI = 0 a raz s MWI = 3, a rozdiel musí byť
+tri T-stavy **na pamäťový prístup** — teda 3, 6 a 6. Tri rôzne počty prístupov
+sú tam zámerne: implementácia, ktorá by penalizovala raz za inštrukciu, prvý
+prípad prejde a na ďalších dvoch spadne. Overené dvoma mutáciami — vyradené
+účtovanie zhodí všetky tri, vyradené len pri zápise zhodí presne `LD (HL),A`.
+
+`zex_test` po zásahu do jadra: `errors=0`.
+
+**Pozorovanie mimo rozsahu tejto zmeny,** zapísané preto, aby sa naň nezabudlo:
+číslo tempa znelky vyššie (97 850 / 37 343) nesedí s tým, čo o ňom hovorí 6.33
+z 12. 9. 2026 (100 971 / 37 012). Meraním vyššie je doložené, že to **nespôsobilo
+účtovanie MWI** — rozdiel je rovnaký s ním aj bez neho. Prišlo teda niekedy
+medzi 12. 9. a 22. 9., a kandidátmi sú zásahy 6.34 až 6.38. Testy `hudba`
+aj `zvuk` prechádzajú, takže to nie je zlomené; ale 6.10 stavia na tempe znelky
+ako na meradle, takže by sa to malo dohľadať.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

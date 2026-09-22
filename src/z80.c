@@ -79,22 +79,29 @@ static const unsigned m1_wait = 1;
 // get bit "n" of number "val"
 #define GET_BIT(n, val) (((val) >> (n)) & 1)
 
+// Every memory cycle in this core goes through rb or wb -- the opcode fetch
+// too, by way of nextb -- so mem_wait is charged in exactly these two places.
 static inline uint8_t rb(z80* const z, uint16_t addr) {
+  z->cyc += z->mem_wait;
   return z->read_byte(z->userdata, addr);
 }
 
 static inline void wb(z80* const z, uint16_t addr, uint8_t val) {
+  z->cyc += z->mem_wait;
   z->write_byte(z->userdata, addr, val);
 }
 
+// Two memory cycles each, and the order is spelled out rather than left to
+// the evaluation order of an expression, which C does not fix.
 static inline uint16_t rw(z80* const z, uint16_t addr) {
-  return (z->read_byte(z->userdata, addr + 1) << 8) |
-         z->read_byte(z->userdata, addr);
+  const uint8_t high = rb(z, addr + 1);
+  const uint8_t low = rb(z, addr);
+  return (uint16_t)((high << 8) | low);
 }
 
 static inline void ww(z80* const z, uint16_t addr, uint16_t val) {
-  z->write_byte(z->userdata, addr, val & 0xFF);
-  z->write_byte(z->userdata, addr + 1, val >> 8);
+  wb(z, addr, val & 0xFF);
+  wb(z, addr + 1, val >> 8);
 }
 
 static inline void pushw(z80* const z, uint16_t val) {
@@ -985,6 +992,7 @@ void z80_init(z80* const z) {
   z->int_data = 0;
   z->z180_traps = 0;
   z->trap = 0;
+  z->mem_wait = 0;
 }
 
 // executes the next instruction in memory

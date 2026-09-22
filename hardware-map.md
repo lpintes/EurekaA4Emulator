@@ -140,6 +140,11 @@ nepatrí **nikomu**: interný register sa nedekóduje a externý tam nie je.
 Z firmvéru sa tam dostať nedá, z klávesnice áno — vstavaný BASIC prekladá
 `OUT` na `OUT (C),A` s celým portom v BC (HANDOFF 6.39).
 
+Čakacie stavy riadi `dcntl` (port `32h`) a sú to dve nezávislé polia: bity
+7–6 (`MWI`) vkladajú 0 až 3 do každého **pamäťového** cyklu vrátane M1, bity
+5–4 (`IWI`) 1 až 4 do **externého I/O** cyklu. Firmvér zapisuje `38h`, teda
+MWI = 0 a IWI = 3, a už to nemení; z BASICu sa to prestaviť dá (HANDOFF 6.43).
+
 Čo dáva na horný bajt ktorá inštrukcia (UM005004, tabuľka 46):
 
 - `00h` — `IN0`, `OUT0`, `TSTIO` a blokové `OTIM`, `OTDM`, `OTIMR`, `OTDMR`.

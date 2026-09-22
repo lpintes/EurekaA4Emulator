@@ -311,6 +311,10 @@ class EurekaMachine {
   // times in 542 824 interrupts and never once while a tune plays.
   void debug_set_pc(uint16_t address) { cpu_.pc = address; }
   void debug_set_a(uint8_t value) { cpu_.a = value; }
+  void debug_set_hl(uint16_t value) {
+    cpu_.h = static_cast<uint8_t>(value >> 8);
+    cpu_.l = static_cast<uint8_t>(value);
+  }
   bool debug_iff1() const { return cpu_.iff1 != 0; }
   // Accepting an interrupt clears IFF1, so two armed scenarios in a row need
   // this between them or the second one measures nothing.

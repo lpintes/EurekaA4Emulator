@@ -883,6 +883,62 @@ bool CheckZ180IoAddressHighByte() {
   return ok;
 }
 
+// MWI, the other half of DCNTL: bits 7-6 put 0 to 3 wait states into every
+// memory cycle, the opcode fetch included (UM005004 Table 4).  The firmware
+// writes 38h once at 00012 and never touches it again, so on this machine MWI
+// is always 0 -- but the built-in BASIC can change it, and `OUT 50,240` is
+// exactly that write (HANDOFF 6.39, 6.43).
+//
+// Charged per memory **access**, not per instruction, which is why the three
+// cases below differ: NOP fetches and nothing more, while LD A,(HL) and
+// LD (HL),A each touch memory twice.  An implementation that added the
+// penalty once per instruction would pass the first case and fail the others.
+bool CheckMemoryWaitStates(EurekaMachine& machine) {
+  constexpr uint16_t kScratch = 0x8000;
+  struct Case {
+    const char* name;
+    uint8_t opcode;
+    unsigned accesses;
+  };
+  const std::vector<Case> cases = {
+      {"nop", 0x00, 1},
+      {"ld a,(hl)", 0x7e, 2},
+      {"ld (hl),a", 0x77, 2},
+  };
+  bool ok = true;
+  const uint8_t settled = machine.debug_in(hw::kDcntl);
+
+  for (const auto& item : cases) {
+    unsigned long long cost[2] = {0, 0};
+    for (int pass = 0; pass < 2; ++pass) {
+      // Pass 0 leaves MWI at 0, pass 1 sets it to 3 -- the F0h that BASIC
+      // writes, with IWI left where the firmware had it.
+      const uint8_t mwi = pass == 0 ? 0x00 : hw::kDcntlMwi;
+      machine.debug_out(hw::kDcntl,
+                        static_cast<uint8_t>((settled & ~hw::kDcntlMwi) | mwi));
+      machine.debug_poke(kScratch, item.opcode);
+      machine.debug_set_pc(kScratch);
+      // HL into scratch RAM as well, so the memory operand is somewhere
+      // harmless rather than wherever HL happened to point.
+      machine.debug_set_hl(kScratch + 1);
+      const uint64_t before = machine.cycles();
+      machine.Step();
+      cost[pass] = machine.cycles() - before;
+    }
+    const unsigned long long added = cost[1] - cost[0];
+    const unsigned long long want = 3ull * item.accesses;
+    if (added != want) {
+      std::cout << "  " << item.name << ": MWI=3 pridalo " << added
+                << " T namiesto " << want << " (" << cost[0] << " -> "
+                << cost[1] << ")\n";
+      ok = false;
+    }
+  }
+
+  machine.debug_out(hw::kDcntl, settled);
+  return ok;
+}
+
 // A Z180 samples its interrupt inputs at the **end** of an instruction
 // (UM005004 Table 47, note 7).  Step used to decide the request before the
 // instruction, so an instruction that switched a source off could still take
@@ -2196,15 +2252,17 @@ int wmain(int argc, wchar_t** argv) {
     const bool internal = CheckInternalRegistersNeedZeroHighByte(*machine);
     const bool highByte = CheckZ180IoAddressHighByte();
     const bool blockFlags = CheckBlockIoFlags();
+    const bool waits = CheckMemoryWaitStates(*machine);
     const bool sampling = CheckInterruptSampledAtEndOfInstruction(*machine);
-    const bool passed =
-        settles && aliases && internal && highByte && blockFlags && sampling;
+    const bool passed = settles && aliases && internal && highByte &&
+                        blockFlags && waits && sampling;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=DC"
               << " ticho=" << (settles ? "ok" : "chyba")
               << " porty=" << (aliases ? "ok" : "chyba")
               << " interne=" << (internal ? "ok" : "chyba")
               << " hornybajt=" << (highByte ? "ok" : "chyba")
               << " priznaky=" << (blockFlags ? "ok" : "chyba")
+              << " cakacie=" << (waits ? "ok" : "chyba")
               << " vzorkovanie=" << (sampling ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
