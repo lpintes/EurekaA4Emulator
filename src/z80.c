@@ -284,10 +284,28 @@ static inline void z180_otim(z80* const z, bool decrement, bool repeat) {
   z->c += decrement ? -1 : 1;
   z->b -= 1;
 
-  // The firmware relies on B and the repeat condition; these documented flag
-  // results also make single-step diagnostics deterministic.
+  // Table 46 gives OTIM and OTDM Z from B-1 (note 5) and N from the top bit
+  // of the byte sent (note 6).
   z->zf = z->b == 0;
-  z->nf = 1;
+  z->nf = value >> 7;
+  if (repeat) {
+    // OTIMR and OTDMR are the one place in this group with *fixed* flags
+    // rather than computed ones: S=0, Z=1, H=0, P/V=1, C=0, and only N is
+    // taken from the data.  They cannot end with B other than zero, so this
+    // is what the instruction leaves behind.
+    z->sf = 0;
+    z->zf = 1;
+    z->hf = 0;
+    z->pf = 1;
+    z->cf = 0;
+  }
+  // For OTIM and OTDM the table marks S, H and C "affected" and P/V "parity",
+  // but says nowhere what they are computed from -- the text on page 174 does
+  // not say either, and Hitachi's manual matches Zilog's symbol for symbol.
+  // They are therefore left untouched.  Guessing a source would be worse than
+  // leaving them: the ROM has OTIMR six times and reads the flags after none
+  // of them, so a wrong rule here is exactly the kind of thing nothing would
+  // ever catch.  See ea4-jp1 if this ever needs to be pinned down.
   if (repeat && z->b != 0) {
     z->pc -= 2;
     z->cyc += 2;
@@ -769,13 +787,18 @@ static void in_r_c(z80* const z, uint8_t* r) {
   z->hf = 0;
 }
 
+// UM005004 Table 46, note (6): N is the top bit of the byte transferred, not
+// a constant 1.  S, H, P/V and C are marked "x -- Undefined" (Table 36) for
+// all eight Z80 block-I/O instructions on this part, so they are left alone
+// rather than given the undocumented Z80 rule: this processor does not
+// promise that rule, and writing it down here would read as if it did.
 static void ini(z80* const z) {
   uint8_t val = z->port_in(z, get_bc(z));
   wb(z, get_hl(z), val);
   set_hl(z, get_hl(z) + 1);
   z->b -= 1;
   z->zf = z->b == 0;
-  z->nf = 1;
+  z->nf = val >> 7;
   z->mem_ptr = get_bc(z) + 1;
 }
 
@@ -785,12 +808,14 @@ static void ind(z80* const z) {
   z->mem_ptr = get_bc(z) - 2;
 }
 
+// Flags as in ini above: Z from B-1, N from the top bit of the data.
 static void outi(z80* const z) {
-  z->port_out(z, get_bc(z), rb(z, get_hl(z)));
+  const uint8_t val = rb(z, get_hl(z));
+  z->port_out(z, get_bc(z), val);
   set_hl(z, get_hl(z) + 1);
   z->b -= 1;
   z->zf = z->b == 0;
-  z->nf = 1;
+  z->nf = val >> 7;
   z->mem_ptr = get_bc(z) + 1;
 }
 

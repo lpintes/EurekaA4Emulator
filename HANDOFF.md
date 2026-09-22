@@ -2346,8 +2346,12 @@ V tejto ROM sa neprejaví nič z toho okrem TRAP pri cudzích programoch.
    varianty dávajú S=0, H=0, P/V=1 a C=0, a N je vo všetkých štyroch
    najvyšší bit vyslaného bajtu. ROM má OTIMR šesťkrát a za žiadnym príznaky
    nečíta.
+   **Sčasti spravené 22. 9. 2026, viď 6.41:** N aj pevné príznaky OTIMR
+   a OTDMR sú doložené a zavedené. Otvorené zostáva **len** S, H, P/V a C pri
+   OTIM a OTDM — tabuľka pri nich nehovorí, z čoho sa počítajú, takže to nie
+   je práca, ktorá by čakala na čas, ale na prameň.
 3. **N pri INI, IND, OUTI, OUTD a ich opakovacích variantoch** má byť
-   najvyšší bit dát, jadro dáva 1 (`ea4-jp1`).
+   najvyšší bit dát, jadro dáva 1 (`ea4-jp1`). **Spravené 22. 9. 2026, 6.41.**
 4. **SLP sa správa ako HALT** (`ea4-ya6`). Pri IEF1=0 by Z180 povolený zdroj zobudil
    a pokračoval za SLP; jadro by spalo naveky. ROM SLP nemá.
 5. **TRAP nie je emulovaný** (`ea4-cyq`). Z180 pri nedefinovanom kóde nastaví TRAP
@@ -3005,6 +3009,52 @@ by horný bajt nulovalo vždy. Overené dvoma mutáciami — `TSTIO` vrátené n
 finished=1 errors=0`.
 
 Zvyšok 6.33 sa nemenil — body 2 až 4 (`ea4-jp1`, `ea4-ya6`) zostávajú otvorené.
+
+### 6.41 Príznak N blokového I/O je najvyšší bit dát, nie jednotka (`ea4-jp1`)
+
+Uzavretie bodu 3 a väčšiny bodu 2 zo 6.33. Prameň prečítaný priamo v PDF
+22. 9. 2026: **UM005004, tabuľka 46 „I/O Instructions"**, manuálové strany
+231–234 (PDF 245–248), legenda symbolov je tabuľka 36 na strane 209
+(PDF 223). Hitachi HD64180Z 4th Ed. (príloha A, s. 159–160) sa s ňou zhoduje
+znak po znaku.
+
+Legenda: `·` neovplyvnený, `↑` ovplyvnený, `x` **nedefinovaný**, `S` nastavený
+na 1, `R` vynulovaný, `P` parita, `V` pretečenie. Dve poznámky pod tabuľkou
+(s. 234) znejú doslova: **(5)** `Z = 1 : Br-1 = 0 / Z = 0 : Br-1 ≠ 0` a
+**(6)** `N = 1 : MSB of Data = 1 / N = 0 : MSB of Data = 0`.
+
+Čo z toho platí:
+
+- `INI`, `IND`, `OUTI`, `OUTD`: S `x`, Z `↑`(5), H `x`, P/V `x`, N `↑`(6), C `x`.
+- `INIR`, `INDR`, `OTIR`, `OTDR`: to isté, len Z je pevne `S` (1).
+- `OTIM`, `OTDM`: S `↑`, Z `↑`(5), H `↑`, P/V `P`, N `↑`(6), C `↑`.
+- `OTIMR`, `OTDMR`: S `R`, Z `S`, H `R`, P/V `S`, C `R`, a N `↑`(6).
+
+**Zavedené.** `ini` aj `outi` berú N z najvyššieho bitu prenášaného bajtu
+namiesto konštantnej jednotky; opakovacie varianty ho dedia, lebo sú nad nimi
+postavené. `z180_otim` to isté, a pri `repeat` nasadí pevnú pätici
+S=0, Z=1, H=0, P/V=1, C=0.
+
+**Čo sa zámerne nezaviedlo.** Pri `OTIM` a `OTDM` je pri S, H a C len `↑`
+a pri P/V `P`, ale **z čoho sa počítajú, nestojí nikde** — ani v tabuľke, ani
+v texte na s. 174, a Hitachi mlčí rovnako. Zostali preto nedotknuté. To isté
+z druhej strany pri `INI`/`OUTI`: tam sú S, H, P/V a C výslovne `x`, teda
+nedefinované, takže doplniť im nedokumentované pravidlo Z80 by znamenalo
+tvrdiť za Zilog niečo, čo Zilog netvrdí. Nepriama indícia, **nie** tvrdenie
+manuálu: pevná pätica OTIMR je presne to, čo by vyšlo z `B-1 = 0`.
+
+**Držať to nemá čo iné.** ROM má OTIMR šesťkrát a za žiadnym príznaky nečíta,
+`INI` ani `OUTI` v žiadnom teste nebežia, a `zex_test` je slepý úplne —
+ZEXDOC I/O inštrukcie vôbec neobsahuje. Drží to preto `CheckBlockIoFlags`
+v režime `dc`, opäť na holom jadre: šesť prípadov na N a Z (`80h` proti `7Fh`,
+B rovné 1 proti 2), samostatná kontrola pevnej pätice OTIMR — a tretia, ktorá
+**pribíja aj to rozhodnutie nevymýšľať**: `OUTI` nesmie siahnuť na S, H, P/V
+ani C. Keby ich niekto neskôr doplnil, tá kontrola ho pošle najprv prečítať
+komentár v `z80.c`.
+
+Overené tromi mutáciami, každá zazvonila na svojej vetve a inde nie:
+`N = 1` v `ini`, `P/V = 0` v pevnej pätici, a dotyk na `H` v `outi`.
+`zex_test` po zásahu do jadra: `errors=0`.
 
 ## 7. Nástroje
 

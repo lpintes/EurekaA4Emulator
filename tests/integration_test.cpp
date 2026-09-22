@@ -811,6 +811,8 @@ bool CheckSettlesToSilence(EurekaMachine& machine) {
 struct BarePorts {
   uint8_t code[8] = {};
   uint16_t asked = 0xffff;
+  uint8_t gives = 0x00;  // what a read of any port hands back
+  uint8_t sent = 0x00;   // what the last write put on the bus
 };
 
 uint8_t BareRead(void* context, uint16_t address) {
@@ -821,12 +823,15 @@ uint8_t BareRead(void* context, uint16_t address) {
 void BareWrite(void* context, uint16_t address, uint8_t value) {}
 
 uint8_t BareIn(z80* cpu, uint16_t port) {
-  static_cast<BarePorts*>(cpu->userdata)->asked = port;
-  return 0x00;
+  auto* probe = static_cast<BarePorts*>(cpu->userdata);
+  probe->asked = port;
+  return probe->gives;
 }
 
 void BareOut(z80* cpu, uint16_t port, uint8_t value) {
-  static_cast<BarePorts*>(cpu->userdata)->asked = port;
+  auto* probe = static_cast<BarePorts*>(cpu->userdata);
+  probe->asked = port;
+  probe->sent = value;
 }
 
 // TSTIO, IN0, OUT0 and the block-I/O instructions all put 00h on A8-A15
@@ -872,6 +877,139 @@ bool CheckZ180IoAddressHighByte() {
       std::cout << "  " << item.name << " siahol na " << std::hex
                 << probe.asked << " namiesto " << item.expected << std::dec
                 << "\n";
+      ok = false;
+    }
+  }
+  return ok;
+}
+
+// Flags of the block-I/O instructions, from UM005004 Table 46 and its two
+// notes: (5) Z is 1 when B-1 is 0, (6) **N is the top bit of the byte
+// transferred** -- not the constant 1 this core wrote for years.  Hitachi's
+// manual matches Zilog's symbol for symbol.
+//
+// OTIMR and OTDMR are the exception in the group: their flags are fixed
+// (S=0, Z=1, H=0, P/V=1, C=0) rather than computed, because they cannot
+// finish with B at anything but zero.
+//
+// Nothing else can hold this.  The ROM has OTIMR six times and reads the
+// flags after none of them, INI and OUTI never run in any test here, and
+// ZEXDOC has no I/O instructions at all -- so zex_test is blind to it too.
+bool CheckBlockIoFlags() {
+  struct Case {
+    const char* name;
+    uint8_t opcode;  // second byte of the ED prefix
+    uint8_t data;    // byte at (HL) for the OUT forms, or what the port gives
+    uint8_t b;
+    bool expectN;
+    bool expectZ;
+  };
+  // 80h and 7Fh differ in exactly the bit note (6) is about; B of 1 empties
+  // the counter and B of 2 does not, which is what note (5) is about.
+  const std::vector<Case> cases = {
+      {"outi data=80h", 0xa3, 0x80, 2, true, false},
+      {"outi data=7Fh", 0xa3, 0x7f, 1, false, true},
+      {"ini data=80h", 0xa2, 0x80, 2, true, false},
+      {"ini data=7Fh", 0xa2, 0x7f, 1, false, true},
+      {"otim data=80h", 0x83, 0x80, 2, true, false},
+      {"otdm data=7Fh", 0x8b, 0x7f, 1, false, true},
+  };
+  bool ok = true;
+  for (const auto& item : cases) {
+    BarePorts probe;
+    probe.code[0] = 0xed;
+    probe.code[1] = item.opcode;
+    probe.code[4] = item.data;  // where HL points, for the OUT forms
+    probe.gives = item.data;    // and what the port hands back, for INI
+    z80 cpu;
+    z80_init(&cpu);
+    cpu.read_byte = BareRead;
+    cpu.write_byte = BareWrite;
+    cpu.port_in = BareIn;
+    cpu.port_out = BareOut;
+    cpu.userdata = &probe;
+    cpu.b = item.b;
+    cpu.c = 0x40;
+    cpu.h = 0;
+    cpu.l = 4;
+    z80_step(&cpu);
+    if (static_cast<bool>(cpu.nf) != item.expectN) {
+      std::cout << "  " << item.name << ": N=" << int(cpu.nf) << " namiesto "
+                << int(item.expectN) << "\n";
+      ok = false;
+    }
+    if (static_cast<bool>(cpu.zf) != item.expectZ) {
+      std::cout << "  " << item.name << ": Z=" << int(cpu.zf) << " namiesto "
+                << int(item.expectZ) << "\n";
+      ok = false;
+    }
+  }
+
+  // OTIMR with B=1 finishes in one step, so what it leaves behind is what the
+  // table prescribes.  Every flag starts at the opposite value, or "set to 0"
+  // would pass on a core that simply never touched them.
+  {
+    BarePorts probe;
+    probe.code[0] = 0xed;
+    probe.code[1] = 0x93;  // otimr
+    probe.code[4] = 0x80;
+    z80 cpu;
+    z80_init(&cpu);
+    cpu.read_byte = BareRead;
+    cpu.write_byte = BareWrite;
+    cpu.port_in = BareIn;
+    cpu.port_out = BareOut;
+    cpu.userdata = &probe;
+    cpu.b = 1;
+    cpu.c = 0x40;
+    cpu.h = 0;
+    cpu.l = 4;
+    cpu.sf = 1;
+    cpu.zf = 0;
+    cpu.hf = 1;
+    cpu.pf = 0;
+    cpu.cf = 1;
+    z80_step(&cpu);
+    if (cpu.sf != 0 || cpu.zf != 1 || cpu.hf != 0 || cpu.pf != 1 ||
+        cpu.cf != 0 || cpu.nf != 1) {
+      std::cout << "  otimr nechal S=" << int(cpu.sf) << " Z=" << int(cpu.zf)
+                << " H=" << int(cpu.hf) << " P=" << int(cpu.pf)
+                << " N=" << int(cpu.nf) << " C=" << int(cpu.cf)
+                << ", cakalo sa S=0 Z=1 H=0 P=1 N=1 C=0\n";
+      ok = false;
+    }
+  }
+
+  // And the other half of the decision: S, H, P/V and C are "x -- Undefined"
+  // for INI and OUTI (Table 36), so the core leaves them as they were instead
+  // of inventing the undocumented Z80 rule.  This pins that choice down --
+  // if somebody later fills them in, this is what will ask them to read the
+  // comment in z80.c first.
+  {
+    BarePorts probe;
+    probe.code[0] = 0xed;
+    probe.code[1] = 0xa3;  // outi
+    probe.code[4] = 0x80;
+    z80 cpu;
+    z80_init(&cpu);
+    cpu.read_byte = BareRead;
+    cpu.write_byte = BareWrite;
+    cpu.port_in = BareIn;
+    cpu.port_out = BareOut;
+    cpu.userdata = &probe;
+    cpu.b = 2;
+    cpu.c = 0x40;
+    cpu.h = 0;
+    cpu.l = 4;
+    cpu.sf = 1;
+    cpu.hf = 1;
+    cpu.pf = 1;
+    cpu.cf = 1;
+    z80_step(&cpu);
+    if (cpu.sf != 1 || cpu.hf != 1 || cpu.pf != 1 || cpu.cf != 1) {
+      std::cout << "  outi siahol na nedefinovany priznak: S=" << int(cpu.sf)
+                << " H=" << int(cpu.hf) << " P=" << int(cpu.pf)
+                << " C=" << int(cpu.cf) << ", vsetky mali zostat 1\n";
       ok = false;
     }
   }
@@ -1972,12 +2110,14 @@ int wmain(int argc, wchar_t** argv) {
     const bool aliases = CheckDacDecodesWholeBlock(*machine);
     const bool internal = CheckInternalRegistersNeedZeroHighByte(*machine);
     const bool highByte = CheckZ180IoAddressHighByte();
-    const bool passed = settles && aliases && internal && highByte;
+    const bool blockFlags = CheckBlockIoFlags();
+    const bool passed = settles && aliases && internal && highByte && blockFlags;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=DC"
               << " ticho=" << (settles ? "ok" : "chyba")
               << " porty=" << (aliases ? "ok" : "chyba")
               << " interne=" << (internal ? "ok" : "chyba")
-              << " hornybajt=" << (highByte ? "ok" : "chyba") << "\n";
+              << " hornybajt=" << (highByte ? "ok" : "chyba")
+              << " priznaky=" << (blockFlags ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 
