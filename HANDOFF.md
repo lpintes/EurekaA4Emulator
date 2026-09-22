@@ -2337,6 +2337,10 @@ V tejto ROM sa neprejaví nič z toho okrem TRAP pri cudzích programoch.
    `exec_opcode_ed`, `0x74`). Manuál to hovorí výslovne. V ROM je TSTIO dvakrát (`185FC`,
    `1E0A2`), vždy na `STAT0`/`STAT1`, kde `ReadPortInner` horný bajt
    nerozlišuje.
+   **Opravené 22. 9. 2026, viď 6.40.** Posledná veta odvtedy neplatí z druhej
+   strany: `ReadPortInner` horný bajt **rozlišuje** (6.39), takže `STAT0`
+   s nenulovým `B` by už nevrátil stav registra, ale `FFh`. Chyba tým prestala
+   byť neškodná ešte predtým, než sa opravila.
 2. **Príznaky OTIM, OTDM, OTIMR a OTDMR sú neúplné** (`ea4-jp1`). Jadro nastaví len Z
    a N=1. Podľa tabuľky 46 nastavujú OTIM a OTDM aj S, H, P a C, opakovacie
    varianty dávajú S=0, H=0, P/V=1 a C=0, a N je vo všetkých štyroch
@@ -2967,6 +2971,40 @@ namiesto `00h`, čo je tá istá minca z druhej strany, a nedotklo sa ho to.
 A neoverené zostáva, čo na skutočnom stroji spôsobí, že `F0h` vynuluje bit 3
 (DMS1), ktorý firmvér nastaví a ktorý sa týka snímania DREQ pre kanál 1, teda
 cesty k mechanike; bitové polia `dcntl` manuál Robotronu nepopisuje.
+
+### 6.40 TSTIO dávalo na horný bajt adresy B — opravené (`ea4-6dx`)
+
+Pokračovanie 6.39 a uzavretie bodu 1 zo 6.33. `TSTIO` dáva na A8–A15 `00h`,
+rovnako ako `IN0`, `OUT0` a blokové `OTIM`/`OTDM` (UM005004, tabuľka 46);
+`B` na horný bajt dávajú len `IN`/`OUT (C)`. Jadro volalo `port_in` s celým
+`BC`. Opravené v `exec_opcode_ed`, `0x74` — číta sa z `z->c`.
+
+**Prečo to muselo prísť hneď za 6.39.** Kým `ReadPortInner` horný bajt
+zahadzoval, bola to neškodná nepresnosť: oba `TSTIO` v ROM (`185FC`, `1E0A2`)
+siahajú na `STAT0`/`STAT1`, a tie sú pod `40h`, takže sa trafili tak či onak.
+Po 6.39 už nie — nenulové `B` by adresu poslalo tam, kde nikto neodpovedá,
+a `TSTIO` by namiesto stavu ASCI dostalo `FFh`. Cena tej chyby stúpla tou
+istou zmenou, ktorá opravila dekódovanie.
+
+**Meranie, ktoré rozhodlo, že to netreba riešiť ako regresiu.** S dočasnou
+inštrumentáciou na `IsUndecodedIo` prešla celá sada a nedekódovanú adresu
+trafili presne dva prístupy — oba z vlastného testu 6.39, žiadny z firmvéru.
+Druhá inštrumentácia, priamo na `TSTIO`, ukázala prečo: v celej sade sa
+`TSTIO` **nevykoná ani raz**. Tie dve miesta v ROM testy nenavštívia.
+
+Z toho plynie, že opravu nemôže držať ROM, a drží ju preto test na **holom
+jadre**: `CheckZ180IoAddressHighByte` v režime `dc` postaví `z80` s ôsmimi
+bajtmi pamäte a portom, ktorý si pamätá len adresu, nastaví `B` na `E1h`
+a pustí jednu inštrukciu. Šesť prípadov — `TSTIO`, `IN0`, `OUT0` a `OTIM`
+musia siahnuť na `0004h`, `IN A,(C)` a `OUT (C),A` na `E104h`. Tie dva
+posledné sú kontrola, nie ozdoba: bez nich by test prešiel aj na jadre, ktoré
+by horný bajt nulovalo vždy. Overené dvoma mutáciami — `TSTIO` vrátené na
+`get_bc` zhodí prvý prípad, `in_r_c` prepnuté na `z->c` zhodí piaty.
+
+`zex_test` (ZEXDOC) po zásahu do jadra prešiel: `instructions=5764169610
+finished=1 errors=0`.
+
+Zvyšok 6.33 sa nemenil — body 2 až 4 (`ea4-jp1`, `ea4-ya6`) zostávajú otvorené.
 
 ## 7. Nástroje
 

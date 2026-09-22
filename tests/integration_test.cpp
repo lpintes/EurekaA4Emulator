@@ -804,6 +804,80 @@ bool CheckSettlesToSilence(EurekaMachine& machine) {
 // Each alias gets a full-scale step after a second of quiet, and has to be
 // heard.  A step on 8Fh with the filter and coupling capacitor in the way is
 // still thousands of units, so "any nonzero sample" is not a lenient bar.
+// A bare core with eight bytes of memory and a port that only remembers which
+// address it was asked for.  Nothing here needs the ROM or the machine: the
+// question is what the instruction puts on A8-A15, and that is the core's
+// business alone.
+struct BarePorts {
+  uint8_t code[8] = {};
+  uint16_t asked = 0xffff;
+};
+
+uint8_t BareRead(void* context, uint16_t address) {
+  const auto* probe = static_cast<const BarePorts*>(context);
+  return address < sizeof probe->code ? probe->code[address] : 0x00;
+}
+
+void BareWrite(void* context, uint16_t address, uint8_t value) {}
+
+uint8_t BareIn(z80* cpu, uint16_t port) {
+  static_cast<BarePorts*>(cpu->userdata)->asked = port;
+  return 0x00;
+}
+
+void BareOut(z80* cpu, uint16_t port, uint8_t value) {
+  static_cast<BarePorts*>(cpu->userdata)->asked = port;
+}
+
+// TSTIO, IN0, OUT0 and the block-I/O instructions all put 00h on A8-A15
+// instead of B (UM005004, Table 46; HANDOFF 6.33 and 6.40).  IN and OUT (C)
+// are the ones that really do use B, and they are here as the control: a core
+// that forced every address to 00h would pass the rest of this on its own.
+//
+// It matters because this machine decodes the upper byte.  With a non-zero B
+// the address an on-chip register lands on is one nobody answers at all
+// (hw::IsUndecodedIo), so the read would come back as FFh instead of the
+// register.  The ROM has TSTIO twice, at 185FC and 1E0A2, and neither runs in
+// any test here -- measured 22 September 2026 -- so nothing else covers this.
+bool CheckZ180IoAddressHighByte() {
+  struct Case {
+    const char* name;
+    std::vector<uint8_t> code;
+    uint16_t expected;
+  };
+  // B is E1h throughout, so a leak is loud rather than subtle.
+  const std::vector<Case> cases = {
+      {"tstio 04h", {0xed, 0x74, 0x04}, 0x0004},
+      {"in0 a,(04h)", {0xed, 0x38, 0x04}, 0x0004},
+      {"out0 (04h),a", {0xed, 0x39, 0x04}, 0x0004},
+      {"otim", {0xed, 0x83}, 0x0004},
+      {"in a,(c)", {0xed, 0x78}, 0xe104},
+      {"out (c),a", {0xed, 0x79}, 0xe104},
+  };
+  bool ok = true;
+  for (const auto& item : cases) {
+    BarePorts probe;
+    std::copy(item.code.begin(), item.code.end(), probe.code);
+    z80 cpu;
+    z80_init(&cpu);
+    cpu.read_byte = BareRead;
+    cpu.write_byte = BareWrite;
+    cpu.port_in = BareIn;
+    cpu.port_out = BareOut;
+    cpu.userdata = &probe;
+    cpu.b = 0xe1;
+    cpu.c = 0x04;
+    z80_step(&cpu);
+    if (probe.asked != item.expected) {
+      std::cout << "  " << item.name << " siahol na " << std::hex
+                << probe.asked << " namiesto " << item.expected << std::dec
+                << "\n";
+      ok = false;
+    }
+  }
+  return ok;
+}
+
 // The other half of port decoding, and the one the firmware cannot test for
 // us.  The 64180 answers on its on-chip registers only when the top eight bits
 // of the I/O address are zero (TECHMAN1/64180.4, "Programming the Input/Output
@@ -1897,11 +1971,13 @@ int wmain(int argc, wchar_t** argv) {
     const bool settles = CheckSettlesToSilence(*machine);
     const bool aliases = CheckDacDecodesWholeBlock(*machine);
     const bool internal = CheckInternalRegistersNeedZeroHighByte(*machine);
-    const bool passed = settles && aliases && internal;
+    const bool highByte = CheckZ180IoAddressHighByte();
+    const bool passed = settles && aliases && internal && highByte;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=DC"
               << " ticho=" << (settles ? "ok" : "chyba")
               << " porty=" << (aliases ? "ok" : "chyba")
-              << " interne=" << (internal ? "ok" : "chyba") << "\n";
+              << " interne=" << (internal ? "ok" : "chyba")
+              << " hornybajt=" << (highByte ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 

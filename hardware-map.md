@@ -140,6 +140,12 @@ nepatrí **nikomu**: interný register sa nedekóduje a externý tam nie je.
 Z firmvéru sa tam dostať nedá, z klávesnice áno — vstavaný BASIC prekladá
 `OUT` na `OUT (C),A` s celým portom v BC (HANDOFF 6.39).
 
+Čo dáva na horný bajt ktorá inštrukcia (UM005004, tabuľka 46):
+
+- `00h` — `IN0`, `OUT0`, `TSTIO` a blokové `OTIM`, `OTDM`, `OTIMR`, `OTDMR`.
+- `B` — `IN r,(C)` a `OUT (C),r`, teda aj `INI`/`OUTI` a ich varianty.
+- `A` — `IN A,(m)` a `OUT (m),A`.
+
 | port | smer | funkcia | istota |
 |---|---|---|---|
 | 80h–87h | W | `modem_latch` — riadenie modemu AM7910, tieň C439h | doložené |

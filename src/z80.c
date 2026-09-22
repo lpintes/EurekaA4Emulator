@@ -1783,7 +1783,11 @@ void exec_opcode_ed(z80* const z, uint8_t opcode) {
     const uint8_t mask = nextb(z);
     const uint8_t saved_a = z->a;
     z->a = mask;
-    z180_test(z, z->port_in(z, get_bc(z)));
+    // Like IN0, OUT0 and the block-I/O instructions, TSTIO puts 00h on
+    // A8-A15 rather than B (UM005004 Table 46).  This machine decodes the
+    // upper byte, so B leaking in here would send the read to an address
+    // nothing answers -- see hw::IsUndecodedIo.
+    z180_test(z, z->port_in(z, z->c));
     z->a = saved_a;
   } break; // tstio n
 
