@@ -301,6 +301,9 @@ class EurekaMachine {
   }
   // An OUT as a program would issue it, without assembling one into RAM.
   void debug_out(uint16_t port, uint8_t value) { WritePort(&cpu_, port, value); }
+  // The matching IN.  Reading a port is not always free -- rtc_status clears
+  // itself when read -- so this issues a real input cycle, side effects and all.
+  uint8_t debug_in(uint16_t port) { return ReadPort(&cpu_, port); }
   uint64_t debug_bios_reads() const { return biosReads_; }
   uint16_t debug_bios_track() const { return biosTrack_; }
   uint16_t debug_bios_sector() const { return biosSector_; }

@@ -2900,6 +2900,74 @@ melódia by narazila a znelo by to presne ako praskanie. Majiteľ má
 posuvník prakticky na maxime (rozkmit jeho živého behu sedí s rozkmitom
 sondy pri zisku 1,0).
 
+### 6.39 Vstavaný BASIC adresuje porty šestnásťbitovo — `OUT 50,240` je pravda (`ea4-dfd`, `ea4-vii`)
+
+Kolujúce tvrdenie hovorí, že `OUT 50,240` v BASICu spomalí procesor. Preverené
+22. 9. 2026 a **je pravdivé**, len nejde o takt: port 50 desiatkovo je `32h`,
+teda `dcntl` (`IOREG.LIB:73`, DMA/WAIT Control Register), a `240` = `F0h`
+nastaví jeho bity 7–6 (MWI1, MWI0) na tri čakacie stavy do **každého
+pamäťového cyklu**. Kryštál beží ďalej, pribudne čakanie.
+
+Firmvér tam zapisuje `38h` (fyz. `00012`: `3E 38` / `ED 39 32`), teda MWI = 0
+a IWI = 3; to druhé dokladá aj `SYSEQU.LIB:19` slovom — `slowio equ true ;for
+4 wait states on IO`.
+
+**Prečo to vôbec môže fungovať.** Adresa portu je šestnásťbitová a interné
+registre odpovedajú len pri nulovom hornom bajte. Pri `OUT (n),A` ide do
+horného bajtu akumulátor, takže s hodnotou 240 by adresa bola `F032h` a
+netrafila by nič. Vstavaný BASIC to však robí druhou cestou — obsluha príkazu
+`OUT` je na fyz. `0B5C1` (položka 17 v tabuľke skokov na `0A333`, dispečer
+`0A2C8`):
+
+```
+CD 96 DA    CALL DA96h        ; číslo portu do DE
+D5          PUSH DE
+CD A6 D2 2C SYNCHR ','
+C1          POP BC            ; celé 16-bitové DE do BC
+C5          PUSH BC
+CD EB E5    CALL E5EBh        ; GETBYT — hodnota do A
+C1          POP BC
+ED 79       OUT (C),A
+```
+
+Že je port naozaj šestnásťbitový a neoreže sa, dokladá GETBYT na `0B5EB`:
+`LD A,D / OR A / JP NZ,DAB2h` — na 0–255 sa stráži **hodnota**, nie port.
+`INP` je to isté (`0B5B7`: `LD B,D / LD C,E / IN A,(C)`), takže z BASICu sa
+interné registre dajú aj čítať. Logická adresa = fyzická + `3000h`; doložené
+tým, že `D2A6h` je doslovný MS-BASIC `SYNCHR` a `D2AEh` `CHRGET`.
+
+Overené aj meraním, nezávisle od rozboru: s dočasnou inštrumentáciou, ktorá
+horný bajt nezahadzuje, dá `OUT 50,240` v BASICu `port=0032h value=F0h` na PC
+tesne za `OUT (C),A`, a `OUT 306,240` dá `port=0132h`. Do BASICu sa v sonde
+vchádza scancodom `s40` (F6).
+
+**Čo z toho bolo v emulátore zle, a je spravené.** `WritePort` aj `ReadPort`
+brali z portu iba dolný bajt, takže interné registre u nás odpovedali aj na
+`0132h`. Teraz o tom rozhodujú `hw::IsInternalRegister` a `hw::IsUndecodedIo`
+v `src/eureka_io.h`; nedekódovaný zápis sa zahodí (ale **do trace sa zapíše**,
+lebo pokus je práve preto zaujímavý) a čítanie vráti `hw::kUndecodedIoRead`.
+`ChargeIoWaits` sa zosúladilo — o tom, či je cyklus interný, rozhoduje celá
+adresa, takže `0132h` je externý cyklus a čakacie stavy dostane.
+
+`kUndecodedIoRead` je `FFh` a je to **voľba, nie meranie**: nikto nezmeral, čo
+na nepoháňanej zbernici skutočná Eureka vracia. V hlavičke to tak stojí
+napísané a citovať to ako dôkaz sa nesmie.
+
+Drží to `CheckInternalRegistersNeedZeroHighByte` v režime `dc`
+(`integration_test`), a drží obe strany: že `0132h` neodpovie, aj že `0032h`
+odpovedať musí. Overené dvoma mutáciami — vypnutý predikát zhodí prvé dve
+kontroly, predikát rozšírený aj na nulový horný bajt zhodí tretiu.
+
+**Čo zostáva otvorené.** MWI sa ďalej **nemodeluje** (`ea4-vii`), takže
+`OUT 50,240` u nás nespomalí nič; tabuľky v `z80.c` nesú celkové T-stavy, nie
+počet pamäťových cyklov na inštrukciu, takže poctivé domodelovanie nie je
+drobnosť. Kým firmvér drží MWI na nule, nemá to dopad na časovanie ani na
+zvuk. Otvorené je aj `ea4-6dx` — jadro dáva pri `TSTIO` na horný bajt `B`
+namiesto `00h`, čo je tá istá minca z druhej strany, a nedotklo sa ho to.
+A neoverené zostáva, čo na skutočnom stroji spôsobí, že `F0h` vynuluje bit 3
+(DMS1), ktorý firmvér nastaví a ktorý sa týka snímania DREQ pre kanál 1, teda
+cesty k mechanike; bitové polia `dcntl` manuál Robotronu nepopisuje.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

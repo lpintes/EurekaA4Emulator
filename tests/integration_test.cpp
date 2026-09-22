@@ -804,6 +804,49 @@ bool CheckSettlesToSilence(EurekaMachine& machine) {
 // Each alias gets a full-scale step after a second of quiet, and has to be
 // heard.  A step on 8Fh with the filter and coupling capacitor in the way is
 // still thousands of units, so "any nonzero sample" is not a lenient bar.
+// The other half of port decoding, and the one the firmware cannot test for
+// us.  The 64180 answers on its on-chip registers only when the top eight bits
+// of the I/O address are zero (TECHMAN1/64180.4, "Programming the Input/Output
+// Ports"), and no Eureka peripheral sits below 40h, so an address like 0132h
+// reaches nobody at all.
+//
+// The firmware never gets there: it uses OUT0, which forces those bits to
+// zero.  The built-in BASIC does, though -- it compiles OUT to OUT (C),A with
+// the whole port in BC (0B5C1) and INP to IN A,(C) (0B5B7), so OUT 306,240 is
+// a line somebody can type.  DCNTL is the register to check it on because it
+// is the one the story is about: OUT 50,240 reaches it and would slow the real
+// machine down (ea4-vii), and OUT 306,240 must not reach it at all.
+//
+// Both directions are checked on purpose.  Rejecting the high-byte address
+// alone would also pass on a model that had quietly stopped decoding DCNTL.
+bool CheckInternalRegistersNeedZeroHighByte(EurekaMachine& machine) {
+  bool ok = true;
+  const uint16_t decoded = hw::kDcntl;
+  const uint16_t shadowed = static_cast<uint16_t>(0x0100 | hw::kDcntl);
+  const uint8_t settled = machine.debug_in(decoded);
+
+  if (machine.debug_in(shadowed) != hw::kUndecodedIoRead) {
+    std::cout << "  citanie z 0132h nevratilo prazdnu zbernicu\n";
+    ok = false;
+  }
+  // A value the firmware would never leave in DCNTL, so finding it there means
+  // the write landed where nothing should have answered.
+  const uint8_t intruder = static_cast<uint8_t>(~settled);
+  machine.debug_out(shadowed, intruder);
+  if (machine.debug_in(decoded) != settled) {
+    std::cout << "  zapis na 0132h sa dostal do DCNTL\n";
+    ok = false;
+  }
+  machine.debug_out(decoded, intruder);
+  if (machine.debug_in(decoded) != intruder) {
+    std::cout << "  zapis na 0032h sa do DCNTL nedostal\n";
+    ok = false;
+  }
+  // DCNTL drives the DMA and the I/O wait states, so it does not stay poked.
+  machine.debug_out(decoded, settled);
+  return ok;
+}
+
 bool CheckDacDecodesWholeBlock(EurekaMachine& machine) {
   bool ok = true;
   uint8_t level = 0x80;
@@ -1853,10 +1896,12 @@ int wmain(int argc, wchar_t** argv) {
   if (std::wstring(argv[3]) == L"dc") {
     const bool settles = CheckSettlesToSilence(*machine);
     const bool aliases = CheckDacDecodesWholeBlock(*machine);
-    const bool passed = settles && aliases;
+    const bool internal = CheckInternalRegistersNeedZeroHighByte(*machine);
+    const bool passed = settles && aliases && internal;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=DC"
               << " ticho=" << (settles ? "ok" : "chyba")
-              << " porty=" << (aliases ? "ok" : "chyba") << "\n";
+              << " porty=" << (aliases ? "ok" : "chyba")
+              << " interne=" << (internal ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 

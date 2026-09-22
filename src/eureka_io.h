@@ -133,6 +133,32 @@ constexpr uint8_t kDcntlIwi = 0x30;
 constexpr unsigned kDcntlIwiShift = 4;
 constexpr uint8_t kInternalIoEnd = 0x40;
 
+// The I/O address is sixteen bits wide and the on-chip registers answer only
+// when the top eight of them are zero.  TECHMAN1/64180.4 says so outright and
+// warns that Turbo Pascal's 8-bit port[] array cannot reach them for exactly
+// that reason; IN0 and OUT0 exist because they force those bits to zero.
+constexpr bool IsInternalRegister(uint16_t port) {
+  return port < kInternalIoEnd;
+}
+
+// An address whose low byte names an on-chip register but whose high byte is
+// not zero belongs to nobody: the 64180 does not decode it, and no Eureka
+// peripheral has an I/O address with a low byte below 40h (TECHMAN1/64180.4).
+//
+// This is reachable from the machine, not a theoretical case.  The built-in
+// BASIC compiles OUT to OUT (C),A with the whole 16-bit port in BC (0B5C1)
+// and INP to IN A,(C) the same way (0B5B7), so OUT 306,240 addresses 0132h.
+// Measured 22 September 2026; see ea4-dfd.
+constexpr bool IsUndecodedIo(uint16_t port) {
+  return static_cast<uint8_t>(port) < kInternalIoEnd && port >= 0x100;
+}
+
+// What a read of such an address gives back.  FFh is a **choice, not a
+// measurement**: it is what an undriven bus with pull-ups reads as, and
+// nothing in this project has measured what the real Eureka puts there.
+// Do not cite this number as evidence of anything.
+constexpr uint8_t kUndecodedIoRead = 0xff;
+
 // The one exception among the on-chip registers.  UM005004 Table 4 gives the
 // PRT data registers 0 to 4 wait states "as a function of internal
 // synchronization" and does not say which; the manual bounds this number, it

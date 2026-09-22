@@ -742,8 +742,12 @@ void EurekaMachine::PressBraille(uint8_t dots, bool shift) {
 // feels 11 378 times a second (HANDOFF 6.10).  The ASCI and CSI/O data
 // registers stay at 0 -- nothing measures them, so a number there would be
 // invented rather than found.
+//
+// Which of the two a port is depends on the whole 16-bit address, not its low
+// byte: an on-chip number with a non-zero high byte is an external cycle that
+// nothing answers, and it is charged like any other external cycle.
 void EurekaMachine::ChargeIoWaits(z80* cpu, uint16_t port) {
-  if (static_cast<uint8_t>(port) < hw::kInternalIoEnd) {
+  if (hw::IsInternalRegister(port)) {
     if (static_cast<uint8_t>(port) == hw::kTmdr0l) cpu->cyc += hw::kTmdr0lWaits;
     return;
   }
@@ -773,6 +777,10 @@ uint8_t EurekaMachine::ReadPort(z80* cpu, uint16_t port) {
 
 uint8_t EurekaMachine::ReadPortInner(z80* cpu, uint16_t port) {
   auto* machine = static_cast<EurekaMachine*>(cpu->userdata);
+  // Nothing decodes this address, so nothing drives the bus either.  The RTC
+  // is the one block that does use the high byte, and it sits at 0190h and
+  // 0290h, well clear of the on-chip numbers this rejects.
+  if (hw::IsUndecodedIo(port)) return hw::kUndecodedIoRead;
   const uint8_t low = hw::DecodedPort(static_cast<uint8_t>(port), false);
   switch (port) {
     case hw::kRtcRamBase + 0: case hw::kRtcRamBase + 1:
@@ -858,6 +866,9 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
   const uint8_t previous = machine->io_[low];
   if (machine->diag_.enabled() && machine->diag_.traces(low))
     machine->diag_.TracePortWrite(cpu->pc, port, value);
+  // Traced first and dropped second: the attempt is worth seeing in a trace
+  // precisely because it reaches nothing.  See ReadPortInner.
+  if (hw::IsUndecodedIo(port)) return;
   switch (port) {
     case hw::kRtcRamBase + 0: case hw::kRtcRamBase + 1:
     case hw::kRtcRamBase + 2: case hw::kRtcRamBase + 3:

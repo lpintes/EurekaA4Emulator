@@ -128,6 +128,18 @@ Kontrolná rutina: 18000h+1DA90h fyz., `ADD A,(HL)` cez banku, výsledok musí b
 
 Dekodér s výberom po 8 portoch: 80, 88, 90, 98, A0, A8, B0, B8.
 
+Adresa portu je **šestnásťbitová** a horný bajt nie je ozdoba. Interné
+registre 64180 (00h–3Fh) odpovedajú len vtedy, keď je nulový — preto má
+procesor `IN0` a `OUT0`, ktoré ho vynulujú, a preto manuál (`TECHMAN1/64180.4`)
+varuje, že osembitové pole `port[]` v Turbo Pascale sa na ne nedostane.
+Externé periférie sú naopak zhovievavé a horný bajt ignorujú; jediná výnimka
+sú hodiny, ktoré ho používajú (190h, 290h, 291h v tabuľke nižšie).
+
+Dolný bajt žiadnej periférie neklesne pod 40h, takže adresa ako `0132h`
+nepatrí **nikomu**: interný register sa nedekóduje a externý tam nie je.
+Z firmvéru sa tam dostať nedá, z klávesnice áno — vstavaný BASIC prekladá
+`OUT` na `OUT (C),A` s celým portom v BC (HANDOFF 6.39).
+
 | port | smer | funkcia | istota |
 |---|---|---|---|
 | 80h–87h | W | `modem_latch` — riadenie modemu AM7910, tieň C439h | doložené |
