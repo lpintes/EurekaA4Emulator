@@ -939,6 +939,54 @@ bool CheckMemoryWaitStates(EurekaMachine& machine) {
   return ok;
 }
 
+// DRAM refresh as BASIC's `OUT 54,252` switches it on (ea4-e2m).  A thousand
+// NOPs take P clocks of program; refresh has to add its share of wall time on
+// top, counted with the refresh cycles inside the interval.  FCh is 3 in every
+// 10, so the program gets 7 of them and refresh adds P * 3/7.  83h is 2 in
+// every 80: P * 2/78.  7Ch has every bit but REFE and must add nothing.  The
+// other reading of the interval -- 3 after every 10 of program -- would add
+// P * 3/10 for FCh, which is what the first case is there to catch.
+bool CheckRefreshCycles(EurekaMachine& machine) {
+  constexpr uint16_t kScratch = 0x8000;
+  constexpr unsigned kNops = 1000;
+  struct Case {
+    uint8_t rcr;
+    unsigned length, interval;  // refresh clocks per interval, 0 when off
+  };
+  const Case cases[] = {{0xfc, 3, 10}, {0x83, 2, 80}, {0x7c, 0, 10}};
+  const uint8_t settled = machine.debug_in(hw::kRcr);
+  const bool interrupts = machine.debug_iff1();
+  // No interrupt may land in the middle and bring its handler's clocks along.
+  machine.debug_set_iff1(false);
+  for (unsigned i = 0; i < kNops; ++i) machine.debug_poke(kScratch + i, 0x00);
+
+  auto run = [&](uint8_t rcr) {
+    machine.debug_out(hw::kRcr, rcr);
+    machine.debug_set_pc(kScratch);
+    const uint64_t before = machine.cycles();
+    for (unsigned i = 0; i < kNops; ++i) machine.Step();
+    return static_cast<unsigned long long>(machine.cycles() - before);
+  };
+  bool ok = true;
+  const unsigned long long plain = run(0x00);
+  for (const auto& item : cases) {
+    const unsigned long long added = run(item.rcr) - plain;
+    const unsigned long long want =
+        plain * item.length / (item.interval - item.length);
+    // Refresh lands per instruction, so the last few clocks may fall either
+    // side of the end of the run.
+    if (added + 3 < want || added > want + 3) {
+      std::cout << "  RCR=" << std::hex << static_cast<unsigned>(item.rcr)
+                << std::dec << ": obnovovanie pridalo " << added
+                << " T namiesto " << want << " (bez neho " << plain << ")\n";
+      ok = false;
+    }
+  }
+  machine.debug_out(hw::kRcr, settled);
+  machine.debug_set_iff1(interrupts);
+  return ok;
+}
+
 // A Z180 samples its interrupt inputs at the **end** of an instruction
 // (UM005004 Table 47, note 7).  Step used to decide the request before the
 // instruction, so an instruction that switched a source off could still take
@@ -2253,9 +2301,10 @@ int wmain(int argc, wchar_t** argv) {
     const bool highByte = CheckZ180IoAddressHighByte();
     const bool blockFlags = CheckBlockIoFlags();
     const bool waits = CheckMemoryWaitStates(*machine);
+    const bool refresh = CheckRefreshCycles(*machine);
     const bool sampling = CheckInterruptSampledAtEndOfInstruction(*machine);
     const bool passed = settles && aliases && internal && highByte &&
-                        blockFlags && waits && sampling;
+                        blockFlags && waits && refresh && sampling;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=DC"
               << " ticho=" << (settles ? "ok" : "chyba")
               << " porty=" << (aliases ? "ok" : "chyba")
@@ -2263,6 +2312,7 @@ int wmain(int argc, wchar_t** argv) {
               << " hornybajt=" << (highByte ? "ok" : "chyba")
               << " priznaky=" << (blockFlags ? "ok" : "chyba")
               << " cakacie=" << (waits ? "ok" : "chyba")
+              << " obnovovanie=" << (refresh ? "ok" : "chyba")
               << " vzorkovanie=" << (sampling ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }

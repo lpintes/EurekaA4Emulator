@@ -184,6 +184,18 @@ constexpr uint8_t kBbr = 0x39;   // bbr
 constexpr uint8_t kCbar = 0x3a;  // cbar
 constexpr uint8_t kIcr = 0x3f;   // icr
 
+// RCR bits.  IOREG.LIB names only the register, so these are the chip's own
+// names from the HD64180 manual (section 2.8) and UM005004 ("Refresh Control
+// Register"): REFE switches refresh on, REFW makes each refresh cycle three
+// clocks instead of two, CYC1-0 put 10, 20, 40 or 80 clocks between them.
+// RESET leaves FCh, refresh on at the costliest setting; the firmware writes
+// 00h at 00018, six instructions later.  BASIC's `OUT 54,252` is that reset
+// value put back (ea4-e2m).
+constexpr uint8_t kRcrReset = 0xfc;
+constexpr uint8_t kRcrRefe = 0x80;
+constexpr uint8_t kRcrRefw = 0x40;
+constexpr uint8_t kRcrCyc = 0x03;
+
 // HD64180Z manual, ITC: TRAP is set by an undefined op code and software can
 // only write it to 0; UFO says whether the third op code byte was the
 // undefined one and is read-only.  WBOOT at E6B3h (196B3) tests TRAP.

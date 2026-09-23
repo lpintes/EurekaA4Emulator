@@ -3191,6 +3191,47 @@ programy písané pre anglickú Eureku; samotné „Konec“ znamená, že model
 sa správa ako stroj. Neoverené je aj to, čo vráti čítanie z prázdneho
 pásma — nuly v modeli sú voľba, nie meranie.
 
+### 6.45 Obnovovanie DRAM sa modeluje — `OUT 54,252` stroj spomalí (`ea4-e2m`)
+
+Podnet v tej istej správe ako 6.44: na skutočnom stroji z BASICu
+`OUT 50,240` funguje (6.43) a „ešte nejde `OUT 54,252` a `OUT 62,1`“.
+
+Port 54 je `36h`, `rcr` (`IOREG.LIB:82`). Bity sú v manuáli HD64180 (kap.
+2.8) aj v UM005004 zhodne: `REFE` (7) zapína obnovovanie, `REFW` (6) robí
+obnovovací cyklus trojtaktový namiesto dvojtaktového, `CYC1–0` dávajú
+interval 10, 20, 40 alebo 80 taktov. Po resete je `FCh` — zapnuté, tri
+takty, interval desať. Firmvér na `00018` zapíše `00h`, šesť inštrukcií po
+resete. `252` = `FCh`, takže `OUT 54,252` je presne hodnota po resete.
+Pamäť Eureky je statická (`HARDWARE.1`), obnovovanie jej teda len berie čas.
+
+**Čo je spravené.** `EurekaMachine::RefreshCycles` pripočíta ku každej
+inštrukcii (aj k prijatiu prerušenia) obnovovacie takty a `Step` ich pridá
+do `cpu_.cyc` skôr, než ich dostane `Advance`. `PowerOn` nastaví `rcr` na
+`FCh`, ako reset — prvých šesť inštrukcií teda beží s obnovovaním.
+
+**Voľba, ktorú manuál číslom nerozhodne.** Časovač obnovovania sa tu počíta
+v skutočnom čase, obnovovacie takty **v ňom**: pri `FCh` sú to 3 z každých
+10, program dostane 7 a beží na **70 %**. Druhé čítanie — 10 taktov
+programu, potom 3 obnovovania — by dalo **77 %**. Za prvé hovorí to, že
+manuál volá cykly „asynchronous ... independent of CPU program execution“
+a že časovač beží ďalej aj pri uvoľnenej zbernici. Rozhodnúť to vie
+meranie na skutočnom stroji: tá istá melódia alebo slučka v BASICu s
+`OUT 54,252` a bez neho — pomer dĺžok 1,43 znamená model, 1,30 druhé čítanie.
+
+Obnovovanie sa pripočítava po inštrukciách, nie po strojových cykloch, a
+nerozlišuje SLEEP; celkový čas to nemení, len posúva takty v rámci
+inštrukcie. Pri vypnutom `REFE` (firmvér) je to nulový zásah — všetkých
+osemnásť testov prechádza bez zmeny.
+
+Drží to `CheckRefreshCycles` v režime `dc`: tisíc `NOP` pri `FCh`, `83h`
+a `7Ch` (všetky bity okrem `REFE`), prírastok musí byť P·3/7, P·2/78 a nula.
+Overené dvoma mutáciami — interval rátaný len z taktov programu zhodí `FCh`
+(1200 namiesto 1714), ignorovaný `REFE` zhodí `7Ch`.
+
+**Otvorené:** `OUT 62,1`. Port `3Eh` v `IOREG.LIB` nie je a na HD64180 tam
+register nie je; na Z80180 je tam `OMCR`, ktorý o rýchlosti nerozhoduje.
+Veta „tá šestka zrýchľuje“ nie je jasná — treba sa spýtať.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

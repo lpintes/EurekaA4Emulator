@@ -354,6 +354,7 @@ class EurekaMachine {
   bool InterceptBios();
   uint8_t DiskFailure(bool writing) const;
   void Advance(uint32_t cpuCycles);
+  uint32_t RefreshCycles(uint32_t cpuCycles);
   void ScheduleInterrupt();
   void RenderAudio(uint32_t cpuCycles);
   uint16_t TimerReload(unsigned channel) const;
@@ -424,6 +425,8 @@ class EurekaMachine {
   uint64_t cycles_ = 0;
   uint64_t instructions_ = 0;
   uint64_t timerAccum_[2]{};
+  // Clocks since the last DRAM refresh cycle; see RefreshCycles.
+  uint32_t refreshTimer_ = 0;
   uint16_t timerCurrent_[2]{0xffff, 0xffff};
   bool timerControlRead_[2]{};
   bool timerPending_[2]{};

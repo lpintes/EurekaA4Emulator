@@ -215,6 +215,8 @@ void EurekaMachine::PowerOn() {
   io_[hw::kCntr] = 0;
   io_[hw::kTcr] = 0;
   io_[hw::kRldr0l] = io_[hw::kRldr0h] = io_[hw::kRldr1l] = io_[hw::kRldr1h] = 0xff;
+  io_[hw::kRcr] = hw::kRcrReset;
+  refreshTimer_ = 0;
   z80_init(&cpu_);
   cpu_.z180_traps = true;
   cpu_.read_byte = ReadMemory;
@@ -1394,6 +1396,37 @@ void EurekaMachine::PumpCsio() {
   io_[hw::kCntr] &= static_cast<uint8_t>(~hw::kCntrRe);
 }
 
+// The clocks DRAM refresh takes away from cpuCycles of work.  The HD64180
+// manual (section 2.8) calls the refresh cycles "asynchronous ... inserted at
+// the programmable interval independent of CPU program execution", and its
+// timer keeps running while the bus is released, so the interval is counted
+// in wall-clock time, the refresh cycles themselves included.  At the reset
+// value FCh that is 3 clocks in every 10: the program gets 7, and runs at
+// 70 % speed.  The other reading -- 10 clocks of program, then 3 of refresh
+// -- would give 77 %; the manual does not settle it with a number, and the
+// firmware never enables refresh, so only BASIC's `OUT 54,252` can tell.
+//
+// A refresh request waits for the next machine cycle boundary, and one that
+// falls into wait states or SLEEP is held rather than lost.  Counting per
+// instruction keeps that total and only moves the cycles within it.
+uint32_t EurekaMachine::RefreshCycles(uint32_t cpuCycles) {
+  const uint8_t control = io_[hw::kRcr];
+  if ((control & hw::kRcrRefe) == 0) {
+    refreshTimer_ = 0;
+    return 0;
+  }
+  const uint32_t interval = 10u << (control & hw::kRcrCyc);
+  const uint32_t length = (control & hw::kRcrRefw) != 0 ? 3 : 2;
+  uint32_t added = 0;
+  refreshTimer_ += cpuCycles;
+  while (refreshTimer_ >= interval) {
+    refreshTimer_ -= interval;
+    added += length;
+    refreshTimer_ += length;
+  }
+  return added;
+}
+
 void EurekaMachine::Advance(uint32_t cpuCycles) {
   cycles_ += cpuCycles;
   RenderAudio(cpuCycles);
@@ -1633,11 +1666,15 @@ bool EurekaMachine::Step() {
         (cpu_.trap == 2 ? hw::kItcUfo : 0));
     cpu_.trap = 0;
   }
+  cpu_.cyc += RefreshCycles(static_cast<uint32_t>(cpu_.cyc - before));
   Advance(static_cast<uint32_t>(cpu_.cyc - before));
   ScheduleInterrupt();
   before = cpu_.cyc;
   z80_process_interrupts(&cpu_);
-  if (cpu_.cyc != before) Advance(static_cast<uint32_t>(cpu_.cyc - before));
+  if (cpu_.cyc != before) {
+    cpu_.cyc += RefreshCycles(static_cast<uint32_t>(cpu_.cyc - before));
+    Advance(static_cast<uint32_t>(cpu_.cyc - before));
+  }
   ++instructions_;
   return true;
 }
