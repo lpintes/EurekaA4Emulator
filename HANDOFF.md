@@ -3154,6 +3154,43 @@ medzi 12. 9. a 22. 9., a kandidátmi sú zásahy 6.34 až 6.38. Testy `hudba`
 aj `zvuk` prechádzajú, takže to nie je zlomené; ale 6.10 stavia na tempe znelky
 ako na meradle, takže by sa to malo dohľadať.
 
+### 6.44 Firmvér pamäť na 40000h–6FFFFh nepoužíva — RAM4B testuje anglické rozloženie
+
+Podnet: `RAM4B.COM` (128 B, mimo repozitára v `C:\b\diskety\com`), poslaný
+bez vysvetlenia. V emulátore povie „Konec“ a skončí do hlavného menu.
+Rozobraté 23. 9. 2026: je to **test osadenia čipov RAM**, nie vypínanie.
+Cez `CBR` = `35h`, `3Dh`, `45h`, `4Dh` zapíše „Dobrý večer“ na fyzické
+`42000h`, `4A000h`, `52000h`, `5A000h`, teda po jednej adrese do každého
+32 KB čipu, a späť ho prečíta do štyroch rutín na `8000h`–`8300h`
+(`CALL F091h` + text). Potom vráti `CBR` na `FDh`, povie „Konec“, rutiny
+zavolá a skončí cez `JP 0`. Podľa človeka, ktorý program poslal, povie
+na plne osadenom stroji štyrikrát „Dobrý večer“ a bez „banky 4“ dvakrát.
+
+Adresy sú rozloženie **Advanced English Eureky** z `MEMMAP.E`: `RAM 2,3`
+na `40000h`, `RAM 0,1` na `50000h`, čipy po 32 KB (štandard 2 × 32 KB,
+Advanced 4 × 32 KB, `HARDWARE.1`). Náš model má RAM len na `70000h`
+a pod ňou zápisy zahadzuje, čítanie vráti nuly — rutiny nepovedia nič.
+
+**Česká ROM do 40000h–6FFFFh nesiaha.** Zmerané sondou s dočasným
+počítaním každého prístupu CPU aj DMA do toho pásma a každého zápisu do
+BBR a CBR: boot, `sweep` všetkých F-klávesov aj so Shiftom, hudobný editor
+(F7, načítanie a prehranie `BACH.MEL`, všetky F-klávesy v ňom, písanie nôt)
+a `READ.COM` z diskety — nula prístupov. Staticky tomu zodpovedá, že DMA
+nesie len banky 00h, 01h a 07h (hardware-map, tabuľka `.dma0_move`), BBR
+pri reči siaha najvyššie po `3FFFFh` a test RAM ani príznak rozšírenej
+pamäte v ROM nie je — sebakontrola na `1D9B8` je kontrolný súčet ROM.
+`SYSEQU.LIB` pozná len `ram0_page 70h` a `ram1_page 78h`. Domnienka, že by
+rozšírená RAM pomohla hudobnému editoru, je tým vyvrátená.
+
+**Otvorené, a z ROM nerozhodnuteľné:** či sa `5xxxxh` na skutočnom stroji
+zrkadlí na `7xxxxh` (nedekódovaný A17). Sedelo by to s tým, že `MEMMAP.E`
+dáva štandardnému anglickému stroju RAM na `50000h` a `SYSEQU.LIB` mu
+dáva `ram0_page 70h`. Rozhodne to RAM4B na štandardnom českom stroji:
+dvakrát „Dobrý večer“ znamená zrkadlo a oplatí sa ho modelovať pre
+programy písané pre anglickú Eureku; samotné „Konec“ znamená, že model
+sa správa ako stroj. Neoverené je aj to, čo vráti čítanie z prázdneho
+pásma — nuly v modeli sú voľba, nie meranie.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

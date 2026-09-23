@@ -67,7 +67,8 @@ stratí. Model to robí rovnako (`EurekaMachine::WritePhysical`).
 Preto sa buffery pred prácou kopírujú dole. Slúži na to `.dma0_move`
 zo SYSJUMPS: argumenty sú vložené priamo za `CALL` v poradí `dw` zdroj,
 `db` banka, `dw` cieľ, `db` banka, `dw` dĺžka (`SYSJUMPS.11`). V celom
-dumpe je tento vzor presne šesťkrát, plus raz pri štarte:
+dumpe je tento vzor presne deväťkrát — šesť bufferov, raz pri štarte a dva
+prenosy pri inicializácii Eureky:
 
 | fyz. adresa | volanie | prenos | dĺžka | čo to je |
 |---|---|---|---|---|
@@ -78,11 +79,22 @@ dumpe je tento vzor presne šesťkrát, plus raz pri štarte:
 | 19CF9 | CALL E2F5h | E600h/07 → B600h/07 | 0A00h | záznamník dole (z OS) |
 | 19D13 | CALL E2F5h | B600h/07 → E600h/07 | 0A00h | záznamník späť (z OS) |
 | 18025 | CALL E2F5h | D000h/01 → CC00h/07 | 0400h | RAMCODE pri štarte |
+| 18257 | CALL E2F5h | A000h/00 → 0080h/07 | 0025h | inicializácia Eureky, obsah neurčený |
+| 18262 | CALL E2F5h | D000h/00 → 00A5h/07 | 0025h | inicializácia Eureky, obsah neurčený |
 
 Banka 07h znamená bity 16–19 fyzickej adresy, teda 7E600h a 7B600h.
-Posledný riadok je bootovacia inicializácia: kód obsluhy prerušení sa
+Riadok 18025 je bootovacia inicializácia: kód obsluhy prerušení sa
 z ROM (1D000h) kopíruje do SYSRAM, aby ho nikdy nemohlo vybankovať —
 robí sa hneď po nastavení tabuľky vektorov na C180h.
+
+Posledné dva riadky sú jedna rutina (18257–1826D, `RET`), ktorú volá
+jediné miesto, 18158, v obsluhe dialógu „inicializace eureky“ (reťazec na
+18135). Z ROM (0A000h a 0D000h) prenesú po 25h bajtov na 70080h a 700A5h.
+Čo tie bajty znamenajú, nie je overené.
+
+**Banky 04h až 06h sa neobjavia nikde** — ani v týchto argumentoch, ani
+v ostatných prenosoch DMA, ani v hodnotách BBR a CBR. Firmvér pamäť na
+40000h–6FFFFh nepoužíva ani neskúša; viď HANDOFF 6.44.
 
 **Telefónny zoznam sa takto neprenáša.** Pristupuje sa k nemu na mieste
 cez ukazovateľ (0F2F0: `LD HL,D000h` / `ADD HL,BC` / `LD (C46Eh),HL`)
