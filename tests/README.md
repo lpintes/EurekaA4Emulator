@@ -417,6 +417,22 @@ fixed stretch of guest time rather than the length of a sentence, so the rate
 shows in the firmware's writes to `RLDR0L` (port `0Eh` from `0264h`) in the
 probe's report, not there (HANDOFF 6.34).
 
+**`@TEXT` times a program's answer.**  It runs until the console shows TEXT
+(`_` stands for a space) and prints the cycles since the typed line before
+it, in seconds too, and how much of that the CPU spent in the program itself
+-- RAM below `C000h`.  The rest is the ROM echoing the line aloud and BDOS;
+the hardware does the same, so the whole figure is what compares with a
+stopwatch, but only the program's share grows with the work.  A line followed
+by `@` goes in without the usual wait for quiet, since that wait would eat
+the answer or be counted in it.  The console and not the speech, because the
+speech trails the work by seconds.  Run it from bash: PowerShell reads `@` as
+its own syntax.  This is how CHESS.COM was timed against the owner's memory
+of the real machine (HANDOFF 6.46):
+
+```text
+diag_probe A4ROM.DMP disk-folder seq 2000000000 kD6 CHESS~ ?AHEAD 3~ @VARIATION N~ @WHITE Y~ @MOVE "a2 a3~" @MY_MOVE
+```
+
 Formatting cannot currently be driven to completion. The ROM answers "v
 jednotce neni disk", from the error dispatch at physical 13D08h, which decodes
 a firmware-composed status byte:

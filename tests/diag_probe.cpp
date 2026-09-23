@@ -19,7 +19,8 @@
 // beside the alarm the firmware armed, "zvuk" for what the loudspeaker got,
 // "wav:SUBOR" to write those samples out as a WAV instead of counting them,
 // "rychlost:N" and "hlasitost:N" to move the two sliders (sliders.h),
-// or a literal string typed on the emulated PC keyboard.  A switched-off
+// "@TEXT" to time how long the console takes to show TEXT after the line
+// typed just before it, or a literal string typed on the emulated PC keyboard.  A switched-off
 // machine can wake itself on the alarm the same way it does on the hardware
 // (HANDOFF 6.32): "cas:" reports it right on the token that crossed the
 // alarm's minute, and every other token polls for it once before running, so
@@ -168,6 +169,11 @@ int wmain(int argc, wchar_t** argv) {
     uint8_t heldRow0 = 0;
     uint8_t heldRow1 = 0;
     uint8_t heldRow2 = 0;
+    // Cycle count at which the last typed line went in, for "@text" to
+    // measure from.  Set only by a line that is followed by "@": any other
+    // token runs until the machine falls quiet, and that wait would be
+    // counted as the program's own time.
+    uint64_t sentAt = 0;
     for (int index = 5; index < argc; ++index) {
       const std::wstring token = argv[index];
       if (token == L".") {
@@ -200,6 +206,43 @@ int wmain(int argc, wchar_t** argv) {
         heard += Readable(machine->TakeSpeechInput());
         std::printf("%-10ls -> %s%s\n", token.c_str(), heard.c_str(),
                     found ? "" : "  [NEDOCKAL SA]");
+        continue;
+      }
+      if (token.size() > 1 && token[0] == L'@') {
+        // How long a program takes to answer: wait until the console shows a
+        // particular text and report the cycles since the line before it went
+        // in.  The console, not the speech, because speech trails the work by
+        // seconds.  "_" stands for a space so the token survives the shell.
+        // Cycles spent in the program itself -- RAM below the common area --
+        // are counted apart, since the rest (the ROM echoing the line aloud,
+        // BDOS) is there on the hardware too but does not scale with the
+        // program's work.  That split is what made the CHESS.COM levels
+        // comparable with a stopwatch on the real machine (HANDOFF 6.46).
+        std::string wanted;
+        for (wchar_t ch : token.substr(1))
+          wanted.push_back(static_cast<char>(ch == L'_' ? L' ' : ch));
+        std::string seen;
+        uint64_t programCycles = 0;
+        const uint64_t deadline = machine->instructions() + budget;
+        bool found = false;
+        while (machine->instructions() < deadline && !found) {
+          seen += Readable(machine->TakeConsoleOutput());
+          found = seen.find(wanted) != std::string::npos;
+          if (found) break;
+          machine->TakeAudio();
+          const bool inProgram = machine->pc() < 0xc000 &&
+                                 machine->physical_pc() >= EurekaMachine::kRamBase;
+          const uint64_t before = machine->cycles();
+          if (!machine->Step() && machine->powered_off()) break;
+          if (inProgram) programCycles += machine->cycles() - before;
+        }
+        const uint64_t elapsed = machine->cycles() - sentAt;
+        std::printf("%-10ls -> [%llu cyklov = %.2f s, z toho v programe %.2f s] %s%s\n",
+                    token.c_str(), static_cast<unsigned long long>(elapsed),
+                    elapsed / double(EurekaMachine::kCpuHz),
+                    programCycles / double(EurekaMachine::kCpuHz), seen.c_str(),
+                    found ? "" : "  [NEDOCKAL SA]");
+        machine->TakeSpeechInput();
         continue;
       }
       if (token.starts_with(L"spin:")) {
@@ -631,6 +674,15 @@ int wmain(int argc, wchar_t** argv) {
                       "ani DF98, nedal sa napisat]\n",
                       token.c_str(), unmapped);
           return 1;
+        }
+        // A line an "@" is about to time goes in and the clock starts at
+        // once.  Waiting for quiet first would swallow the answer, or count
+        // half a second of it twice.
+        if (index + 1 < argc && argv[index + 1][0] == L'@') {
+          machine->TakeConsoleOutput();
+          sentAt = machine->cycles();
+          std::printf("%-10ls -> [odoslane]\n", token.c_str());
+          continue;
         }
       }
       const bool blocked = RunUntilPrompt(*machine, budget);

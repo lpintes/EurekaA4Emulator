@@ -3232,6 +3232,59 @@ Overené dvoma mutáciami — interval rátaný len z taktov programu zhodí `FC
 register nie je; na Z80180 je tam `OMCR`, ktorý o rýchlosti nerozhoduje.
 Veta „tá šestka zrýchľuje“ nie je jasná — treba sa spýtať.
 
+### 6.46 CHESS.COM — rýchlosť emulátora proti spomienke na skutočný stroj
+
+Podnet: `CHESS.COM` (34 816 B, mimo repozitára v `C:\b\diskety\com`).
+Rozobraté 23. 9. 2026. Je to čistý CP/M program „MYCHESS“: bez `IN`/`OUT`,
+bez priamych volaní BIOS, z BDOS volá funkcie 0, 1, 2, 5, 9, 0Bh, 0Fh a 1Ah
+a ďalšie cez `855Bh` (súbory). Hardvér teda nemeria, meria len **rýchlosť
+CPU**, a práve preto sa naň dá spoľahnúť.
+
+Čo je v ňom dôležité pre meranie:
+
+- **Knižnica otvorení** na `6630h`–`6B23h`, 316 štvorbajtových položiek
+  (odkiaľ, kam, príznak, `FFh` alebo odkaz na pokračovanie; pole je
+  `stĺpec·16 + riadok`). Vstup do stromu vyberá `LD A,R` na `156Ch` z piatich.
+  Ťahy a2-a3 a a2-a4 v nej nie sú, takže po nich program počíta hneď.
+- Konfiguračný bajt `6B27h` = 0 volí riadkový výstup (VEĽKÉ písmená,
+  šachovnica s okrajom), nie obrazovkový; `6B26h` = 0 vypína zvonček.
+- Otázky: `HOW MANY PLIES OF LOOK AHEAD?`, potom `DISPLAY BEST VARIATION?`
+  (pri úrovni 1 nepríde), potom `DO YOU WANT WHITE?`. Na meno sa nepýta.
+  Ťahy sa píšu `a2 a3`, `go` potiahne za stranu na ťahu.
+
+**Meranie** tokenom `@TEXT` sondy (pribudol pre toto): od Enteru za ťahom
+po riadok `MY MOVE`, pri 6,144 MHz, v zátvorke čas v samotnom programe.
+Po tom riadku ešte asi 3 s trvá, kým stroj ťah dohovorí. Odpovede programu
+boli na všetkých úrovniach rovnaké (E7-E5, G8-F6, F8-C5).
+
+- Úroveň 1: a2 a3 5,67 s (2,28), h2 h3 5,25 s (1,98), b2 b3 5,93 s (2,96).
+- Úroveň 2: 7,27 s (3,78), 5,24 s (1,98), 7,35 s (4,30).
+- Úroveň 3: 22,96 s (18,43), 23,59 s (19,18), 25,14 s (20,98).
+- Úroveň 4: 115,19 s (104,80), 125,70 s (114,40), 126,47 s (116,05).
+- Úroveň 5: 167,48 s (153,82), len po a2 a3.
+
+Majiteľ si zo skutočného stroja pamätá úroveň 2 „asi 8 s“ a úroveň 3 „asi
+20 s“; pri 4 nemal trpezlivosť. Emulátor je teda **v správnom rádovom
+pásme, na úrovni 3 skôr o trochu pomalší než stroj**, nie rýchlejší.
+Ako overenie čakacích taktov (6.43, 6.45) to nestačí — je to spomienka,
+pozícia nie je známa a nevie sa, či sa stopovalo po riadok alebo po
+dohovorenie. Počítadlo cyklov v tomto meraní nesie štyri čakacie takty na
+externý I/O (`DCNTL` = `38h`) a takt navyše na M1; pamäť je bez čakania
+a obnovovanie vypnuté, ako ich nechá firmvér.
+
+Asi 3,3 s z každého čísla nie je šach: je to ozvena riadku „01 a2 a3“,
+ktorú hovorí ROM (stránky `00100h`, `00200h`), a BDOS. Na nízkych úrovniach
+je to väčšina času, takže práve tam by sa prejavilo, keby stroj hovoril
+ozvenu inak dlho.
+
+**Otvorené, program sám, nie model:** po h2 h3 trvá úroveň 1 aj 2 takmer
+na cyklus rovnako a úroveň 5 len 1,5-krát dlhšie než 4 (inak je krok 5- až
+6-násobný). Príčina nehľadaná.
+
+**Pre skutočný stroj** (bead `ea4-95h`): stopky na úrovni 3 po a2 a3
+z úvodnej pozície, od Enteru po vypísanie ťahu. Emulátor tam dáva 22,96 s,
+z toho 18,43 s v programe; sekvencia je v `tests/README.md` pri `@TEXT`.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

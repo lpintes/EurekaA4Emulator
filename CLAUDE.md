@@ -458,6 +458,13 @@ Tokeny sekvencie:
   potom ukazuje päťminútové vypnutie namiesto toho, čo sa meralo.
   Neodkliknutý budík dozvoní a stroj zaspí, lenže `.` sa zastaví na tichu
   medzi zvoneniami — dočkať sa ho dá `spin:`.
+- `@TEXT` — čaká, kým sa na **konzole** objaví TEXT (`_` je medzera), a
+  vypíše cykly a sekundy od riadku napísaného tesne pred ním, z toho koľko
+  bežal samotný program (RAM pod `C000h`). Riadok, za ktorým ide `@`, sa
+  odošle bez čakania na ticho — inak by sa odpoveď zjedla alebo zarátala.
+  Na stopky zo skutočného stroja sa porovnáva celé číslo: ozvenu riadku
+  hovorí ROM aj tam. Púšťa sa z bashu, PowerShell `@` berie ako svoju
+  syntax (HANDOFF 6.46).
 - `spin:N` — prebehne N inštrukcií a vypíše histogram fyzického PC. Takto
   dostane zaseknutie adresu namiesto dohadu.
 - `trace` — od tejto chvíle sleduje porty radiča (`98h`–`9Bh`). Zámerne
