@@ -73,6 +73,14 @@ std::string Utf8(const std::wstring& text) {
   return out;
 }
 
+// The token as the left column of a report line, padded to ten characters.
+// printf's "%-10s" counts bytes, so a token with diacritics came out short.
+std::string Label(const std::wstring& token) {
+  std::string out = Utf8(token);
+  if (token.size() < 10) out.append(10 - token.size(), ' ');
+  return out;
+}
+
 using eureka::Readable;
 
 // Runs until the console has been quiet for half a second or the budget is
@@ -136,7 +144,7 @@ int wmain(int argc, wchar_t** argv) {
         // machine has gone quiet, and a key sent to fill the gap would be an
         // answer to a question that has not been asked yet.
         const bool waited = RunUntilPrompt(session, budget);
-        std::printf("%-10ls -> %s%s\n", token.c_str(),
+        std::printf("%s -> %s%s\n", Label(token).c_str(),
                     Readable(session.TakeSpeech()).c_str(),
                     waited ? "" : "  [nezastavil sa na vstupe]");
         continue;
@@ -147,12 +155,12 @@ int wmain(int argc, wchar_t** argv) {
         // speech arrives well after the work, so a diskette swapped on a
         // timer lands in the middle of a step rather than at the prompt that
         // asked for it.
-        std::string wanted;
-        for (wchar_t ch : token.substr(1))
-          wanted.push_back(static_cast<char>(ch));
+        // Compared without diacritics on either side, so "?vlož" and "?vloz"
+        // both find "vlož" (eureka::Contains).
+        const std::string wanted = Utf8(token.substr(1));
         const bool found =
             session.TryWaitSaid(wanted, eureka::Budget::Instructions(budget));
-        std::printf("%-10ls -> %s%s\n", token.c_str(),
+        std::printf("%s -> %s%s\n", Label(token).c_str(),
                     Readable(session.TakeSpeech()).c_str(),
                     found ? "" : "  [NEDOCKAL SA]");
         continue;
@@ -167,15 +175,15 @@ int wmain(int argc, wchar_t** argv) {
         // BDOS) is there on the hardware too but does not scale with the
         // program's work.  That split is what made the CHESS.COM levels
         // comparable with a stopwatch on the real machine (HANDOFF 6.46).
-        std::string wanted;
-        for (wchar_t ch : token.substr(1))
-          wanted.push_back(static_cast<char>(ch == L'_' ? L' ' : ch));
+        std::wstring spaced = token.substr(1);
+        std::replace(spaced.begin(), spaced.end(), L'_', L' ');
+        const std::string wanted = Utf8(spaced);
         uint64_t programCycles = 0;
         const bool found = session.TryWaitConsole(
             wanted, eureka::Budget::Instructions(budget), &programCycles);
         const uint64_t elapsed = machine->cycles() - sentAt;
-        std::printf("%-10ls -> [%llu cyklov = %.2f s, z toho v programe %.2f s] %s%s\n",
-                    token.c_str(), static_cast<unsigned long long>(elapsed),
+        std::printf("%s -> [%llu cyklov = %.2f s, z toho v programe %.2f s] %s%s\n",
+                    Label(token).c_str(), static_cast<unsigned long long>(elapsed),
                     elapsed / double(EurekaMachine::kCpuHz),
                     programCycles / double(EurekaMachine::kCpuHz),
                     Readable(session.TakeConsole()).c_str(),
@@ -204,8 +212,8 @@ int wmain(int argc, wchar_t** argv) {
         session.TakeAudio();
         std::sort(seen.begin(), seen.end(),
                   [](const auto& a, const auto& b) { return a.second > b.second; });
-        std::printf("%-10ls -> [citani BIOSu +%llu, najcastejsie PC:",
-                    token.c_str(),
+        std::printf("%s -> [citani BIOSu +%llu, najcastejsie PC:",
+                    Label(token).c_str(),
                     static_cast<unsigned long long>(machine->debug_bios_reads() - before));
         for (std::size_t i = 0; i < seen.size() && i < 6; ++i)
           std::printf(" %05X(%llu)", seen[i].first,
@@ -222,8 +230,8 @@ int wmain(int argc, wchar_t** argv) {
         // nothing.
         for (uint8_t port : {0x98, 0x99, 0x9a, 0x9b})
           machine->diagnostics().set_trace(port, true);
-        std::printf("%-10ls -> [zapnute sledovanie diskovych portov]\n",
-                    token.c_str());
+        std::printf("%s -> [zapnute sledovanie diskovych portov]\n",
+                    Label(token).c_str());
         continue;
       }
       if (token == L"vypni" || token == L"zapni" || token == L"studeno") {
@@ -236,7 +244,7 @@ int wmain(int argc, wchar_t** argv) {
           session.Reset();
         }
         const bool blocked = RunUntilPrompt(session, budget);
-        std::printf("%-10ls -> [%s, C45Ah=%02X] %s%s\n", token.c_str(),
+        std::printf("%s -> [%s, C45Ah=%02X] %s%s\n", Label(token).c_str(),
                     machine->powered_off() ? "vypnute" : "bezi",
                     machine->power_down_marker(),
                     Readable(session.TakeSpeech()).c_str(),
@@ -248,7 +256,7 @@ int wmain(int argc, wchar_t** argv) {
         // the machine believes; this says what reached the medium, which is
         // the difference the owner's bulk-copy report turns on.
         const VirtualDisk& disk = machine->disk();
-        std::printf("%-10ls -> [%s, suborov=%u, %s]\n", token.c_str(),
+        std::printf("%s -> [%s, suborov=%u, %s]\n", Label(token).c_str(),
                     !disk.present()      ? "prazdna mechanika"
                     : disk.has_home() ? "priecinok"
                                       : "neulozena",
@@ -281,8 +289,8 @@ int wmain(int argc, wchar_t** argv) {
         const bool woke =
             session.ShiftClock(std::chrono::seconds(_wtoi64(spec.c_str()) * scale));
         const auto now = machine->debug_rtc_now();
-        std::printf("%-10ls -> [hodiny %02u.%02u.%02u %02u:%02u:%02u, posun %lld s%s]\n",
-                    token.c_str(), unsigned(now[5]), unsigned(now[4]),
+        std::printf("%s -> [hodiny %02u.%02u.%02u %02u:%02u:%02u, posun %lld s%s]\n",
+                    Label(token).c_str(), unsigned(now[5]), unsigned(now[4]),
                     unsigned(now[6]), unsigned(now[1]), unsigned(now[2]),
                     unsigned(now[3]),
                     static_cast<long long>(session.clock_shift().count()),
@@ -298,11 +306,11 @@ int wmain(int argc, wchar_t** argv) {
             _wtoi(token.substr(token.find(L':') + 1).c_str());
         if (token.starts_with(L"rychlost:")) {
           session.SetRate(position);
-          std::printf("%-10ls -> [posuvnik rychlosti na %02Xh]\n", token.c_str(),
+          std::printf("%s -> [posuvnik rychlosti na %02Xh]\n", Label(token).c_str(),
                       unsigned(sliders::RatePotLevel(position)));
         } else {
           session.SetVolume(position);
-          std::printf("%-10ls -> [hlasitost x%.4f]\n", token.c_str(),
+          std::printf("%s -> [hlasitost x%.4f]\n", Label(token).c_str(),
                       sliders::VolumeGain(position));
         }
         continue;
@@ -337,8 +345,8 @@ int wmain(int argc, wchar_t** argv) {
           last = now;
           lastAt = machine->cycles();
         }
-        std::printf("%-10ls -> [zapisov=%llu, rozostupy po 540 cykloch:",
-                    token.c_str(), static_cast<unsigned long long>(writes));
+        std::printf("%s -> [zapisov=%llu, rozostupy po 540 cykloch:",
+                    Label(token).c_str(), static_cast<unsigned long long>(writes));
         for (unsigned i = 0; i < 8; ++i)
           if (gaps[i]) std::printf(" %ux=%llu", i,
                                    static_cast<unsigned long long>(gaps[i]));
@@ -362,7 +370,7 @@ int wmain(int argc, wchar_t** argv) {
         const std::wstring path = token.substr(4);
         FILE* out = _wfopen(path.c_str(), L"wb");
         if (!out) {
-          std::printf("%-10ls -> [nepodarilo sa zapisat]\n", token.c_str());
+          std::printf("%s -> [nepodarilo sa zapisat]\n", Label(token).c_str());
           continue;
         }
         const uint32_t rate = EurekaMachine::kAudioHz;
@@ -383,7 +391,7 @@ int wmain(int argc, wchar_t** argv) {
         put32(bytes);
         std::fwrite(samples.data(), 1, bytes, out);
         std::fclose(out);
-        std::printf("%-10ls -> [vzoriek=%zu, %.2f s pri %u Hz]\n", token.c_str(),
+        std::printf("%s -> [vzoriek=%zu, %.2f s pri %u Hz]\n", Label(token).c_str(),
                     samples.size(),
                     double(samples.size()) / double(rate), unsigned(rate));
         continue;
@@ -401,7 +409,7 @@ int wmain(int argc, wchar_t** argv) {
           if (sample < low) low = sample;
           if (sample > high) high = sample;
         }
-        std::printf("%-10ls -> [vzoriek=%zu, rozkmit %d..%d]\n", token.c_str(),
+        std::printf("%s -> [vzoriek=%zu, rozkmit %d..%d]\n", Label(token).c_str(),
                     samples.size(), low, high);
         continue;
       }
@@ -410,8 +418,8 @@ int wmain(int argc, wchar_t** argv) {
         // firmware last armed.  80h in an alarm register means "do not
         // compare" (0DA5B), so an alarm reads as a time with holes in it.
         const auto now = machine->debug_rtc_now();
-        std::printf("%-10ls -> [hodiny %02u.%02u.%02u %02u:%02u:%02u, budik ",
-                    token.c_str(), unsigned(now[5]), unsigned(now[4]),
+        std::printf("%s -> [hodiny %02u.%02u.%02u %02u:%02u:%02u, budik ",
+                    Label(token).c_str(), unsigned(now[5]), unsigned(now[4]),
                     unsigned(now[6]), unsigned(now[1]), unsigned(now[2]),
                     unsigned(now[3]));
         static const char* kNames[8] = {"100", "hod", "min", "sek",
@@ -434,7 +442,7 @@ int wmain(int argc, wchar_t** argv) {
         // needs a target as well as a source.
         std::wstring swapError;
         const bool ok = session.Mount(token.substr(6), swapError);
-        std::printf("%-10ls -> [vymena diskety: %s]\n", token.c_str(),
+        std::printf("%s -> [vymena diskety: %s]\n", Label(token).c_str(),
                     ok ? "priecinok" : "ZLYHALA");
         continue;
       }
@@ -455,7 +463,7 @@ int wmain(int argc, wchar_t** argv) {
           ok = session.Mount(argv[2], swapError);
           if (ok) session.Protect(true);
         }
-        std::printf("%-10ls -> [vlozeny slot %d: %s%s]\n", token.c_str(), slot,
+        std::printf("%s -> [vlozeny slot %d: %s%s]\n", Label(token).c_str(), slot,
                     ok ? (machine->disk().has_home() ? "priecinok" : "neulozena")
                        : "ZLYHALO",
                     settled ? "" : ", DISK SA NEUSTALIL");
@@ -470,7 +478,7 @@ int wmain(int argc, wchar_t** argv) {
         const bool settled = settleForSwap();
         if (token == L"nova") session.InsertBlank(false);
         else session.Eject();
-        std::printf("%-10ls -> [%s%s]\n", token.c_str(),
+        std::printf("%s -> [%s%s]\n", Label(token).c_str(),
                     token == L"nova" ? "vlozena nenaformatovana disketa"
                                      : "mechanika vysunuta",
                     settled ? "" : ", DISK SA NEUSTALIL");
@@ -493,7 +501,7 @@ int wmain(int argc, wchar_t** argv) {
           // goes back on here.
           if (ok) session.Protect(true);
         }
-        std::printf("%-10ls -> [vymena diskety: %s%s]\n", token.c_str(),
+        std::printf("%s -> [vymena diskety: %s%s]\n", Label(token).c_str(),
                     ok ? (token == L"ram" ? "prazdna v pamati"
                                           : "priecinok, zamknuty")
                        : "ZLYHALA",
@@ -504,7 +512,7 @@ int wmain(int argc, wchar_t** argv) {
         // Flipping the notch mid-sequence lets one run ask the firmware the
         // same question protected and unprotected, from the same state.
         session.Protect(token[0] == L'+');
-        std::printf("%-10ls -> [zamok proti zapisu %s]\n", token.c_str(),
+        std::printf("%s -> [zamok proti zapisu %s]\n", Label(token).c_str(),
                     token[0] == L'+' ? "zapnuty" : "vypnuty");
         continue;
       }
@@ -547,7 +555,7 @@ int wmain(int argc, wchar_t** argv) {
         }
         if (matched) {
           const bool blocked = RunUntilPrompt(session, budget);
-          std::printf("%-10ls -> %s%s\n", token.c_str(),
+          std::printf("%s -> %s%s\n", Label(token).c_str(),
                       Readable(session.TakeSpeech()).c_str(),
                       blocked ? "" : "  [nezastavil sa na vstupe]");
           continue;
@@ -575,9 +583,9 @@ int wmain(int argc, wchar_t** argv) {
         // below would then be an answer to a question nobody posed.
         uint8_t unmapped = 0;
         if (!session.TryType(text, &unmapped)) {
-          std::printf("%-10ls -> [znak %02Xh nie je v tabulkach DF05, DF5E "
+          std::printf("%s -> [znak %02Xh nie je v tabulkach DF05, DF5E "
                       "ani DF98, nedal sa napisat]\n",
-                      token.c_str(), unmapped);
+                      Label(token).c_str(), unmapped);
           return 1;
         }
         // A line an "@" is about to time goes in and the clock starts at
@@ -586,12 +594,12 @@ int wmain(int argc, wchar_t** argv) {
         if (index + 1 < argc && argv[index + 1][0] == L'@') {
           session.TakeConsole();
           sentAt = machine->cycles();
-          std::printf("%-10ls -> [odoslane]\n", token.c_str());
+          std::printf("%s -> [odoslane]\n", Label(token).c_str());
           continue;
         }
       }
       const bool blocked = RunUntilPrompt(session, budget);
-      std::printf("%-10ls -> %s%s\n", token.c_str(),
+      std::printf("%s -> %s%s\n", Label(token).c_str(),
                   Readable(session.TakeSpeech()).c_str(),
                   blocked ? "" : "  [nezastavil sa na vstupe]");
     }

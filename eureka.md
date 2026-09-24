@@ -302,7 +302,17 @@ posunov drží session) a posuvníky (`SetRate`, `SetVolume`). Sonda už
 na stroji len číta stav a zapína diagnostiku. Overenie rovnaké ako pri
 časti A, navyše sekvencia `slot2 +wp stav slot1 stav slot2 stav
 mount:… stav ram stav folder stav` zhodná so starou sondou; 18× PASS.
-Krok 1b (reč s diakritikou) nasleduje.
+**Krok 1b hotový v ten istý deň:** `eureka::Readable` dekóduje cez
+`DecodeKamenicky` do UTF-8, riadiace znaky ostávajú ako `.`;
+`eureka::Contains` porovnáva bez diakritiky na oboch stranách (rozklad
+znaku robí Windows, `NormalizeString`, rovnako ako `EncodeKamenicky` —
+žiadna vlastná tabuľka). Sonda odovzdáva hľadaný text ako UTF-8 (predtým
+orezávala znaky na bajt, `?vlož` by nenašlo nič) a stĺpec tokenu
+zarovnáva podľa znakov, nie bajtov. Nová referencia sa od starej líšila
+**len v riadkoch s rečou** („hlavní menu“, „záznamník“, „Přeformátovat“),
+počty inštrukcií a správa diagnostiky zhodné. Overené: `?uz` aj `?už`
+nájdu „už“, `?Preformatovat` aj `?Přeformátovat` nájdu „Přeformátovat“.
+CLAUDE.md (token `?text`) opravený. 18× PASS.
 
 Dve odchýlky od pôvodného kódu, ktoré referencia nezachytí, lebo ležia
 na hrane rozpočtu: `?text`, ktorý text dostane práve poslednou

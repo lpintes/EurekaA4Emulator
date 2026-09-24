@@ -402,8 +402,12 @@ Tokeny sekvencie:
   tam inak nepatrí. Keď meriaš dialóg, čakaj `.`, nie klávesom.
 - `?text` — čaká, kým stroj **nepovie** daný text. Reč chodí oneskorene za
   dejom, takže pevné čakanie vymení disketu uprostred kroku namiesto pri
-  výzve, ktorá si o ňu povedala. Porovnávaj len ASCII kúsky: reč je
-  v Kamenických, takže „vlož cílový disk“ príde ako `vlo. c.lov. disk`.
+  výzve, ktorá si o ňu povedala. Od 24. 9. 2026 sa diakritika pri
+  porovnaní odhodí na oboch stranách, takže `?vlož` aj `?vloz` nájdu
+  „vlož cílový disk“, a sonda vypisuje reč s diakritikou (dekóduje
+  Kamenických cez `DecodeKamenicky`). Predtým sa porovnávali len ASCII
+  kúsky a vo výpise bolo „Pseformatovat“ — stará tabuľka bola posunutá
+  (`eureka.md`). Veľké a malé písmená sa rozlišujú ďalej.
 - `+wp`, `-wp` — zapne a vypne ochranu diskety proti zápisu.
 - `+b1`…`+b6`, `+bs` (medzerník), `+bh` (shift), `+f1`…`+f8`, `+ku`/`+kd`/`+kl`/`+kr`
   (kurzory) a ku každému `-…` — drží alebo pustí **jeden** kláves membránovej

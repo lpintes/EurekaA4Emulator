@@ -35,11 +35,16 @@ namespace eureka {
 
 using namespace std::chrono_literals;
 
-// Kamenicky speech folded to plain ASCII, one byte per byte.  Kept exactly as
-// the probe has always had it, table fault and all (eureka.md, "Reč sa
-// vypisuje s diakritikou"): step 1 must not change a byte of the probe's
-// output, and step 1b replaces it.
+// Kamenicky speech or console output as UTF-8 text, diacritics and all, for
+// printing.  Control characters become "." so that one line of output stays
+// one line.  The fold to plain ASCII it replaces had a table one character
+// too long and shifted -- "Přeformátovat" came out as "Pseformatovat"
+// (eureka.md, "Reč sa vypisuje s diakritikou").
 std::string Readable(const std::vector<uint8_t>& bytes);
+// Whether `bytes` contain `text` (UTF-8), with the diacritics taken off both
+// sides first: "?vlož" and "?vloz" both find "vlož", and the commands written
+// down before the speech was decoded go on working.
+bool Contains(const std::vector<uint8_t>& bytes, std::string_view text);
 
 // How long a step may run.  Emulated time for tests; a count of instructions
 // only because that is what the probe's command line has always taken, and
@@ -166,7 +171,7 @@ class Session {
   // a silence.
   bool TryWaitSilent(Budget budget, std::chrono::microseconds window = 500ms);
   void WaitSilent(Budget budget = 10s, std::chrono::microseconds window = 500ms);
-  // Until the speech not yet taken contains `text` (compared on Readable).
+  // Until the speech not yet taken contains `text` (compared by Contains).
   bool TryWaitSaid(std::string_view text, Budget budget);
   void WaitSaid(std::string_view text, Budget budget = 10s);
   // Until the console output not yet taken contains `text`.  The cycles spent

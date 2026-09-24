@@ -1,21 +1,80 @@
 #include "eureka_session.h"
 
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
 #include <cstdio>
 
 #include "sliders.h"
+#include "text_codec.h"
 
 namespace eureka {
 
-std::string Readable(const std::vector<uint8_t>& bytes) {
-  static const char* kHigh =
-      "CueDaDTcePILlrAAEzZooOuUyOUSLYRtaiouna UOsrrR";
-  std::string out;
-  for (uint8_t byte : bytes) {
-    if (byte >= 0x20 && byte < 0x7f) out.push_back(static_cast<char>(byte));
-    else if (byte >= 0x80 && byte < 0xac) out.push_back(kHigh[byte - 0x80]);
-    else out.push_back('.');
+namespace {
+
+std::wstring Decoded(const std::vector<uint8_t>& bytes) {
+  std::wstring text = DecodeKamenicky(bytes.data(), bytes.size());
+  for (wchar_t& ch : text)
+    if (ch < 0x20 || ch == 0x7f) ch = L'.';
+  return text;
+}
+
+std::string ToUtf8(std::wstring_view text) {
+  if (text.empty()) return {};
+  const int size = WideCharToMultiByte(CP_UTF8, 0, text.data(),
+                                       static_cast<int>(text.size()), nullptr,
+                                       0, nullptr, nullptr);
+  std::string out(static_cast<std::size_t>(size), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                      out.data(), size, nullptr, nullptr);
+  return out;
+}
+
+std::wstring FromUtf8(std::string_view text) {
+  if (text.empty()) return {};
+  const int size = MultiByteToWideChar(CP_UTF8, 0, text.data(),
+                                       static_cast<int>(text.size()), nullptr, 0);
+  std::wstring out(static_cast<std::size_t>(size), L'\0');
+  MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                      out.data(), size);
+  return out;
+}
+
+// Each character split into its base letter and marks, the marks dropped.
+// Windows does the splitting, as it does for EncodeKamenicky, so there is no
+// table here to go out of step.
+std::wstring WithoutDiacritics(std::wstring_view text) {
+  std::wstring out;
+  for (wchar_t ch : text) {
+    if (ch < 0x80) {
+      out.push_back(ch);
+      continue;
+    }
+    wchar_t parts[16]{};
+    const int count = NormalizeString(NormalizationD, &ch, 1, parts,
+                                      static_cast<int>(std::size(parts)));
+    if (count <= 0) {
+      out.push_back(ch);
+      continue;
+    }
+    for (int index = 0; index < count; ++index) {
+      WORD type = 0;
+      GetStringTypeW(CT_CTYPE3, &parts[index], 1, &type);
+      if ((type & (C3_NONSPACING | C3_DIACRITIC)) == 0) out.push_back(parts[index]);
+    }
   }
   return out;
+}
+
+}  // namespace
+
+std::string Readable(const std::vector<uint8_t>& bytes) {
+  return ToUtf8(Decoded(bytes));
+}
+
+bool Contains(const std::vector<uint8_t>& bytes, std::string_view text) {
+  return WithoutDiacritics(Decoded(bytes)).find(WithoutDiacritics(FromUtf8(text))) !=
+         std::wstring::npos;
 }
 
 bool Session::Step() {
@@ -220,7 +279,7 @@ void Session::WaitSilent(Budget budget, std::chrono::microseconds window) {
 // but this runs once per instruction.
 bool Session::TryWaitSaid(std::string_view text, Budget budget) {
   const Deadline deadline = Start(budget);
-  const auto heard = [&] { return Readable(speech_).find(text) != std::string::npos; };
+  const auto heard = [&] { return Contains(speech_, text); };
   bool found = heard();
   while (!found && !Expired(deadline)) {
     const uint64_t before = speechTotal_;
@@ -239,7 +298,7 @@ void Session::WaitSaid(std::string_view text, Budget budget) {
 bool Session::TryWaitConsole(std::string_view text, Budget budget,
                              uint64_t* programCycles) {
   const Deadline deadline = Start(budget);
-  const auto shown = [&] { return Readable(console_).find(text) != std::string::npos; };
+  const auto shown = [&] { return Contains(console_, text); };
   bool found = shown();
   while (!found && !Expired(deadline)) {
     const bool inProgram = machine_.pc() < 0xc000 &&
