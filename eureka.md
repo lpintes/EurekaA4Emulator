@@ -333,23 +333,27 @@ behy padnú do tej istej minúty, alebo sa z porovnania vynechajú.
 
 Postup: **pred** prvou zmenou kódu sa súčasnou sondou vyrobia
 referenčné výstupy do `build\golden\` (nie do repozitára — sú odvodené
-z ROM), po zmene sa pustia znova a porovnajú `cmp`. Sada musí prejsť
-každou rodinou tokenov aspoň raz:
+z ROM), po zmene sa pustia znova a porovnajú `cmp`. Robí to
+`tests/probe_golden.sh OUT` z bashu; každá sekvencia dostane čerstvú kópiu
+diskového priečinka. Sada prejde každou rodinou tokenov aspoň raz:
 
 1. `boot`
-2. menu a Escape: `seq 8000000 kC9 kD7 . k1B`
-3. scancode: `seq 8000000 s3C . s01`
-4. membrána: `seq 8000000 +b1 +b4 +b5 -b`
+2. menu, `?` a Escape: `seq 8000000 kC9 kD7 Y ?disk k1B`
+3. scancode: `seq 8000000 s3B . s01` — „zaznamnik“, „ahoj“
+4. membrána: `seq 8000000 +bs +b1 +b4 +b5 -b` — F11 ako d-akord,
+   ozýva sa počas skladania („rezim“, „ROM“, „operacniho systemu“)
 5. disketa: `seq 8000000 +wp kD7 Y Y stav -wp nova kD7 Y . stav vysun kC8 .`
 6. sloty: `seq 8000000 slot2 stav slot1 stav slot2 stav`
 7. napájanie: `seq 8000000 vypni zapni studeno`
 8. posuvníky a zvuk: `seq 8000000 rychlost:0 hlasitost:20 kC9 zvuk dac:200000`
-9. text a `?`/`@`: `seq 8000000 kD6 . READ~ ?READ @Read_which`
+9. text a `@`: `seq 8000000 kD6 . READ~ @Read_which`
 10. `spin:` a `trace`: `seq 8000000 trace kD7 spin:200000`
 
-Presné sekvencie sa pri realizácii ešte overia — každá musí na dnešnej
-sonde niečo povedať, inak nič nemeria. Hodiny (`budik`, `cas:`) sa
-overia ručne v jednej minúte.
+Tri pôvodne navrhnuté sekvencie neobstáli pri prvom behu (24. 9. 2026):
+`s3C` je F2, teda hodiny, a výstup závisel od minúty; akord `+b1 +b4 +b5`
+v hlavnom menu nepovedal nič; `?READ` sa nedočkal, lebo `Read which
+file?` ide na konzolu, nie do reči. Hodiny (`budik`, `cas:`) sa overia
+ručne v jednej minúte.
 
 ## Postup
 
