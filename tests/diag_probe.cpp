@@ -50,7 +50,6 @@
 #include <utility>
 #include <vector>
 
-#include "disk_stash.h"
 #include "eureka_session.h"
 #include "machine.h"
 #include "virtual_disk.h"
@@ -125,15 +124,6 @@ int wmain(int argc, wchar_t** argv) {
       return 1;
     }
     std::printf("start: %s\n", Readable(session.TakeSpeech()).c_str());
-    // The probe keeps diskettes the way the emulator does, so a sequence can
-    // put the same one back in rather than a fresh copy of it -- which is the
-    // difference the bulk copy turns on.
-    DiskStash probeStash;
-    int currentSlot = 0;
-    // How far the sequence has pushed the clock, in seconds.  It is kept here
-    // rather than read back from the machine because "cas:" tokens add up:
-    // "cas:+7d cas:+1h" has to land a week and an hour on, not an hour on.
-    int64_t rtcShift = 0;
     // Cycle count at which the last typed line went in, for "@text" to
     // measure from.  Set only by a line that is followed by "@": any other
     // token runs until the machine falls quiet, and that wait would be
@@ -238,13 +228,8 @@ int wmain(int argc, wchar_t** argv) {
       }
       if (token == L"vypni" || token == L"zapni" || token == L"studeno") {
         if (token == L"vypni") {
-          // The chord from the Main Menu, not a faked strobe: the firmware
-          // says "konec" and writes C45Ah itself on the way out, and that is
-          // the state a warm start has to come up from.
-          machine->PressPowerOffChord();
-          const uint64_t deadline = machine->instructions() + budget;
-          while (machine->instructions() < deadline && !machine->powered_off())
-            session.Step();
+          // Whether it made it shows in the report below, "vypnute" or not.
+          session.TryPowerOff(eureka::Budget::Instructions(budget));
         } else if (token == L"zapni") {
           session.PowerOn();
         } else {
@@ -290,18 +275,17 @@ int wmain(int argc, wchar_t** argv) {
           if (scale != 0) spec.pop_back();
           else scale = 1;
         }
-        rtcShift += _wtoi64(spec.c_str()) * scale;
-        machine->SetRtcOffset(rtcShift);
-        // A jump straight into the alarm's minute wakes the machine the same
-        // tick the strobe would on the hardware; report it here rather than
-        // silently, since a sequence measuring the alarm needs to know
-        // whether this token was the one that crossed it.
-        const bool woke = machine->powered_off() && session.WakeOnAlarm();
+        // Reported rather than silent whether this token woke the machine on
+        // its alarm: a sequence measuring the alarm needs to know whether this
+        // was the one that crossed it.
+        const bool woke =
+            session.ShiftClock(std::chrono::seconds(_wtoi64(spec.c_str()) * scale));
         const auto now = machine->debug_rtc_now();
         std::printf("%-10ls -> [hodiny %02u.%02u.%02u %02u:%02u:%02u, posun %lld s%s]\n",
                     token.c_str(), unsigned(now[5]), unsigned(now[4]),
                     unsigned(now[6]), unsigned(now[1]), unsigned(now[2]),
-                    unsigned(now[3]), static_cast<long long>(rtcShift),
+                    unsigned(now[3]),
+                    static_cast<long long>(session.clock_shift().count()),
                     woke ? ", zobudilo budikom" : "");
         continue;
       }
@@ -313,11 +297,11 @@ int wmain(int argc, wchar_t** argv) {
         const int position =
             _wtoi(token.substr(token.find(L':') + 1).c_str());
         if (token.starts_with(L"rychlost:")) {
-          machine->SetRatePot(sliders::RatePotLevel(position));
+          session.SetRate(position);
           std::printf("%-10ls -> [posuvnik rychlosti na %02Xh]\n", token.c_str(),
                       unsigned(sliders::RatePotLevel(position)));
         } else {
-          machine->SetVolume(sliders::VolumeGain(position));
+          session.SetVolume(position);
           std::printf("%-10ls -> [hlasitost x%.4f]\n", token.c_str(),
                       sliders::VolumeGain(position));
         }
@@ -440,23 +424,16 @@ int wmain(int argc, wchar_t** argv) {
                     unsigned(machine->debug_rtc_status()));
         continue;
       }
-      // Waits for the drive the way the emulator's worker does before it
-      // swaps: mid-sector is the one moment a swap tears the image, and a
-      // probe that ignored that would be measuring a machine the user can
-      // never produce.
-      const auto settleForSwap = [&machine, &session, budget] {
-        const uint64_t deadline = machine->instructions() + budget;
-        while (machine->instructions() < deadline) {
-          if (machine->DiskSwappable()) return true;
-          if (!session.Step() && machine->powered_off()) return false;
-        }
-        return false;
+      // Waits for the drive and flushes, the way the emulator's worker does
+      // before it swaps (EurekaSession::TrySettleForSwap).
+      const auto settleForSwap = [&session, budget] {
+        return session.TrySettleForSwap(eureka::Budget::Instructions(budget));
       };
       if (token.starts_with(L"mount:")) {
         // Any folder, not just the one the run started with: the bulk copy
         // needs a target as well as a source.
         std::wstring swapError;
-        const bool ok = machine->MountDisk(token.substr(6), swapError);
+        const bool ok = session.Mount(token.substr(6), swapError);
         std::printf("%-10ls -> [vymena diskety: %s]\n", token.c_str(),
                     ok ? "priecinok" : "ZLYHALA");
         continue;
@@ -469,18 +446,15 @@ int wmain(int argc, wchar_t** argv) {
         const int slot = token == L"slot1" ? 1 : 2;
         std::wstring swapError;
         const bool settled = settleForSwap();
-        machine->FlushDisk(swapError);
-        probeStash.Put(currentSlot, machine->disk());
         bool ok = true;
-        if (auto kept = probeStash.Take(slot)) {
-          machine->InsertDisk(*kept);
+        if (session.InsertFromSlot(slot)) {
+          // The very diskette the slot kept.
         } else if (slot == 2) {
-          machine->CreateEmptyDisk(true);
+          session.InsertBlank(true);
         } else {
-          ok = machine->MountDisk(argv[2], swapError);
-          if (ok) machine->SetDiskWriteProtected(true);
+          ok = session.Mount(argv[2], swapError);
+          if (ok) session.Protect(true);
         }
-        currentSlot = slot;
         std::printf("%-10ls -> [vlozeny slot %d: %s%s]\n", token.c_str(), slot,
                     ok ? (machine->disk().has_home() ? "priecinok" : "neulozena")
                        : "ZLYHALO",
@@ -494,10 +468,8 @@ int wmain(int argc, wchar_t** argv) {
         // and the ROM still tells them apart, so a probe that could not
         // produce them could not measure the difference either.
         const bool settled = settleForSwap();
-        std::wstring swapError;
-        machine->FlushDisk(swapError);
-        if (token == L"nova") machine->CreateEmptyDisk(false);
-        else machine->EjectDisk();
+        if (token == L"nova") session.InsertBlank(false);
+        else session.Eject();
         std::printf("%-10ls -> [%s%s]\n", token.c_str(),
                     token == L"nova" ? "vlozena nenaformatovana disketa"
                                      : "mechanika vysunuta",
@@ -512,15 +484,14 @@ int wmain(int argc, wchar_t** argv) {
         std::wstring swapError;
         bool ok = true;
         const bool settled = settleForSwap();
-        machine->FlushDisk(swapError);
         if (token == L"ram") {
-          machine->CreateEmptyDisk(true);
+          session.InsertBlank(true);
         } else {
-          ok = machine->MountDisk(argv[2], swapError);
+          ok = session.Mount(argv[2], swapError);
           // The source diskette in the owner's scenario is locked, and the
           // ROM's bulk copy insists on that -- Mount clears the notch, so it
           // goes back on here.
-          if (ok) machine->SetDiskWriteProtected(true);
+          if (ok) session.Protect(true);
         }
         std::printf("%-10ls -> [vymena diskety: %s%s]\n", token.c_str(),
                     ok ? (token == L"ram" ? "prazdna v pamati"
@@ -532,7 +503,7 @@ int wmain(int argc, wchar_t** argv) {
       if (token == L"+wp" || token == L"-wp") {
         // Flipping the notch mid-sequence lets one run ask the firmware the
         // same question protected and unprotected, from the same state.
-        machine->SetDiskWriteProtected(token[0] == L'+');
+        session.Protect(token[0] == L'+');
         std::printf("%-10ls -> [zamok proti zapisu %s]\n", token.c_str(),
                     token[0] == L'+' ? "zapnuty" : "vypnuty");
         continue;

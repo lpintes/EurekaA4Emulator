@@ -2,6 +2,8 @@
 
 #include <cstdio>
 
+#include "sliders.h"
+
 namespace eureka {
 
 std::string Readable(const std::vector<uint8_t>& bytes) {
@@ -54,6 +56,53 @@ bool Session::WakeOnAlarm() {
   if (!machine_.WakeOnAlarm()) return false;
   ClearOutput();
   return true;
+}
+
+bool Session::TryPowerOff(Budget budget) {
+  machine_.PressPowerOffChord();
+  const Deadline deadline = Start(budget);
+  while (!Expired(deadline) && !machine_.powered_off()) Step();
+  return machine_.powered_off();
+}
+
+bool Session::TrySettleForSwap(Budget budget) {
+  const Deadline deadline = Start(budget);
+  bool settled = false;
+  while (!Expired(deadline)) {
+    if (machine_.DiskSwappable()) {
+      settled = true;
+      break;
+    }
+    if (!Step() && machine_.powered_off()) break;
+  }
+  // Flushed whether or not the drive settled, as the probe always did: a
+  // swap that goes ahead anyway should at least not lose what was written.
+  std::wstring error;
+  machine_.FlushDisk(error);
+  return settled;
+}
+
+bool Session::InsertFromSlot(int slot) {
+  stash_.Put(currentSlot_, machine_.disk());
+  currentSlot_ = slot;
+  auto kept = stash_.Take(slot);
+  if (!kept) return false;
+  machine_.InsertDisk(*kept);
+  return true;
+}
+
+bool Session::ShiftClock(std::chrono::seconds by) {
+  clockShift_ += by;
+  machine_.SetRtcOffset(clockShift_.count());
+  return machine_.powered_off() && WakeOnAlarm();
+}
+
+void Session::SetRate(int position) {
+  machine_.SetRatePot(sliders::RatePotLevel(position));
+}
+
+void Session::SetVolume(int position) {
+  machine_.SetVolume(sliders::VolumeGain(position));
 }
 
 void Session::Pc(pc::Key key) {

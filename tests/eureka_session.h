@@ -27,6 +27,7 @@
 #include <string_view>
 #include <vector>
 
+#include "disk_stash.h"
 #include "eureka_keys.h"
 #include "machine.h"
 
@@ -92,6 +93,49 @@ class Session {
   void Reset();
   void PowerOn();
   bool WakeOnAlarm();
+  // The off switch from the Main Menu, the chord and not a faked strobe: the
+  // firmware says "konec" and writes C45Ah itself on the way out, which is
+  // the state a warm start has to come up from.  Runs until the machine has
+  // cut its own power; false if the budget ran out first.
+  bool TryPowerOff(Budget budget);
+
+  // --- Diskettes ---------------------------------------------------------
+  //
+  // A swap is two halves, the way the emulator's worker does it: first wait
+  // for the drive to be swappable and flush (TrySettleForSwap), then change
+  // the medium.  Mid-sector is the one moment a swap tears the image, and a
+  // session that ignored it would be measuring a machine no user can
+  // produce.  The medium calls below do not wait themselves, so that the
+  // probe can report a drive that never settled and still carry on.
+
+  bool TrySettleForSwap(Budget budget);
+  bool Mount(const std::wstring& folder, std::wstring& error) {
+    return machine_.MountDisk(folder, error);
+  }
+  void InsertBlank(bool formatted) { machine_.CreateEmptyDisk(formatted); }
+  void Eject() { machine_.EjectDisk(); }
+  void Protect(bool on) { machine_.SetDiskWriteProtected(on); }
+  // The quick choice, stash and all: the diskette in the drive goes back to
+  // the slot it came from, and the one kept in `slot` comes out -- the same
+  // one, not a fresh copy, which is what the bulk copy turns on (HANDOFF
+  // 6.24).  False if `slot` holds nothing yet; the drive is left as it was,
+  // and what goes in instead is the caller's business.
+  bool InsertFromSlot(int slot);
+  int current_slot() const { return currentSlot_; }
+
+  // --- Clock and sliders -------------------------------------------------
+
+  // Moves the clock the RTC answers with, not the host's.  Shifts add up:
+  // +7 days and then +1 hour lands a week and an hour on.  True if the move
+  // woke a switched-off machine on its alarm -- a jump straight into the
+  // alarm's minute wakes it the same tick the strobe would on the hardware.
+  bool ShiftClock(std::chrono::seconds by);
+  std::chrono::seconds clock_shift() const { return clockShift_; }
+  // By the positions the window's sliders use (sliders.h).  The firmware looks
+  // at the rate pot only while it speaks (001BB), so moving it in a silence
+  // changes nothing until the next word.
+  void SetRate(int position);
+  void SetVolume(int position);
 
   // --- Input -------------------------------------------------------------
 
@@ -160,6 +204,9 @@ class Session {
   uint64_t speechTotal_ = 0;
   uint64_t consoleTotal_ = 0;
   membrane::Keys held_;
+  DiskStash stash_;
+  int currentSlot_ = 0;  // 0: the diskette in the drive belongs to no slot
+  std::chrono::seconds clockShift_{0};
 };
 
 }  // namespace eureka

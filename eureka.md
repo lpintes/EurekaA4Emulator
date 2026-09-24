@@ -295,11 +295,14 @@ sekvencií `tests/probe_golden.sh` je bajtovo zhodných s referenciou;
 zostavenou z gitu (pri hodinách sa líšili len sekundy hostiteľa medzi
 dvoma behmi); `run-tests.bat` 18× PASS.
 
-Zostáva (časť B): diskety a zásobník (`settleForSwap`, `DiskStash`,
-`slot1`/`slot2`, `nova`, `vysun`, `ram`, `folder`, `mount:`, `+wp`),
-posun hodín (`rtcShift`) a posuvníky — zatiaľ ich sonda robí priamo
-nad strojom. Na bufferoch to nezáleží (nič z toho ich nečistí ani
-nekrokuje mimo session), preto to mohlo počkať.
+**Časť B hotová v ten istý deň:** diskety a zásobník
+(`TrySettleForSwap`, `InsertFromSlot`, `InsertBlank`, `Eject`, `Mount`,
+`Protect`), vypínač (`TryPowerOff`), posun hodín (`ShiftClock`, súčet
+posunov drží session) a posuvníky (`SetRate`, `SetVolume`). Sonda už
+na stroji len číta stav a zapína diagnostiku. Overenie rovnaké ako pri
+časti A, navyše sekvencia `slot2 +wp stav slot1 stav slot2 stav
+mount:… stav ram stav folder stav` zhodná so starou sondou; 18× PASS.
+Krok 1b (reč s diakritikou) nasleduje.
 
 Dve odchýlky od pôvodného kódu, ktoré referencia nezachytí, lebo ležia
 na hrane rozpočtu: `?text`, ktorý text dostane práve poslednou
