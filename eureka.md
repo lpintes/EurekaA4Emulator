@@ -3,6 +3,27 @@
 Stav: **koncept**, píše sa postupne. Keď sa niektorá časť zrealizuje,
 pripíše sa k nej, kde v kóde stojí; keď sa zamietne, pripíše sa prečo.
 
+## Kde pokračovať (stav 24. 9. 2026, bead `ea4-7t4`)
+
+Hotové: kroky 1, 1b a 2, z kroku 3 režim `session` a `WaitIdle`
+podľa kontroly klávesu vo firmvéri (sekcie nižšie, každá so svojím
+overením). Kód: `tests/eureka_keys.h`, `tests/eureka_session.*`, sonda
+a `CheckSession` v `tests/integration_test.cpp`.
+
+Ďalší krok: preniesť na session dve existujúce kontroly
+z `integration_test` — navrhnuté `CheckProtectedDiskRefusesFormat`
+(50 riadkov ručných slučiek) a `CheckAnnouncesTime` (hodina a minúty
+po F2) — a aspoň pri jednej overiť mutáciou, že chytá, čo chytala.
+Pri prenose pozor: prenesená kontrola musí zlyhať na tom istom, na čom
+pôvodná, nielen prejsť.
+
+Nástroje po ruke:
+- `sh tests/probe_golden.sh build/after` a porovnanie s `build\golden\`
+  (mimo gitu, znovu vyrobiť, ak chýba) — sonda sa nesmie zmeniť.
+- `integration_test ROM DISK session` — test samotnej session.
+- Pracovné poznámky subagenta k čakaniu na kláves:
+  `build\keywait\progress.md` (mimo gitu, závery sú nižšie).
+
 ## Prečo
 
 Headless počítač už máme: `EurekaMachine` nemá okno ani zvukové zariadenie
