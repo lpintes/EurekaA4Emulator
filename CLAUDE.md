@@ -751,6 +751,55 @@ Na konzolu patrí len: `--diag`, výpis diagnostiky, záznam klávesov,
 konzolové zariadenie hosťa (a to sa vypisuje **iba** so zapnutou
 diagnostikou) a `--help`.
 
+**Zavretie konzoly je skrytý výpadok batérie a zatiaľ sa mu nedá zabrániť.**
+Zavretie konzoly nie je zavretie okna — ukončí **každý proces, ktorý je na
+nej**, takže krížik alebo `Alt+F4` na diagnostickom okne zabije emulátor
+a neprebehne pri tom nič z ukončovacej cesty: ani
+`ConfirmClosingWithoutPowerDown`, ani ponuka uložiť neuloženú disketu
+a diskety zo slotov, ani zápis snímky pamäte. Pre používateľa to vyzerá
+ako zmiznutá RAM — ďalší štart povie „inicializace eureky“.
+
+Rieši to `MakeOwnConsoleUnclosable` v `host_console.cpp`, a je **len**
+v tej vetve `OpenConsole`, ktorá volá `AllocConsole`. Konzola prevzatá cez
+`AttachConsole` patrí shellu, ktorý nás spustil, a brať Close cudziemu oknu
+nám neprislúcha; vetva je celá tá poistka, `OwnsConsole()` sa na to nehodí
+— po skončení shellu by bola pravdivá aj pre zdedenú konzolu.
+
+Odmerané 24. 9. 2026 na `-mwindows` stube s `AllocConsole`, lebo ani jeden
+test sa `host_console.cpp` nedotýka:
+
+- `CTRL_C_EVENT` proces **zabije** — záznam stubu končí na riadku, ktorý ho
+  poslal. S obsluhou, ktorá vráti `TRUE`, beží ďalej. **Táto polovica
+  funguje** a je dôležitá: konzola si pri otvorení vezme fokus, takže je to
+  okno, do ktorého Ctrl+C spadne.
+- `DeleteMenu(SC_CLOSE)` vráti 1 a `GetMenuState` potom `-1`, položka
+  naozaj zmizne — a zavretiu to **nezabráni**. `WM_SYSCOMMAND`/`SC_CLOSE`
+  poslané tomu oknu ukončí proces rovnako s ňou ako bez nej, šesť riadkov
+  záznamu v oboch prípadoch. A to je práve cesta `Alt+F4`: `DefWindowProc`
+  ho premení na `SC_CLOSE` bez toho, aby sa systémového menu pýtal. Menu
+  rozhoduje o tom, čo sa dá **kliknúť**, takže je z toho zošedený krížik
+  a nič viac.
+
+**`Alt+F4` na diagnostickom okne teda emulátor ukončí** a odtiaľto sa to
+zastaviť nedá: to okno vlastní conhost v inom procese, nemá mu ako
+podstrčiť našu procedúru.
+
+Preto je tam **záchrana namiesto obrany**: `host::SetCloseRescue`, ktorú
+`main.cpp` naplní tým, čo robí ukončovacia cesta bez dialógov — `Stop()`,
+`FlushDisk` a pri zapnutom `zachovat-ram` aj `SaveSnapshot`. Zavretie dáva
+**asi päť sekúnd** (odmerané 4921 ms, ostatné vlákna medzitým bežia ďalej),
+čo na to stačí a na dialóg nie — a dialóg by tam aj tak nesmel byť, obsluha
+beží na vlákne, ktoré podstrčil systém.
+
+Dve veci, ktoré si pri zásahu do toho treba udržať. Snímka sa tu zapisuje
+**aj keď stroj nebol vypnutý**, na rozdiel od 6.15: toto nie je okno
+emulátora a jeho zavretie nie je rozhodnutie o stroji. A `shutdownTaken`
+v `main.cpp` je tam preto, že `Stop()` joinuje vlákno a podáva stroj ďalej,
+takže dve súčasné volania nie sú to, na čo je písaný.
+
+Odmerané na skutočnom emulátore: po zavretí jeho konzoly pribudne
+`pamat.bin`, s binárkou bez záchrany nepribudne nič. Viď HANDOFF 6.47.
+
 Dve veci okolo toho, ktoré vyzerajú ako drobnosť a nie sú:
 
 - **Nepripájaj sa k rodičovskej konzole pri štarte.** Vyzerá to zadarmo —

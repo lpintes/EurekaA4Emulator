@@ -3285,6 +3285,107 @@ na cyklus rovnako a úroveň 5 len 1,5-krát dlhšie než 4 (inak je krok 5- až
 z úvodnej pozície, od Enteru po vypísanie ťahu. Emulátor tam dáva 22,96 s,
 z toho 18,43 s v programe; sekvencia je v `tests/README.md` pri `@TEXT`.
 
+### 6.47 Zavretie diagnostickej konzoly bolo skrytý výpadok batérie
+
+Podnet od majiteľa 24. 9. 2026: keď je zapnutá diagnostika, stojí vedľa
+hlavného okna okno konzoly. `Alt+F4` ide tam, kde je práve fokus, takže sa
+ľahko trafí do nej — a vtedy zmizne aj emulátor a ďalší štart začne
+hlásením „inicializace eureky“, teda s prázdnou Eurekou.
+
+Príčina nie je v emulátore. Konzola nie je jeho okno: jej zavretie ukončí
+**každý proces, ktorý je na nej**, a ukončí ho tvrdo. Neprebehne teda nič
+z ukončovacej cesty v `main.cpp` — ani otázka
+`ConfirmClosingWithoutPowerDown`, ani ponuka uložiť neuloženú disketu
+a diskety zo slotov, ani zápis snímky pamäte. Strata je preto väčšia než
+pri obyčajnom zavretí okna: to je podľa 6.15 výpadok batérie zámerne, ale
+aspoň sa pýta a aspoň ponúkne diskety.
+
+Odmerané, lebo `host_console.cpp` nedrží ani jeden test — na `-mwindows`
+stube s `AllocConsole` (zdroj bol v scratchpade, do repozitára nejde):
+
+- `CTRL_C_EVENT` proces **zabije**. Záznam stubu končí presne na riadku,
+  ktorý ten event poslal; ďalší „alive“ už nie je. S obsluhou, ktorá vráti
+  `TRUE`, stub beží ďalej a dobehne do konca. Ctrl+C je tu rovnako dôležitý
+  ako krížik, lebo konzola si pri otvorení vezme fokus.
+- `DeleteMenu(SC_CLOSE, MF_BYCOMMAND)` vráti 1 a `GetMenuState` potom `-1`,
+  položka naozaj zmizne — **a zavretiu to nezabráni**. `WM_SYSCOMMAND` so
+  `SC_CLOSE` poslané tomu oknu ukončí proces rovnako s ňou ako bez nej:
+  šesť riadkov „alive“ v oboch prípadoch, posledný `alive 5`. Menu
+  rozhoduje o tom, čo sa dá kliknúť; `DefWindowProc` premení `Alt+F4` na
+  `SC_CLOSE` bez toho, aby sa menu pýtal. Zostáva z toho zošedený krížik.
+- `CTRL_CLOSE_EVENT` (typ 2) dáva pred ukončením **asi päť sekúnd**:
+  odmerané 4921 ms a potom kill. Ostatné vlákna cez ten čas bežia ďalej
+  („alive 29“ je v zázname až za posledným riadkom obsluhy).
+
+**Prvý pokus o opravu bol teda polovičný a majiteľ to hneď vyskúšal:**
+`MakeOwnConsoleUnclosable` v `host_console.cpp` (volaná **len** z vetvy
+`OpenConsole`, ktorá volá `AllocConsole` — konzola prevzatá cez
+`AttachConsole` patrí shellu a brať Close cudziemu oknu nám neprislúcha)
+Ctrl+C ustojí, `Alt+F4` nie. Binárka, ktorú skúšal, bola bitovo tá istá,
+akú som postavil, a konzola bola klasický conhost (`ConsoleWindowClass`,
+viditeľná), takže Windows Terminal v tom nebol.
+
+**Otvorené, a je to celé jadro témy.** `Alt+F4` na diagnostickom okne
+emulátor stále ukončí a z emulátora sa to zastaviť nedá: to okno vlastí
+conhost v inom procese, nedá sa mu podstrčiť procedúra a jeho zavretie
+ukončí celú skupinu. Dve cesty, ktoré zostávajú:
+
+- **Vlastné okno výpisu namiesto konzoly.** Zavretie by bolo naše, takže by
+  sa dalo skryť a vrátiť fokus na hlavné okno — presne to, čo majiteľ chcel
+  od začiatku. Väčšia zmena; naráža na pravidlo „konzola je diagnostika,
+  nie výstup“ v `CLAUDE.md` a týka sa aj `--help` a `--diag` zo shellu.
+  Pre čítač obrazovky by to bolo navyše lepšie než konzola.
+- **Obmedzenie škody v `CTRL_CLOSE_EVENT`.** Zavretiu zabrániť nevieme, ale
+  v tých piatich sekundách sa dá zastaviť stroj a zapísať snímku pamäte,
+  takže by sa aspoň nestratila RAM. Neuložené diskety by sa tým
+  nezachránili — na dialógy tam čas ani vlákno nie je.
+
+**Spravené je to druhé** (24. 9. 2026): `host::SetCloseRescue` v
+`host_console.cpp` a jeho použitie v `main.cpp`. Obsluha zavretia zastaví
+vlákno stroja (`EmulatorThread::Stop`), zapíše disketu (`FlushDisk`) a pri
+zapnutom `zachovat-ram` uloží snímku — teda presne to, čo robí ukončovacia
+cesta, len bez dialógov. O to, aby to neurobili dvaja naraz, sa stará
+`shutdownTaken` v `main.cpp`: `Stop()` joinuje vlákno a podáva stroj ďalej
+a na dve súčasné volania písaný nie je.
+
+**Jedna vec je pritom zámerne inak než na ukončovacej ceste:** snímka sa
+zapíše, aj keď stroj nebol vypnutý. Holé zavretie **okna emulátora** je
+podľa 6.15 vypínač batérie naschvál, lenže toto nie je to okno a jeho
+zavretie nie je rozhodnutie o stroji — je to nehoda tým istým klávesom.
+
+Odmerané na skutočnom emulátore, nie na stube (portable kópia v
+`D:\temp\ea4run` s vlastným `config`, aby sa nesiahlo na ozajstné
+nastavenia; spustená odpojene, aby jediná konzola v hre bola tá, ktorú si
+vyrobí `--diag`):
+
+- Emulátor beží, jeho konzola má titulok `Eureka A4 — diagnostika`
+  a `GetMenuState(SC_CLOSE)` na nej je `-1`.
+- Po `WM_SYSCOMMAND`/`SC_CLOSE` na to okno je proces preč — zabrániť sa
+  tomu naozaj nedá — **a v `config` pribudne `pamat.bin` (65 568 B)**.
+- Tá istá vec s binárkou **bez** záchrany (tou, ktorú majiteľ skúšal):
+  v `config` zostane len `nastavenia.txt`. Žiadna snímka.
+
+Neoverené mnou: že sa taká snímka pri ďalšom štarte naozaj načíta a stroj
+nepovie „inicializace eureky“. Zapisuje ju tá istá `SaveSnapshot` s tou
+istou cestou ako riadne ukončenie a veľkosť sedí, ale počuť to musí
+majiteľ.
+
+**Vedľajší nález, nepreskúmaný:** emulátor spustený cez `cmd /c start`
+zomrie do sekundy aj bez `--diag`. Je to ten istý mechanizmus — zostane
+pripojený na konzolu toho `cmd`, a keď `cmd` skončí, konzola sa zavrie
+a vezme ho so sebou. Či sa to týka aj `Spustit-Eureku.bat` spusteného
+dvojklikom, odmerané **nie je**; v tom prípade okno dávky ostáva otvorené,
+takže sa to správať rovnako nemusí.
+
+Neriešené je aj to, či sa má konzola zavrieť, keď sa diagnostika vypne
+v Nastaveniach. Dnes zostane otvorená a prázdna. `FreeConsole` z vlákna
+okna je **nebezpečný**: `host::Print` volá vlákno stroja (konzolové
+zariadenie hosťa, `PostDumpDiagnostics`), takže medzi `FreeConsole`
+a vynulovaním štandardných handle-ov by sa dalo zapísať do čísla handle,
+ktoré medzitým dostal niekto iný — a to je poškodenie dát, nie stratený
+riadok. Bezpečný tvar je až po `WM_EMU_STATE`, ktorým vlákno stroja hlási,
+že diagnostiku naozaj vyplo.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
