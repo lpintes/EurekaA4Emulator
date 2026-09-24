@@ -122,6 +122,12 @@ Token `.` v sonde si v prvom kroku ponechá dnešné správanie (len
 konzola) — viď Postup, bod 1. Na `WaitIdle` sa prepne až vedome
 a s porovnaním výstupov.
 
+Doklad, že čakanie len na konzolu nestačí (24. 9. 2026):
+`diag_probe ROM DISK seq 8000000 kC1 .` — po `kC1` stroj povie
+„20 HODIN.“, nasledujúca `.` vráti prázdno. Minúty prídu o vyše milióna
+inštrukcií neskôr (viď komentár pri `CheckAnnouncesTime`), keď už konzola
+dávno mlčí.
+
 Možné vylepšenie neskôr: zoznam adries čakacích slučiek na kláves
 a `WaitIdle` ako „PC je v jednej z nich“. Bolo by to skutočné „čaká na
 kláves“ namiesto odhadu, ale každá aplikácia môže mať vlastnú slučku
@@ -253,6 +259,97 @@ napísať nedá, sa prezradí až za behu — výnimkou, nie ticho.
    v testovacej vrstve. Čo to stojí, sa zmeria pri realizácii.
 5. ~~Mená klávesov.~~ Rozhodnuté vyššie: enumy, typ podľa cesty.
 6. ~~Rozpočty.~~ Rozhodnuté vyššie: emulovaný čas v `std::chrono`.
+
+## Krok 1 — sonda nad `EurekaSession` (implementačné detaily, návrh)
+
+Cieľ kroku: session existuje, sonda ju používa a **výstup sondy sa
+nezmenil ani o bajt**. Nič nové sa v tomto kroku správať inak nesmie;
+nové čakania (`WaitIdle` so sledovaním reči, `WaitSilent`) síce vzniknú,
+ale sonda ich ešte nevolá.
+
+### Súbory
+
+- `tests/eureka_keys.h` — enumy klávesov (typy `Key`, `PcKey`, `Dots`)
+  a tabuľka mien pre parser sondy. Hodnoty zo `src/eureka_io.h`.
+- `tests/eureka_session.h`, `tests/eureka_session.cpp` — session.
+- `Makefile`: vzorové pravidlo `$(BUILD)/test_%.o: tests/%.cpp` už
+  existuje, takže pribudne len premenná `SESSION_OBJS :=
+  $(BUILD)/test_eureka_session.o` a tá sa pridá k prerekvizitám
+  `diag_probe.exe` (v kroku 3 aj `integration_test.exe`). Nič nové
+  v `run-tests.bat` ani v ostatných dávkach.
+
+### Čo sa zo sondy presúva do session
+
+Všetko, čo **hýbe strojom**. Každé `Step()` ide cez session, aby jej
+priebežný prepis nemohol nič obísť.
+
+- `Readable` (Kamenických → ASCII) — potrebuje ho výnimka aj záznam.
+- `RunUntilPrompt` → `WaitIdle`. Aby sa výstup nezmenil, dostane
+  parameter, čo sleduje: len konzolu (dnešné správanie, volá ho sonda)
+  alebo konzolu aj reč (predvolené pre testy). Nábeh — prvé tri sekundy
+  sa za ticho nerátajú — a `WakeOnAlarm()` pri vypnutom stroji idú s ním.
+- `?text` → `WaitSaid`; `@TEXT` → `WaitConsole`, ktorý navyše vráti
+  cykly od odoslania riadku a z toho cykly v programe (RAM pod `C000h`),
+  lebo na tom stojí HANDOFF 6.46.
+- `kXX` → `Press`, `sXX` → `Pc`, text → `Type`. Sonda berie ľubovoľný
+  hex, preto enumy majú aj výslovnú únikovú cestu `Key::Raw(0xD7)`
+  a `PcKey::Raw(0x01)`; v testoch sa nemá používať.
+- `+b1`…`-b` → `Hold`/`Release`; držané riadky membrány sú stav session,
+  nie sondy.
+- `vypni`, `zapni`, `studeno` → `PowerOff`, `PowerOn`, `ColdStart`.
+- `+wp`/`-wp`, `nova`, `vysun`, `ram`, `folder`, `mount:`, `slot1`,
+  `slot2` → metódy diskety. `settleForSwap` a `DiskStash` sa presúvajú
+  so session, lebo výmena bez čakania na `DiskSwappable` je stav, aký
+  používateľ nevyrobí.
+- `cas:` → `ShiftClock(trvanie)`; súčet posunov (`rtcShift`) drží
+  session a vráti, či posun stroj zobudil budíkom.
+- `rychlost:`, `hlasitost:` → polohy posuvníkov zo `src/sliders.h`.
+
+### Čo zostáva v sonde
+
+Všetko, čo stroj len **pozoruje a vypisuje**: `zvuk`, `wav:`, `dac:`,
+`spin:`, `trace`, `budik`, `stav`, záverečná správa diagnostiky
+a formát riadkov `token -> odpoveď`. `spin:` a `dac:` bežia po
+jednotlivých inštrukciách — pôjdu cez `session.Step()`, nie priamo cez
+stroj. Režimy `sweep`, `trace` a `boot` zostávajú v sonde, len nabootujú
+a čakajú cez session.
+
+### Rozpočty v sonde zostávajú v inštrukciách
+
+Rozpočet sondy (`argv[4]`) je počet inštrukcií a tak je zapísaný
+v príkazoch v `HANDOFF.md` a `tests/README.md`. Je to rozhranie sondy,
+nemení sa. Session preto vnútri pozná rozpočet v emulovanom čase aj
+v inštrukciách; verejné rozhranie pre testy berie len `std::chrono`,
+inštrukcie sú len pre sondu.
+
+### Merítko: výstup pred a po
+
+Zmerané 24. 9. 2026: dva behy tej istej sekvencie bez hodín dajú
+**bajtovo zhodný** výstup vrátane počtu inštrukcií a správy diagnostiky.
+Hodiny idú z hostiteľa, takže sekvencia, v ktorej stroj hovorí čas
+(`kC1`, `sweep` — ten prechádza aj `C1`, `budik`, `cas:`), sa medzi
+minútami líši aj bez zmeny kódu. Tie sa porovnávajú len vtedy, keď oba
+behy padnú do tej istej minúty, alebo sa z porovnania vynechajú.
+
+Postup: **pred** prvou zmenou kódu sa súčasnou sondou vyrobia
+referenčné výstupy do `build\golden\` (nie do repozitára — sú odvodené
+z ROM), po zmene sa pustia znova a porovnajú `cmp`. Sada musí prejsť
+každou rodinou tokenov aspoň raz:
+
+1. `boot`
+2. menu a Escape: `seq 8000000 kC9 kD7 . k1B`
+3. scancode: `seq 8000000 s3C . s01`
+4. membrána: `seq 8000000 +b1 +b4 +b5 -b`
+5. disketa: `seq 8000000 +wp kD7 Y Y stav -wp nova kD7 Y . stav vysun kC8 .`
+6. sloty: `seq 8000000 slot2 stav slot1 stav slot2 stav`
+7. napájanie: `seq 8000000 vypni zapni studeno`
+8. posuvníky a zvuk: `seq 8000000 rychlost:0 hlasitost:20 kC9 zvuk dac:200000`
+9. text a `?`/`@`: `seq 8000000 kD6 . READ~ ?READ @Read_which`
+10. `spin:` a `trace`: `seq 8000000 trace kD7 spin:200000`
+
+Presné sekvencie sa pri realizácii ešte overia — každá musí na dnešnej
+sonde niečo povedať, inak nič nemeria. Hodiny (`budik`, `cas:`) sa
+overia ručne v jednej minúte.
 
 ## Postup
 
