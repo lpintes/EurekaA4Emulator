@@ -136,6 +136,15 @@ syntezátor hovorí** — `C621h` je `FFh` len počas reči (HANDOFF, `spabrt`;
 nastaví `002D5`, zmaže `0055E`), v session `Speaking()`. Bez toho záznam
 po F2 obsahoval len „21 HODINA.“; s tým „21 HODINA. 8 MINUT.“.
 
+**Hranica odhadu ticha (24. 9. 2026):** Escape z hodín povie „ahoj“,
+potom je **viac než pol sekundy** ticho (ani konzola, ani reč, syntezátor
+nehovorí) a až potom zaznie znelka hlavného menu `!%t154/50*5!%t230`.
+Predvolený `WaitIdle` skončí v tej medzere a ďalší kláves sa stratí pri
+prechode do menu — v režime `session` sa takto stratilo F10. Sonda to
+ukáže tiež: po `s01` vráti prvá `.` prázdno, až druhá znelku. Scenár si
+tu musí pomôcť sám (`WaitSaid("ahoj")` a potom `WaitIdle` s oknom 2 s);
+natrvalo by to vyriešilo „čaká na kláves“ podľa PC, viď nižšie.
+
 Niektoré odpovede sú dlhé: F11 prečíta všetkých päť ROM s dátumami
 a trvá dlhšie než predvolených 10 s `WaitIdle`. To nie je chyba čakania —
 taký krok potrebuje väčší rozpočet alebo `WaitSaid` na vetu, o ktorú ide.
@@ -294,6 +303,23 @@ v `src/text_codec`) a sonda ho má zlinkovaný.
    v testovacej vrstve. Čo to stojí, sa zmeria pri realizácii.
 5. ~~Mená klávesov.~~ Rozhodnuté vyššie: enumy, typ podľa cesty.
 6. ~~Rozpočty.~~ Rozhodnuté vyššie: emulovaný čas v `std::chrono`.
+
+## Krok 3 — kontroly na session
+
+**Prvá časť hotová 24. 9. 2026: režim `session` v `integration_test`.**
+Test samotnej session, hlavne čakania — keby sa pokazilo, padali by
+scenáre nad ním a chyba by sa hľadala v hodinách alebo disketách.
+Kontroly: prepis, záznam F10 (reč s diakritikou aj bez, zvuk), `Watch`
+na `C621h`, `WaitUntil` na začiatok a koniec reči, `WaitSilent`, záznam
+po F2 s hodinou aj minútami, záznam cez reset, výnimka z `WaitSaid`
+s tým, čo sa počulo. Overené mutáciou: bez `Speaking()` vo `WaitIdle`
+režim padne s „WaitIdle nepockal na minuty po F2: "21 HODINA."“.
+`run-tests.bat` má odteraz **19** riadkov `PASS` (17 bez manuálu);
+CLAUDE.md a `tests/README.md` opravené.
+
+Zostáva: preniesť dve alebo tri existujúce scenárové kontroly
+z `integration_test` na session a pri jednej overiť mutáciou, že chytá,
+čo chytala.
 
 ## Krok 2 — záznam a pamäť
 

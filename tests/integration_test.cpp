@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "eureka_io.h"
+#include "eureka_session.h"
 #include "machine.h"
 #include "md5.h"
 
@@ -2204,6 +2205,86 @@ bool Type(EurekaMachine& machine, const std::string& text) {
   return false;
 }
 
+// EurekaSession itself (eureka.md), above all its waiting.  The waits are the
+// most fragile part of it and the quietest: a WaitIdle that stops listening to
+// the synthesiser makes every scenario built on it fail somewhere else -- in
+// the clock, in the diskettes -- and the search starts in the wrong place.
+// This says it outright.  Each part names what it guards.
+bool CheckSession(EurekaMachine& machine) {
+  using namespace eureka;
+  Session eureka(machine);
+  bool passed = true;
+  const auto expect = [&](bool ok, const char* what) {
+    if (!ok) std::cout << "  " << what << "\n";
+    passed = passed && ok;
+  };
+  try {
+    eureka.Reset();
+    eureka.WaitIdle(10s);
+    expect(eureka.Transcript().find("inicializace") != std::string::npos,
+           "prepis nema nabeh");
+
+    // A recording holds the speech, with and without diacritics, and the
+    // sound; a watch sees the speech flag go up and come down.
+    int flips = 0;
+    const int watch = eureka.Watch(0xc621, [&](uint8_t, uint8_t) { ++flips; });
+    const Recording menu = eureka.Record([&] {
+      eureka.Press(keys::F10);
+      eureka.WaitIdle();
+    });
+    eureka.Unwatch(watch);
+    expect(menu.Heard("hlavni menu") && menu.Heard("hlavní menu"),
+           "zaznam F10 nema \"hlavní menu\"");
+    expect(!menu.audio.empty(), "zaznam F10 nema zvuk");
+    expect(flips >= 2, "Watch nevidel priznak reci hore aj dole");
+
+    eureka.Press(keys::F10);
+    eureka.WaitUntil([&] { return eureka.Speaking(); }, 2s, "rec nezacala");
+    eureka.WaitUntil([&] { return !eureka.Speaking(); }, 5s, "rec neskoncila");
+    expect(eureka.TryWaitSilent(10s), "WaitSilent sa nedockal ticha");
+
+    // The case the synthesiser flag is there for: the clock says the hour,
+    // and a second later the minutes.  A wait that only counted new speech
+    // bytes ended between the two (eureka.md, 24. 9. 2026).
+    const Recording time = eureka.Record([&] {
+      eureka.Press(keys::F2);
+      eureka.WaitIdle();
+    });
+    expect(time.Heard("HODIN") && time.Heard("MINUT"),
+           ("WaitIdle nepockal na minuty po F2: \"" + time.Said() + "\"").c_str());
+    // Escape out of the clock says "ahoj", then falls silent for more than
+    // half a second, and only then plays the Main Menu's two tones.  A default
+    // WaitIdle ends in that gap and the next key is lost on the way into the
+    // menu (eureka.md) -- so a longer window here.
+    eureka.Pc(pc::Esc);
+    eureka.WaitSaid("ahoj");
+    eureka.WaitIdle(10s, Quiet::kConsoleAndSpeech, 2s);
+
+    // A recording across a reset keeps both sides of it.
+    const RecordingMark mark = eureka.StartRecording();
+    eureka.Press(keys::F10);
+    eureka.WaitIdle();
+    eureka.Reset();
+    eureka.WaitIdle(10s);
+    const Recording across = eureka.StopRecording(mark);
+    expect(across.Heard("menu") && across.Heard("inicializace"),
+           ("zaznam cez reset stratil jednu stranu: \"" + across.Said() + "\"").c_str());
+
+    // A wait that runs out is an exception, and it says what was heard.
+    bool threw = false;
+    try {
+      eureka.WaitSaid("toto nikdy nepovie", 1s);
+    } catch (const Failure& failure) {
+      threw = std::string(failure.what()).find("inicializace") != std::string::npos;
+    }
+    expect(threw, "WaitSaid nevyhodil Failure s tym, co sa pocul");
+  } catch (const Failure& failure) {
+    std::cout << "  necakana vynimka: " << failure.what() << "\n";
+    return false;
+  }
+  return passed;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -2218,10 +2299,11 @@ int wmain(int argc, wchar_t** argv) {
        std::wstring(argv[3]) != L"snimka" &&
        std::wstring(argv[3]) != L"akord" &&
        std::wstring(argv[3]) != L"budik" &&
-       std::wstring(argv[3]) != L"trap")) {
+       std::wstring(argv[3]) != L"trap" &&
+       std::wstring(argv[3]) != L"session")) {
     std::wcerr << L"usage: integration_test ROM DISK_FOLDER "
                   L"com|bas|kbd|power|dc|rtc|hudba|zvuk|format|wp|hlaseni|snimka|"
-                  L"akord|budik|trap\n";
+                  L"akord|budik|trap|session\n";
     return 2;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
@@ -2285,6 +2367,12 @@ int wmain(int argc, wchar_t** argv) {
   if (std::wstring(argv[3]) == L"budik") {
     const bool passed = CheckAlarmWake(*machine);
     std::cout << (passed ? "PASS" : "FAIL") << " mode=BUDIK\n";
+    return passed ? 0 : 1;
+  }
+
+  if (std::wstring(argv[3]) == L"session") {
+    const bool passed = CheckSession(*machine);
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=SESSION\n";
     return passed ? 0 : 1;
   }
 

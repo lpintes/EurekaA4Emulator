@@ -249,6 +249,15 @@ them on the same diskette.
   Menu, so "ahoj" has to follow "pred" with no "po" between them.  Verified
   by mutation: with `z180_traps` off the machine says "pred po ahoj" and the
   mode fails.
+- `session` pins `EurekaSession` (`tests/eureka_session.*`, design in
+  `eureka.md`), above all its waiting: a recording of F10 holds "hlavní menu"
+  and sound, a watch sees the speech flag at C621h go up and down, a recording
+  across a reset keeps both sides, and a wait that runs out throws with what
+  was heard.  The one that matters most: after F2 the clock says the hour and,
+  a second later, the minutes, and `WaitIdle` has to wait for both -- a wait
+  that counts only new speech bytes ends between them, because a sentence
+  arrives all at once and then takes a second to say.  Verified by mutation:
+  with `Speaking()` taken out of `WaitIdle` the mode fails on the minutes.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
 A genuine `READ.COM` ships with the Technical Manual's development disk, which
@@ -256,8 +265,8 @@ is third-party material and therefore **not in this repository** -- see
 `ROM-NOTICE.txt`.  Point `EUREKATECH` at your copy of that folder (the default
 is `C:\b\eurekatech`) and `run-tests.bat` copies the file in for you.
 
-Without it the `com` and `wp` modes are skipped and the suite reports sixteen
-`PASS` lines instead of eighteen, saying so as it goes.  Both modes run that
+Without it the `com` and `wp` modes are skipped and the suite reports
+seventeen `PASS` lines instead of nineteen, saying so as it goes.  Both modes run that
 same `READ.COM`: `com` to start it, `wp` to show a write-protected diskette
 still reads (`CheckProtectedDiskStillReads`).  Nothing else needs the manual.
 Copy the file yourself only if you are running `integration_test.exe` by hand

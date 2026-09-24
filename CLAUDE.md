@@ -320,6 +320,14 @@ interval, hrana schodu kmitala až o celú vzorkovaciu periódu (540 cyklov je
 počulo sa to ako praskanie hudby (HANDOFF 6.38). Režim `hudba` tú mutáciu
 prejde bez zamrmlania, preto je tento test samostatný.
 
+Režim `session` drží **`EurekaSession`** (`tests/eureka_session.*`, návrh
+v `eureka.md`), hlavne jej čakanie. To je najkrehkejšia časť vrstvy a najtichšia:
+`WaitIdle`, ktorý prestane počúvať syntezátor, pokazí každý scenár nad sebou
+a chyba sa potom hľadá v hodinách alebo v disketách, nie v čakaní. Rozhodujúca
+kontrola je F2: hodiny povedia hodinu a o sekundu minúty, a čakanie, ktoré ráta
+len nové bajty reči, skončí medzi nimi — veta príde naraz a potom sa sekundu
+hovorí (`Speaking()`, `C621h`). Overené mutáciou.
+
 `settings_test` beží tiež bez ROM a v `%TEMP%`. Drží formát súboru
 s nastaveniami a hlavne to, že cesta s diakritikou prežije zápis aj čítanie.
 Drží aj **zámok diskety proti zápisu** (`zamok1=`, `zamok2=`… so zoznamom
@@ -346,14 +354,14 @@ Skutočný súbor nastavení na to nepoužívaj — patrí tomu, kto testy spú�
 
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých osemnásť naraz — tri
-samostatné testy a pätnásť režimov `integration_test`. Sú to nezávislé
+`run-tests.bat` zostaví testy a pustí všetkých devätnásť naraz — tri
+samostatné testy a šestnásť režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `TECHMAN1\READ.COM` z manuálu, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`; manuál z `%EUREKATECH%`, inak `C:\b\eurekatech`.
 
-**Keď manuál nie je po ruke, je `PASS` šestnásť a nie je to regresia.**
+**Keď manuál nie je po ruke, je `PASS` sedemnásť a nie je to regresia.**
 Dávka vynechá cez `SKIP_MODES` režimy `com` **aj `wp`** a napíše, prečo.
 Že sú to dva a nie jeden, ukázalo až meranie 20. 9. 2026: `wp` spúšťa ten
 istý `READ.COM` a overuje ním, že z chránenej diskety sa dá čítať
@@ -361,7 +369,7 @@ istý `READ.COM` a overuje ním, že z chránenej diskety sa dá čítať
 Odhad hovoril, že ide len o `com`. Zoznam režimov je len v `Makefile`
 (`ALL_MODES`), aby sa druhá kópia nemala ako rozísť.
 
-Výstup drží pohromade `--output-sync=target`; bez neho sa riadky osemnástich
+Výstup drží pohromade `--output-sync=target`; bez neho sa riadky devätnástich
 procesov premiešajú. `-k` nechá dobehnúť aj zvyšok po prvom zlyhaní.
 
 **Pasca, do ktorej som už spadol:** režimy sa v `Makefile` generujú ako
@@ -370,7 +378,7 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť osemnásť, alebo šestnásť bez manuálu — a raz to skús s nezmyselnou ROM
+byť devätnásť, alebo sedemnásť bez manuálu — a raz to skús s nezmyselnou ROM
 aj s nezmyselným `EUREKATECH`, či poistky naozaj zvonia.
 
 ## Diagnostická sonda
@@ -786,7 +794,7 @@ toto je jedno z miest, ktoré by ho zaseklo.
 Kým toto neplatí, nehlás hotovo — a nehlás ani „malo by to fungovať“:
 
 1. `build.bat` prejde bez jediného varovania.
-2. `run-tests.bat` dá **osemnásť** riadkov `PASS` — alebo šestnásť, keď na
+2. `run-tests.bat` dá **devätnásť** riadkov `PASS` — alebo sedemnásť, keď na
    stroji nie je Technical Manual a dávka to ohlási. Že sa to preložilo, nie je
    výsledok merania.
 3. Dokumentácia dobehla **v tom istom kroku**, nie „potom“. README, keď sa

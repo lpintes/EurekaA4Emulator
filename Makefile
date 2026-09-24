@@ -140,7 +140,7 @@ $(BIN)/zex_test.exe: $(BUILD)/test_zex_test.o $(BUILD)/z80.o | $(BIN)
 $(BIN)/diag_probe.exe: $(BUILD)/test_diag_probe.o $(SESSION_OBJS) $(CORE_OBJS) | $(BIN)
 	$(CXX) $(STATIC) -municode -o $@ $^
 
-$(BIN)/integration_test.exe: $(BUILD)/test_integration_test.o $(CORE_OBJS) | $(BIN)
+$(BIN)/integration_test.exe: $(BUILD)/test_integration_test.o $(SESSION_OBJS) $(CORE_OBJS) | $(BIN)
 	$(CXX) $(STATIC) -municode -o $@ $^
 
 # ---------------------------------------------------------------------------
@@ -163,7 +163,7 @@ A4ROM ?= C:/b/a4rom.dmp
 ROM   ?= $(A4ROM)
 DISK  ?= $(BUILD)/testdisk
 
-ALL_MODES := bas com kbd power dc rtc hudba zvuk format wp hlaseni snimka akord budik trap
+ALL_MODES := bas com kbd power dc rtc hudba zvuk format wp hlaseni snimka akord budik trap session
 MODES  := $(filter-out $(SKIP_MODES),$(ALL_MODES))
 CHECKS := check-codec check-disk check-settings $(addprefix check-,$(MODES))
 
