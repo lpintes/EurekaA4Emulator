@@ -27,3 +27,10 @@ p.md
 # sa pri prvom `git add -A` commitnu.
 .beads.gate.lock
 .beads/.auto-import-issues.jsonl
+
+# K zamku si `bd` odklada aj subor .info s pid-om a menom stroja. Vzor
+# `*.lock` v .beads/.gitignore na neho nesiaha (konci inak) a v koreni nie je
+# ziadny, takze vzniknu tri nekryte subory naraz: .beads.gate.lock.info,
+# .beads/dolt.gate.lock.info a .beads/embeddeddolt.gate.lock.info. Jeden
+# vzor ich berie vsetky, lebo git ho hlada v kazdej urovni.
+*.gate.lock.info
