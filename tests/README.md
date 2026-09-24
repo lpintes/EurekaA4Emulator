@@ -1,7 +1,9 @@
 # Tests
 
 Build them with `build-tests.bat` (mingw64 from msys2, same toolchain as
-the emulator). The executables land in `bin\` next to the emulator.
+the emulator), or with `build-tests.sh` on Linux and WSL, which uses the
+mingw-w64 cross compiler and produces the same Windows executables. Either
+way they land in `bin\` next to the emulator.
 
 `codec_test.cpp` verifies Unicode ↔ Kamenicky conversion.
 

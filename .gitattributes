@@ -15,6 +15,12 @@
 # s CRLF a nikto by si toho nevsimol.
 *.py text eol=lf
 
+# .sh su davky pre Linux/WSL a z tej istej priciny musia byt LF: pri
+# core.autocrlf=true by sa v pracovnom strome objavili s CRLF a bash na nich
+# zlyha az za behu, na `\r` v hodnote premennej. Je to ta ista ticha pasca,
+# pred ktorou stoji pravidlo pre .bat vyssie, len z druhej strany.
+*.sh text eol=lf
+
 # Tu stavalo `eurekatech/** -text`, ktore chranilo dobove subory z roku 1992
 # pred konverziou koncov riadkov. Priecinok je od 20. 9. 2026 mimo
 # repozitara (ROM-NOTICE.txt), takze pravidlo nema co chranit. Keby sa sem

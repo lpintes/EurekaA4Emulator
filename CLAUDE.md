@@ -157,6 +157,30 @@ Prekladá sa **mingw64 z msys2**, ktorý je na stroji v
 `C:\msys64\mingw64\bin`. Iný prefix sa dá podstrčiť premennou
 `MINGW64`. Visual Studio už netreba.
 
+**Od 21. 9. 2026 sa to isté dá aj z Linuxu a z WSL**, krížovým prekladačom
+`mingw-w64` (na Ubuntu balíky `g++-mingw-w64-x86-64` a
+`binutils-mingw-w64-x86-64`). Vstupné body sú `build.sh`, `build-tests.sh`
+a `run-tests.sh` — náprotivky tých troch dávok. Prekladové pravidlá v
+`Makefile` sa kvôli tomu **nemenili**: priradenia na príkazovom riadku
+prebijú aj `:=`, takže stačí podať `CXX`, `CC` a `RC`, a `MINGW64` sa
+jednoducho nepoužije. Prefix je v premennej `TOOLPREFIX`, predvolene
+`x86_64-w64-mingw32-`. Jediná zmena v `Makefile` sú úvodzovky okolo `ROM`
+a `DISK` v recepte testov — viď `## Spustenie testov`.
+
+Zdrojáky na to nepotrebovali ani jednu zmenu — odmerané, GCC 13 preloží
+všetkých devätnásť jednotiek bez jediného varovania a testov je osemnásť.
+Predvolený `x86_64-w64-mingw32-g++` je pritom variant s modelom vlákien
+**win32**, a emulátor má vlastné vlákno stroja, ktoré nedrží ani jeden
+test — `emulator_thread.o` nie je v `CORE_OBJS` ani v jednom linkovaní
+testu, takže tých osemnásť `PASS` o ňom nepovie nič. Overené preto ručne
+24. 9. 2026: takto preložený emulátor nabootuje a povie „inicializace
+eureky“, čiže vlákno beží. Keby sa to niekedy zmenilo, sú vedľa varianty
+`...-g++-posix` a `...-gcc-posix` a podstrčia sa cez `TOOLPREFIX`; linkuje
+sa staticky, takže na hotovom EXE to nič nepýta.
+
+Doplnok pre NVDA linuxový náprotivok **nemá** a nemá ho mať — `build-addon.bat`
+je zip a jeden `msgfmt`.
+
 Emulátor: `build.bat` z ľubovoľného príkazového riadka — cestu k mingw
 si predradí sám a na globálny PATH sa nespolieha. Hotové EXE ide do
 `bin\`, medzivýstupy do `build\`; oba sú v `.gitignore`.
@@ -352,6 +376,39 @@ procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `TECHMAN1\READ.COM` z manuálu, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`; manuál z `%EUREKATECH%`, inak `C:\b\eurekatech`.
+
+Vo WSL robí to isté `run-tests.sh` a líši sa v troch veciach, všetky
+odmerané 21. 9. 2026. ROM **musí** byť zadaná — záložná cesta z jedného
+stroja do zverejneného stromu nepatrí, takže bez `A4ROM` alebo argumentu
+skončí s kódom 1. Beží len vo WSL, lebo testy sú EXE pre Windows a spúšťa
+ich interop; bez neho sa dajú aspoň zostaviť cez `build-tests.sh`.
+A priečinok diskety **nie je** `build\testdisk`: `fs::weakly_canonical`
+v `VirtualDisk::Mount` odmietne cestu `\\wsl.localhost\...`, takže keď
+repozitár leží v linuxovom súborovom systéme, disketa sa z neho otvoriť
+nedá. Skript si ho preto vyrobí v `%TEMP%\ea4-testdisk` a windowsové
+`%TEMP%` si pýta od `cmd.exe` spusteného s pracovným priečinkom na
+`C:` — z UNC cesty by `cmd` najprv vypísal hlášku a tá by skončila
+v premennej. Než sa čokoľvek zmaže, cesta sa overuje na písmeno disku.
+Vlastné miesto sa dá zadať premennou `EA4_TESTDISK`.
+
+Cesty do `make` idú s lomkami **dopredu**, rovnako ako ich dávka prepisuje
+cez `%A4ROM:\=/%`. Nutné to už nie je — `ROM` a `DISK` sú v recepte
+`CHECK_RULE` od 24. 9. 2026 v úvodzovkách, takže prejde aj cesta so spätnými
+lomkami (odmerané priamym `make check-bas check-com check-wp` v oboch
+podobách). Kým tam úvodzovky neboli, zožral shell spätné lomky ako escape
+sekvencie: z `D:\eureka\A4ROM.DMP` prišlo programu `D:eurekaA4ROM.DMP`
+a test hlásil, že nevie otvoriť ROM. Prvý beh na Linuxe takto spadol na
+dvanástich režimoch naraz a vyzeralo to ako chyba emulátora.
+
+**`A4ROM` a `EUREKATECH` sa smú zadať oboma spôsobmi** — linuxovo aj
+windowsovo (`D:\eureka`). Skript ich normalizuje podľa **tvaru** cesty, nie
+pokusom o prevod, a to preto, že `wslpath` je zradný v oboch smeroch: bez
+prepínača (a s `-u`) na linuxovej ceste skončí chybou, a `-w` na ceste,
+ktorá už je windowsová, vráti **ticho nezmysel** — z `D:\eureka\A4ROM.DMP`
+spraví `DeurekaA4ROM.DMP` a skončí s kódom 0. To druhé stálo 24. 9. 2026
+tri `PASS` a dvanásť zlyhaní, ktoré vyzerali ako chyba emulátora, hoci to
+bola pokazená cesta. Keď na `to_unix` v `run-tests.sh` siahneš, drž sa
+tvaru cesty.
 
 **Keď manuál nie je po ruke, je `PASS` šestnásť a nie je to regresia.**
 Dávka vynechá cez `SKIP_MODES` režimy `com` **aj `wp`** a napíše, prečo.

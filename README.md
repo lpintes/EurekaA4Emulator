@@ -728,6 +728,12 @@ naprieč všetkými aplikáciami v ROM dnes nehlási žiadny port bez modelu.
 
 ## Zostavenie
 
+Zostaviť sa dá dvoma cestami: natívne vo Windows cez msys2, alebo krížovo
+z Linuxu a z WSL. Obe používajú ten istý `Makefile` a tie isté prepínače,
+takže sa líšia len tým, ktorý prekladač sa zavolá.
+
+### Windows
+
 Vyžaduje **mingw64 z msys2** (balík `mingw-w64-x86_64-gcc`). Predvolene sa
 hľadá v `C:\msys64\mingw64`; iné umiestnenie sa podstrčí premennou
 prostredia `MINGW64`. Z ľubovoľného príkazového riadka spustite:
@@ -742,6 +748,28 @@ aj cez `Spustit-Eureku.bat`, ktorý si EXE nájde v `bin\`.
 EXE je linkované staticky, takže beží aj mimo msys2 a nepotrebuje
 žiadne mingw DLL.
 
+### Linux a WSL
+
+Msys2 na to netreba. Stačí krížový prekladač **mingw-w64**; na Ubuntu sú to
+balíky `g++-mingw-w64-x86-64` a `binutils-mingw-w64-x86-64`. Potom:
+
+```text
+./build.sh
+```
+
+Výsledok je to isté `bin/EurekaA4Emulator.exe`, teda program pre Windows —
+krížový preklad nerobí z emulátora linuxový program. Iný prefix prekladača
+sa zadá premennou `TOOLPREFIX` (predvolene `x86_64-w64-mingw32-`).
+
+Vo WSL sa dá hotové EXE rovno spustiť, o preklad medzi svetmi sa stará
+interop. Jedna vec sa pri tom ale mení: **programu treba podávať windowsové
+cesty**, lebo je to program pre Windows a `/mnt/d/...` neotvorí. A cestu
+`\\wsl.localhost\...` odmietne aj tá časť emulátora, ktorá otvára priečinok
+ako disketu, takže disketový priečinok má ležať na skutočnom windowsovom
+disku.
+
+### Doplnok pre NVDA a `.clangd`
+
 Súbor `.clangd` v koreni je pre editory a jazykové servery, na preklad
 nemá vplyv. Bez neho hlási clangd chyby v kóde, ktorý sa prekladá čisto,
 lebo do `Makefile` nevidí a domyslí si iný štandard aj iné hlavičky.
@@ -755,7 +783,9 @@ build-addon.bat
 Výsledok je `bin\eurekaA4Emulator.nvda-addon`. Preklad hlások potrebuje
 `msgfmt` z msys2 (`C:\msys64\usr\bin`); bez neho sa doplnok zostaví, len
 bez prekladu. `build-addon.bat scratchpad` modul namiesto toho nakopíruje
-do vývojového priečinka NVDA.
+do vývojového priečinka NVDA. Linuxový náprotivok táto dávka **nemá** a
+nehľadajte ho: je to zip a jeden `msgfmt`, teda nič, čo by sa oplatilo mať
+dvakrát.
 
 ### Testy
 
@@ -763,8 +793,23 @@ do vývojového priečinka NVDA.
 run-tests.bat
 ```
 
+Vo WSL to isté urobí:
+
+```text
+./run-tests.sh
+```
+
 Zostaví testy a pustí ich naraz. ROM si vezme z cesty zadanej ako argument,
 inak z premennej `A4ROM`. Väčšina testov nepotrebuje nič ďalšie.
+
+Linuxová verzia má oproti dávke tri rozdiely. ROM **musí** byť zadaná
+(argumentom alebo `A4ROM`), lebo záložná cesta z jedného stroja do
+zverejneného stromu nepatrí. Potrebuje WSL, lebo testy sú EXE pre Windows
+a spúšťa ich interop; zostaviť sa dajú aj bez neho cez `./build-tests.sh`.
+A priečinok diskety si nerobí v `build\testdisk`, ale v dočasnom priečinku
+Windows (`%TEMP%\ea4-testdisk`) — cestu `\\wsl.localhost\...` totiž
+emulátor ako disketu neotvorí. Vlastné miesto sa zadá premennou
+`EA4_TESTDISK` a musí ležať na windowsovom disku.
 
 Dva z nich spúšťajú pôvodný program `READ.COM` z vývojárskej diskety
 k Technical Manuálu Eureky A4 — jeden ho štartuje, druhý ním overuje, že

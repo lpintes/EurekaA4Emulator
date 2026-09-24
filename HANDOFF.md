@@ -183,6 +183,31 @@ Natívny Windows, mingw64 z msys2, `build.bat`. Jadro je superzazu z80 doplnené
 o inštrukcie Z180 (`IN0`, `OUT0`, `MLT`, `TST`, `TSTIO`, `OTIM`/`OTDM`,
 `SLP`).
 
+**Doplnené 21. 9. 2026:** msys2 už nie je jediná cesta. Zostaviť sa to dá aj
+krížovo z Linuxu a z WSL prekladačom `mingw-w64` cez `build.sh`,
+`build-tests.sh` a `run-tests.sh`; výsledok je stále EXE pre Windows, cieľová
+platforma sa nemení. Ani jeden zdroják a ani jedno prekladové pravidlo sa
+kvôli tomu nemenili — `CXX`, `CC` a `RC` sa podajú ako priradenia na
+príkazovom riadku. Odmerané na GCC 13 z Ubuntu 24.04: preklad bez jediného
+varovania, osemnásť `PASS`. Tri veci, ktoré to stálo a stoja v `CLAUDE.md`:
+priečinok diskety nesmie ležať za `\\wsl.localhost\...`, cesty od
+používateľa sa normalizujú podľa tvaru (lebo `wslpath -w` na už windowsovej
+ceste vráti ticho nezmysel) a `ROM` s `DISK` dostali v recepte `CHECK_RULE`
+úvodzovky.
+
+Tie úvodzovky nie sú vec Linuxu. Recept sa vykonáva shellom, ktorý si `make`
+vyberie podľa PATH, a `sh` spätné lomky v necitovanej ceste zje ako escape
+sekvencie — takže `mingw32-make check ROM=C:\b\a4rom.dmp` zavolané z bashu
+padalo aj na Windows, a hlavička `Makefile` pritom priame volanie výslovne
+ponúka. Dávky to zakrývali tým, že cestu vopred prepísali cez `%A4ROM:\=/%`.
+Odmerané 24. 9. 2026: s úvodzovkami prejdu obe podoby cesty.
+
+**Doplnené 24. 9. 2026:** vlákno stroja pod takto preloženým EXE **beží** —
+overené ručne, emulátor nabootoval a povedal „inicializace eureky“. Stálo to
+za meranie: `emulator_thread.o` nie je v žiadnom linkovaní testu, takže
+osemnásť `PASS` o vlákne nehovorí nič, a predvolený prekladač na Ubuntu je
+variant s modelom vlákien win32.
+
 ### Overený stav
 
 Emulátor **nabootuje, vysloví „inicializace eureky" a otvorí všetky
