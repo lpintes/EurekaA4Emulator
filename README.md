@@ -721,6 +721,31 @@ ktorého sa dá čítať. Bez `--diag` nemá záznam žiadnu réžiu. Keď je
 diagnostika vypnutá, `Ctrl+D` to povie dialógom — konzola vtedy ešte
 neexistuje, takže hlásenie do nej by zmizlo a skratka by vyzerala pokazene.
 
+**Pozor: okno konzoly nie je okno emulátora.** Jeho zavretie ukončí každý
+proces, ktorý je na tej konzole, teda aj emulátor — a nie riadne.
+Neprebehne otázka, či zatvoriť bez vypnutia stroja, ani ponuka uložiť
+neuloženú disketu a diskety zo slotov, a neuloží sa stav pamäte. Ďalší
+štart potom začne hlásením „inicializace eureky“ a Eureka je prázdna.
+Keďže konzola stojí vedľa hlavného okna a `Alt+F4` ide tam, kde je práve
+fokus, stačí na to jedno nepozorné stlačenie.
+
+`Ctrl+C` v tom okne už emulátor neukončí. **`Alt+F4` áno** a zabrániť sa
+tomu nedá: to okno patrí konzolovému hostiteľovi Windows, nie nám, takže
+emulátor nemá ako jeho zavretie odmietnuť.
+
+Čo sa však dá, je nenechať vás pri tom prísť o pamäť Eureky. Windows dáva
+pred ukončením niekoľko sekúnd a emulátor ich využije: zastaví stroj,
+zapíše disketu a uloží stav pamäte, takže po ďalšom spustení nájdete Eureku
+takú, aká bola. Platí to, keď máte v Nastaveniach zapnuté zachovanie
+pamäte. **Neuložená disketa sa tým nezachráni** — na otázku, kam ju uložiť,
+tam už čas nie je. Zavretie konzoly teda nie je katastrofa, ale ani spôsob,
+ako emulátor ukončiť; na to je ponuka Súbor → Skončiť.
+
+Konzolu, ktorú si emulátor nevyrobil, sa toto netýka: keď ho spustíte
+s `--diag` z príkazového riadka, píše do konzoly toho shellu a tá je jeho —
+zostáva teda zavierateľná a `Ctrl+C` v nej emulátor ukončí, ako je v shelli
+zvykom. Ochrana platí len pre okno, ktoré si emulátor otvorí sám.
+
 Obe otázky, kvôli ktorým vznikol, sú medzitým zodpovedané: zapisovateľná
 RAM začína na `0x70000` a na sériovom porte Z180 visí klávesnica IBM PC.
 Zostáva ako nástroj na hľadanie portov a zápisov, ktoré model neobsluhuje —

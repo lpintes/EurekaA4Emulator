@@ -17,6 +17,7 @@
 #include <shellapi.h>
 
 #include <algorithm>
+#include <atomic>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -33,6 +34,13 @@
 namespace fs = std::filesystem;
 
 namespace {
+
+// Claimed by whoever shuts the machine down first: the ordinary exit below, or
+// the console-close rescue on the thread the system injects when the
+// diagnostic window is closed.  Both call EmulatorThread::Stop, which joins
+// the worker and hands the machine over, and doing that twice at once is not
+// something Stop is written for.
+std::atomic<bool> shutdownTaken{false};
 
 // The ROM lives outside the repository, so it is rarely next to the EXE.
 // A4ROM is the variable the project's tools already use.
@@ -379,13 +387,47 @@ int Run() {
   window.Show(SW_SHOW);
   SetFocus(window.handle());
 
+  // Closing the diagnostic console kills this process outright -- it cannot be
+  // refused, see host_console.cpp and HANDOFF 6.47 -- so none of the shutdown
+  // below would run and the machine's memory would be gone without a word.
+  // This is what can still be done in the few seconds the system grants: take
+  // the machine off the worker, write the diskette out and save the RAM.
+  //
+  // It deliberately differs from the exit path in one thing: the snapshot is
+  // written even though the machine was not switched off.  A bare close of the
+  // emulator's own window is the battery cut-off switch on purpose (6.15), but
+  // this is not that window and closing it is not a decision about the
+  // machine -- it is an accident with the same keystroke.
+  //
+  // No dialogs: this runs on a thread the system injects, there are seconds
+  // rather than minutes, and a window opened from here would be a window
+  // nobody can answer.  An unsaved diskette therefore cannot be rescued; that
+  // is the remaining cost of the accident.
+  host::SetCloseRescue([&emulator, &settings] {
+    if (shutdownTaken.exchange(true)) return;
+    std::unique_ptr<EurekaMachine> dying = emulator.Stop();
+    if (!dying) return;
+    std::wstring ignored;
+    dying->FlushDisk(ignored);
+    if (!settings.keep_ram()) return;
+    const fs::path snapFile = Settings::SnapshotFile();
+    if (!snapFile.empty()) dying->SaveSnapshot(snapFile, ignored);
+  });
+
   win::RunMessageLoop(window.handle(), window.accelerators(),
                       window.hostAccelerators(),
                       [&window] { return window.HostShortcutsActive(); });
 
+  // Unregistered before anything it captured goes out of scope: the console
+  // could be closed at this very moment, and the handler runs on its own
+  // thread.
+  host::SetCloseRescue(nullptr);
+
   // The machine comes back here to be shut down, so nothing below shares it
-  // with a running thread.
-  machine = emulator.Stop();
+  // with a running thread.  Whichever of the two got here first does the
+  // stopping; the other leaves `machine` empty and every step below is already
+  // written to skip on that.
+  if (!shutdownTaken.exchange(true)) machine = emulator.Stop();
   if (machine && !machine->FlushDisk(error))
     MessageBoxW(nullptr, (L"Chyba pri ukladaní disku:\r\n\r\n" + error).c_str(),
                 L"Eureka A4", MB_OK | MB_ICONERROR);
