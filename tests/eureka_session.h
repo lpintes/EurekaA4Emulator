@@ -10,8 +10,9 @@
 // or console output past the session.  The buffers below mirror the machine's
 // own: they are drained by the Take* calls and nothing else, and cleared where
 // the machine clears its own (PowerOn, and so Reset and a wake on the alarm).
-// Audio stays in the machine until TakeAudio -- pulling it every instruction
-// would allocate on every sample for nothing, since no wait looks at it.
+// Audio stays in the machine until TakeAudio or a recording asks for it --
+// pulling it every instruction would allocate on every sample for nothing,
+// since no wait looks at it.
 //
 // A step that fails throws Failure.  A forgotten `if` on a return value lets a
 // test carry on quietly; an exception cannot be overlooked.  The Try* forms
@@ -22,6 +23,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -76,12 +78,31 @@ class Budget {
 // always watched the console alone, and keeps doing so; the speech trails the
 // work by seconds, though, so a wait that ignores it can end before the
 // machine has finished talking (eureka.md: after F2, "." ends between the hour
-// and the minutes).
+// and the minutes).  kConsoleAndSpeech counts new speech *and* the time the
+// synthesiser spends saying it (Speaking()): a sentence arrives all at once
+// and then takes a second to say.
 enum class Quiet { kConsole, kConsoleAndSpeech };
 
 class Failure : public std::runtime_error {
  public:
   using std::runtime_error::runtime_error;
+};
+
+// What the machine said, showed and played between two points of a scenario.
+struct Recording {
+  std::vector<uint8_t> speech;   // Kamenicky, as the synthesiser got it
+  std::vector<uint8_t> console;  // Kamenicky
+  std::vector<int16_t> audio;    // kAudioHz, mono
+  std::string Said() const { return Readable(speech); }
+  bool Heard(std::string_view text) const { return Contains(speech, text); }
+  bool Shown(std::string_view text) const { return Contains(console, text); }
+};
+
+// Where a recording starts: positions in the session's transcript.
+struct RecordingMark {
+  std::size_t speech;
+  std::size_t console;
+  std::size_t audio;
 };
 
 class Session {
@@ -158,6 +179,14 @@ class Session {
   void ReleaseAll();
 
   // --- Waiting -----------------------------------------------------------
+  //
+  // WaitIdle waits for the machine to finish talking, and some answers are
+  // long: F11 reads out all five ROMs with their dates and outlasts the
+  // default ten seconds (measured 24. 9. 2026).  Give such a step a bigger
+  // budget, or wait for the one sentence it is about with WaitSaid.
+
+  // Just runs for `budget`.  False if the machine switched itself off first.
+  bool Run(Budget budget);
 
   // Until nothing new has appeared for `window`.  The first three seconds
   // after a reset do not count as quiet: the machine is silent while it boots.
@@ -182,15 +211,65 @@ class Session {
                       uint64_t* programCycles = nullptr);
   void WaitConsole(std::string_view text, Budget budget = 10s);
 
+  // Until `done` returns true; asked before every instruction.  For a
+  // firmware variable that marks the moment, e.g. the speech flag:
+  //   eureka.WaitUntil([&] { return eureka.Peek(0xC621) != 0xFF; }, 5s);
+  bool TryWaitUntil(const std::function<bool()>& done, Budget budget);
+  void WaitUntil(const std::function<bool()>& done, Budget budget = 10s,
+                 std::string_view what = "WaitUntil");
+
+  // --- Memory ------------------------------------------------------------
+  //
+  // Addresses are logical, as the CPU sees them under the MMU at that moment
+  // (debug_peek), which is how the firmware's own variables are named.
+
+  uint8_t Peek(uint16_t address) const { return machine_.debug_peek(address); }
+  // Whether the synthesiser is in the middle of saying something (C621h).
+  bool Speaking() const;
+  // Calls `changed(before, now)` after every instruction that left a different
+  // value at `address`.  Checked between instructions, so a value one
+  // instruction writes and the next one puts back goes unseen -- the
+  // firmware's variables do not do that; catching every write would take a
+  // hook in WriteMemory, which the GUI runs on every store (eureka.md).
+  // Returns a handle for Unwatch.
+  int Watch(uint16_t address, std::function<void(uint8_t, uint8_t)> changed);
+  void Unwatch(int handle);
+
   // --- Output ------------------------------------------------------------
+  //
+  // Two views of the same output.  The Take* calls hand over what has
+  // arrived since the last Take and are what the probe prints from.  The
+  // transcript keeps everything from the session's start, across resets,
+  // and a recording is a stretch of it; the two do not disturb each other.
 
   std::vector<uint8_t> TakeSpeech();
   std::vector<uint8_t> TakeConsole();
-  std::vector<int16_t> TakeAudio() { return machine_.TakeAudio(); }
+  std::vector<int16_t> TakeAudio();
+
+  RecordingMark StartRecording();
+  Recording StopRecording(const RecordingMark& mark);
+  // Runs `body` and returns what was said, shown and played meanwhile.
+  template <class Body>
+  Recording Record(Body&& body) {
+    const RecordingMark mark = StartRecording();
+    try {
+      body();
+    } catch (...) {
+      StopRecording(mark);
+      throw;
+    }
+    return StopRecording(mark);
+  }
+  // Everything said since the session started, readable.
+  std::string Transcript() const { return Readable(speechLog_); }
 
  private:
   // Pulls what the last instruction produced into the buffers below.
   void Absorb();
+  // Audio is not pulled every instruction -- that would allocate on every
+  // sample, and no wait looks at it.  Only here, when someone asks for it.
+  void AbsorbAudio();
+  void CheckWatches();
   void ClearOutput();
   // Where a budget started, and whether it has run out.
   struct Deadline {
@@ -208,6 +287,27 @@ class Session {
   // taking it away from whoever prints it.
   uint64_t speechTotal_ = 0;
   uint64_t consoleTotal_ = 0;
+  // The transcript: never cleared, so a recording's marks stay valid.
+  std::vector<uint8_t> speechLog_;
+  std::vector<uint8_t> consoleLog_;
+  // Audio pulled from the machine and not yet taken; cleared with the
+  // machine's own on a power-up.
+  std::vector<int16_t> audio_;
+  // Audio kept for recordings, and only while one is running -- 48000
+  // samples a second is too much to keep for a whole run (eureka.md).
+  // recordAudioBase_ is the count of samples dropped before it, so marks
+  // are absolute and nested recordings work.
+  std::vector<int16_t> recordAudio_;
+  std::size_t recordAudioBase_ = 0;
+  int activeRecordings_ = 0;
+  struct Watcher {
+    int handle;
+    uint16_t address;
+    uint8_t last;
+    std::function<void(uint8_t, uint8_t)> changed;
+  };
+  std::vector<Watcher> watches_;
+  int nextWatch_ = 1;
   membrane::Keys held_;
   DiskStash stash_;
   int currentSlot_ = 0;  // 0: the diskette in the drive belongs to no slot

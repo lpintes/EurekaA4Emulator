@@ -128,6 +128,18 @@ Doklad, že čakanie len na konzolu nestačí (24. 9. 2026):
 inštrukcií neskôr (viď komentár pri `CheckAnnouncesTime`), keď už konzola
 dávno mlčí.
 
+**Doplnené pri realizácii kroku 2 (24. 9. 2026):** sledovať nové bajty
+reči nestačí. Firmvér podá syntezátoru celú vetu naraz a potom ju sekundu
+hovorí, takže pol sekundy bez nových bajtov nie je ticho. `WaitIdle`
+(s rečou) a `WaitSilent` preto rátajú ako činnosť aj **čas, kým
+syntezátor hovorí** — `C621h` je `FFh` len počas reči (HANDOFF, `spabrt`;
+nastaví `002D5`, zmaže `0055E`), v session `Speaking()`. Bez toho záznam
+po F2 obsahoval len „21 HODINA.“; s tým „21 HODINA. 8 MINUT.“.
+
+Niektoré odpovede sú dlhé: F11 prečíta všetkých päť ROM s dátumami
+a trvá dlhšie než predvolených 10 s `WaitIdle`. To nie je chyba čakania —
+taký krok potrebuje väčší rozpočet alebo `WaitSaid` na vetu, o ktorú ide.
+
 Možné vylepšenie neskôr: zoznam adries čakacích slučiek na kláves
 a `WaitIdle` ako „PC je v jednej z nich“. Bolo by to skutočné „čaká na
 kláves“ namiesto odhadu, ale každá aplikácia môže mať vlastnú slučku
@@ -282,6 +294,28 @@ v `src/text_codec`) a sonda ho má zlinkovaný.
    v testovacej vrstve. Čo to stojí, sa zmeria pri realizácii.
 5. ~~Mená klávesov.~~ Rozhodnuté vyššie: enumy, typ podľa cesty.
 6. ~~Rozpočty.~~ Rozhodnuté vyššie: emulovaný čas v `std::chrono`.
+
+## Krok 2 — záznam a pamäť
+
+**Stav 24. 9. 2026: hotový.** V `EurekaSession` pribudli:
+
+- priebežný prepis reči a konzoly od vzniku session, ktorý nemaže ani
+  reset (`Transcript()`);
+- záznam: `StartRecording()`/`StopRecording(značka)` a `Record(lambda)`,
+  výsledok `Recording` s rečou, konzolou a zvukom a s `Said()`, `Heard()`,
+  `Shown()`. Zvuk sa zo stroja preleje len na hraniciach záznamu
+  a pri `TakeAudio`; odkladá sa, len kým beží aspoň jeden záznam, a pred
+  resetom sa vyzbiera, takže záznam cez reset drží obe strany. Výnimka
+  z tela `Record` záznam uzavrie a letí ďalej;
+- pamäť: `Peek`, `Speaking()`, `TryWaitUntil`/`WaitUntil`, `Watch`
+  a `Unwatch` (kontrola po inštrukcii, len keď niečo sledujeme);
+- `Run(trvanie)` — len bež.
+
+Overené skúšobným programom mimo repozitára (`build\scratch_session.cpp`):
+záznam F10 obsahuje „hlavní menu“ aj zvuk, `Watch` na `C621h` videl dve
+zmeny, `WaitUntil` na začiatok a koniec reči, `WaitSilent`, záznam po F2
+s hodinou aj minútami, akord F11, záznam cez reset, výnimky z `WaitSaid`
+a `Type`. Sonda bajtovo zhodná s referenciou, 18× PASS.
 
 ## Krok 1 — sonda nad `EurekaSession`
 

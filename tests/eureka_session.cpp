@@ -77,9 +77,24 @@ bool Contains(const std::vector<uint8_t>& bytes, std::string_view text) {
          std::wstring::npos;
 }
 
+namespace {
+
+// FFh while the synthesiser is speaking and only then: set at 002D5 when a
+// batch starts, cleared at 0055E when it has been said (HANDOFF, spabrt;
+// SYSRAM.A has the word spabrt at C620h, this is its high byte).  New speech
+// bytes arrive a whole sentence at a time, so without this a second of
+// talking looked like a second of silence and a wait ended between the
+// hour and the minutes of the clock's announcement.
+constexpr uint16_t kSpeaking = 0xc621;
+
+}  // namespace
+
+bool Session::Speaking() const { return Peek(kSpeaking) == 0xff; }
+
 bool Session::Step() {
   const bool running = machine_.Step();
   Absorb();
+  if (!watches_.empty()) CheckWatches();
   return running;
 }
 
@@ -87,34 +102,123 @@ void Session::Absorb() {
   const auto said = machine_.TakeSpeechInput();
   if (!said.empty()) {
     speech_.insert(speech_.end(), said.begin(), said.end());
+    speechLog_.insert(speechLog_.end(), said.begin(), said.end());
     speechTotal_ += said.size();
   }
   const auto shown = machine_.TakeConsoleOutput();
   if (!shown.empty()) {
     console_.insert(console_.end(), shown.begin(), shown.end());
+    consoleLog_.insert(consoleLog_.end(), shown.begin(), shown.end());
     consoleTotal_ += shown.size();
   }
 }
 
+void Session::AbsorbAudio() {
+  const auto played = machine_.TakeAudio();
+  if (played.empty()) return;
+  audio_.insert(audio_.end(), played.begin(), played.end());
+  if (activeRecordings_ > 0)
+    recordAudio_.insert(recordAudio_.end(), played.begin(), played.end());
+}
+
+// The machine clears its own buffers on a power-up; what was not taken yet is
+// gone there, and so here.  The audio is pulled first so that a recording
+// running across the reset keeps what was played before it.
 void Session::ClearOutput() {
   speech_.clear();
   console_.clear();
+  audio_.clear();
 }
 
 void Session::Reset() {
+  AbsorbAudio();
   machine_.Reset();
   ClearOutput();
 }
 
 void Session::PowerOn() {
+  AbsorbAudio();
   machine_.PowerOn();
   ClearOutput();
 }
 
 bool Session::WakeOnAlarm() {
+  AbsorbAudio();
   if (!machine_.WakeOnAlarm()) return false;
   ClearOutput();
   return true;
+}
+
+void Session::CheckWatches() {
+  // By index: a callback may add or remove a watch.
+  for (std::size_t index = 0; index < watches_.size(); ++index) {
+    const uint8_t now = Peek(watches_[index].address);
+    if (now == watches_[index].last) continue;
+    const uint8_t before = watches_[index].last;
+    watches_[index].last = now;
+    const auto changed = watches_[index].changed;
+    changed(before, now);
+  }
+}
+
+int Session::Watch(uint16_t address, std::function<void(uint8_t, uint8_t)> changed) {
+  const int handle = nextWatch_++;
+  watches_.push_back({handle, address, Peek(address), std::move(changed)});
+  return handle;
+}
+
+void Session::Unwatch(int handle) {
+  std::erase_if(watches_, [handle](const Watcher& w) { return w.handle == handle; });
+}
+
+bool Session::Run(Budget budget) {
+  const Deadline deadline = Start(budget);
+  while (!Expired(deadline))
+    if (!Step() && machine_.powered_off()) return false;
+  return true;
+}
+
+bool Session::TryWaitUntil(const std::function<bool()>& done, Budget budget) {
+  const Deadline deadline = Start(budget);
+  while (!Expired(deadline)) {
+    if (done()) return true;
+    if (!Step() && machine_.powered_off()) break;
+  }
+  return done();
+}
+
+void Session::WaitUntil(const std::function<bool()>& done, Budget budget,
+                        std::string_view what) {
+  const uint64_t since = machine_.cycles();
+  if (!TryWaitUntil(done, budget)) Fail(std::string(what), since);
+}
+
+std::vector<int16_t> Session::TakeAudio() {
+  AbsorbAudio();
+  std::vector<int16_t> out;
+  out.swap(audio_);
+  return out;
+}
+
+RecordingMark Session::StartRecording() {
+  AbsorbAudio();
+  ++activeRecordings_;
+  return {speechLog_.size(), consoleLog_.size(),
+          recordAudioBase_ + recordAudio_.size()};
+}
+
+Recording Session::StopRecording(const RecordingMark& mark) {
+  AbsorbAudio();
+  Recording out;
+  out.speech.assign(speechLog_.begin() + mark.speech, speechLog_.end());
+  out.console.assign(consoleLog_.begin() + mark.console, consoleLog_.end());
+  const std::size_t from = mark.audio - recordAudioBase_;
+  out.audio.assign(recordAudio_.begin() + from, recordAudio_.end());
+  if (--activeRecordings_ == 0) {
+    recordAudioBase_ += recordAudio_.size();
+    recordAudio_.clear();
+  }
+  return out;
 }
 
 bool Session::TryPowerOff(Budget budget) {
@@ -231,7 +335,8 @@ bool Session::TryWaitIdle(Budget budget, Quiet quiet,
   uint64_t console = consoleTotal_;
   uint64_t speech = speechTotal_;
   while (!Expired(deadline)) {
-    const bool spoke = quiet == Quiet::kConsoleAndSpeech && speechTotal_ != speech;
+    const bool spoke = quiet == Quiet::kConsoleAndSpeech &&
+                       (speechTotal_ != speech || Speaking());
     if (consoleTotal_ != console || spoke) lastOut = machine_.cycles();
     console = consoleTotal_;
     speech = speechTotal_;
@@ -258,7 +363,7 @@ bool Session::TryWaitSilent(Budget budget, std::chrono::microseconds window) {
   uint64_t speech = speechTotal_;
   uint8_t dac = machine_.debug_dac();
   while (!Expired(deadline)) {
-    if (consoleTotal_ != console || speechTotal_ != speech ||
+    if (consoleTotal_ != console || speechTotal_ != speech || Speaking() ||
         machine_.debug_dac() != dac)
       lastOut = machine_.cycles();
     console = consoleTotal_;
