@@ -2325,6 +2325,10 @@ Zmerané po oprave:
 - Tempo znelky, `seq 20000000 kC6 spin:2000000`: pred opravou 100 994 obehov
   `10E5D` na 37 012 prerušení (2,729), po nej 100 971 na 37 012 (2,728).
   Závery 6.10 platia ďalej.
+  **Doplnené 24. 9. 2026:** tieto čísla platia pre stav **pred** čakacími
+  stavmi `TMDR0L` (`4b43c76`, 20. 9. 2026, 6.10). Od nich je to **97 850 na
+  37 343 (2,620)** a to je súčasné meradlo; zmerané pri `4b43c76^` aj pri
+  `4b43c76` (viď dodatok k 6.43).
 
 **Od 22. 9. 2026 to drží test** (`ea4-q6x`, viď 6.42). Dovtedy platilo, že
 opravu nedrží nič a že by sa vrátenie chyby nepoznalo — to už neplatí. Platí
@@ -3153,6 +3157,21 @@ z 12. 9. 2026 (100 971 / 37 012). Meraním vyššie je doložené, že to **nesp
 medzi 12. 9. a 22. 9., a kandidátmi sú zásahy 6.34 až 6.38. Testy `hudba`
 aj `zvuk` prechádzajú, takže to nie je zlomené; ale 6.10 stavia na tempe znelky
 ako na meradle, takže by sa to malo dohľadať.
+
+**Vysvetlené 24. 9. 2026 (`ea4-9dt` zavretý): nie je to regresia, je to
+kalibrácia tempa.** Kandidáti vyššie boli určení zle — medzi 12. 9. a 22. 9.
+prišli aj tri čakacie stavy `TMDR0L` (`4b43c76`, 20. 9. 2026), ktoré podľa
+6.10 posunuli znelku zo 3,9 % rýchlejšej na 0,2 % od nahrávky skutočného
+stroja. Menej obehov čakacej slučky na prerušenie je presne to spomalenie,
+a viac prerušení na 20 miliónov inštrukcií je ten istý dôvod z druhej strany.
+Zmerané tou istou sekvenciou:
+
+- `4b43c76^`: 100 891 na 37 014 (2,726).
+- `4b43c76`: 97 850 na 37 343 (2,620) — pokles o 3,9 %.
+- `c3fc9db` (HEAD 24. 9.): 97 850 na 37 343, do obehu to isté.
+
+Zvyšných 80 obehov medzi číslom 6.33 (100 971) a `4b43c76^` je 0,08 %
+a pochádza zo zásahov medzi 12. a 20. 9.; neskúmalo sa to ďalej.
 
 ### 6.44 Firmvér pamäť na 40000h–6FFFFh nepoužíva — RAM4B testuje anglické rozloženie
 
