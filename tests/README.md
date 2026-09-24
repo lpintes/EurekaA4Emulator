@@ -253,11 +253,14 @@ them on the same diskette.
   `eureka.md`), above all its waiting: a recording of F10 holds "hlavní menu"
   and sound, a watch sees the speech flag at C621h go up and down, a recording
   across a reset keeps both sides, and a wait that runs out throws with what
-  was heard.  The one that matters most: after F2 the clock says the hour and,
-  a second later, the minutes, and `WaitIdle` has to wait for both -- a wait
-  that counts only new speech bytes ends between them, because a sentence
-  arrives all at once and then takes a second to say.  Verified by mutation:
-  with `Speaking()` taken out of `WaitIdle` the mode fails on the minutes.
+  was heard.  `WaitIdle` asks the firmware whether it is waiting for a key:
+  the key check at physical 18675h has run without a break for 20 ms and
+  C677h is zero (`WaitingForKey`).  The two that matter most: F10 right after
+  Escape out of the clock -- the machine says "ahoj" and then sits in a delay
+  loop for over half a second before the Main Menu's tones, and a key sent in
+  that gap is lost -- and the hour *and* the minutes after F2.  Verified by
+  mutation: judging by console silence instead fails both, and dropping the
+  20 ms run fails the first.
 
 The test disk folder must contain a native Eureka `READ.COM` and `BEEP.BAS`.
 A genuine `READ.COM` ships with the Technical Manual's development disk, which

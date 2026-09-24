@@ -323,10 +323,13 @@ prejde bez zamrmlania, preto je tento test samostatný.
 Režim `session` drží **`EurekaSession`** (`tests/eureka_session.*`, návrh
 v `eureka.md`), hlavne jej čakanie. To je najkrehkejšia časť vrstvy a najtichšia:
 `WaitIdle`, ktorý prestane počúvať syntezátor, pokazí každý scenár nad sebou
-a chyba sa potom hľadá v hodinách alebo v disketách, nie v čakaní. Rozhodujúca
-kontrola je F2: hodiny povedia hodinu a o sekundu minúty, a čakanie, ktoré ráta
-len nové bajty reči, skončí medzi nimi — veta príde naraz a potom sa sekundu
-hovorí (`Speaking()`, `C621h`). Overené mutáciou.
+a chyba sa potom hľadá v hodinách alebo v disketách, nie v čakaní. `WaitIdle`
+sa pýta firmvéru, či čaká na kláves — kontrola klávesu na fyzickej `18675h`
+beží bez prestávky aspoň 20 ms a `C677h` je nula (`WaitingForKey`). Ticho to
+povedať nevie: po Escape z hodín je medzi „ahoj“ a znelkou menu vyše pol
+sekundy oneskorovacej slučky a kláves poslaný vtedy sa stratí. Rozhodujúce
+kontroly sú F10 hneď po tom Escape a hodina aj minúty po F2. Overené
+mutáciou: návrat k tichu konzoly aj zrušenie 20 ms behu režim zhodia.
 
 `settings_test` beží tiež bez ROM a v `%TEMP%`. Drží formát súboru
 s nastaveniami a hlavne to, že cesta s diakritikou prežije zápis aj čítanie.

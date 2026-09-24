@@ -144,6 +144,8 @@ prechode do menu — v režime `session` sa takto stratilo F10. Sonda to
 ukáže tiež: po `s01` vráti prvá `.` prázdno, až druhá znelku. Scenár si
 tu musí pomôcť sám (`WaitSaid("ahoj")` a potom `WaitIdle` s oknom 2 s);
 natrvalo by to vyriešilo „čaká na kláves“ podľa PC, viď nižšie.
+*Vyriešené v ten istý deň, obchádzka z režimu `session` zmizla — viď
+„Čakanie na kláves“.*
 
 Niektoré odpovede sú dlhé: F11 prečíta všetkých päť ROM s dátumami
 a trvá dlhšie než predvolených 10 s `WaitIdle`. To nie je chyba čakania —
@@ -153,6 +155,50 @@ Možné vylepšenie neskôr: zoznam adries čakacích slučiek na kláves
 a `WaitIdle` ako „PC je v jednej z nich“. Bolo by to skutočné „čaká na
 kláves“ namiesto odhadu, ale každá aplikácia môže mať vlastnú slučku
 a jedna zabudnutá by sa neprezradila.
+
+**Doplnené 24. 9. 2026 — urobené, a `WaitIdle` už nestojí na tichu.**
+Odseky vyššie o tom, že `WaitIdle` počúva konzolu a reč a ráta čas, kým
+syntezátor hovorí (`Speaking()`), **pre testy už neplatia**: medzeru po
+„ahoj“ ticho rozlíšiť nevedelo. Režim s rečou (`kConsoleAndSpeech`) je
+preč; `WaitIdle` sa predvolene pýta firmvéru (`Quiet::kKeyPrompt`), sonda
+ostáva na tichu konzoly (`Quiet::kConsole`). `Speaking()` zostáva pre
+`WaitSilent` a na priamu otázku. Viac nižšie v „Čakanie na kláves“.
+
+### Čakanie na kláves (24. 9. 2026)
+
+Zmerané subagentom na bežiacej ROM (pracovné poznámky
+v `build\keywait\progress.md`, mimo gitu). Obava zo zoznamu slučiek sa
+potvrdila — hodiny rozdeľovač udalostí vôbec nepoužívajú — ale riešenie
+je jedna adresa, nie zoznam:
+
+- Blokujúci rozdeľovač udalostí je `19B41`–`19B6C`, neblokujúci dopyt
+  `19B6D`–`19B94`; hodiny volajú ten druhý zo svojej slučky (`0DFB3`).
+- Oba volajú **kontrolu klávesu na fyzickej `18675h`** (logicky `D675h`,
+  slot 2 tabuľky kontrol na `EBDDh`), ktorá číta udalosť klávesu
+  v `C677h`. Kým stroj čaká, beží každých 0,3–0,5 ms (najdlhšia medzera
+  0,54 ms v hodinách).
+- Kým hovorí (`00213`–`00236`), formátuje, bootuje alebo sedí
+  v oneskorovacej slučke `19CD9`–`19CEC` po „ahoj“, nebeží vôbec.
+  Najdlhší falošný beh mimo čakania bol 4,6 ms (prechod rozdeľovačom hneď
+  po Escape).
+
+Predikát `WaitingForKey()`: kontrola bežala bez medzery dlhšej než 2 ms
+aspoň 20 ms, `C677h` je 0 a v strojových frontách nie je kláves.
+Pravda v hlavnom menu, v hodinách po dohovorení, na otázke formátovania,
+v BASICu, v READ.COM a v záznamníku; nepravda počas reči, formátovania,
+štartu, v medzere po „ahoj“ a počas tónov menu. Overené posielaním
+klávesov: F10 v okamihu, keď predikát začne platiť po Escape, povie
+„hlavní menu“; F10 300 ms po „ahoj“ sa stratí.
+
+V režime `session` overené mutáciou: návrat k tichu konzoly zhodí minúty
+po F2 aj F10 po Escape; zrušenie 20 ms behu zhodí F10 po Escape.
+Podmienka na strojové fronty je len poistka — bez nej režim prejde aj
+s písaním riadku, ROM má kláves v `C677h` do 20 ms.
+
+Výhrady: nezmerané pri súvislom čítaní a pri programe v BASICu, ktorý sa
+pýta na kláves (`INKEY`) — tam môže ROM kontrolovať klávesy uprostred
+práce a predikát by platil, hoci stroj niečo robí (kláves by však prijal).
+Vstup zo sériového portu a fronty `C510`/`C59A` predikát nesleduje.
 
 ### Čas: emulovaný, v `std::chrono` (24. 9. 2026)
 
@@ -316,6 +362,13 @@ s tým, čo sa počulo. Overené mutáciou: bez `Speaking()` vo `WaitIdle`
 režim padne s „WaitIdle nepockal na minuty po F2: "21 HODINA."“.
 `run-tests.bat` má odteraz **19** riadkov `PASS` (17 bez manuálu);
 CLAUDE.md a `tests/README.md` opravené.
+
+*Doplnené v ten istý deň:* mutácia so `Speaking()` sa už nedá zopakovať —
+`WaitIdle` sa pýta firmvéru (viď „Čakanie na kláves“). Pribudla kontrola,
+že F10 hneď po Escape z hodín povie „hlavní menu“, a obchádzka s 2 s
+oknom zmizla. Platné mutácie sú dnes dve: ticho konzoly namiesto kontroly
+klávesu (padnú minúty po F2 aj F10 po Escape) a zrušený 20 ms beh (padne
+F10 po Escape).
 
 Zostáva: preniesť dve alebo tri existujúce scenárové kontroly
 z `integration_test` na session a pri jednej overiť mutáciou, že chytá,

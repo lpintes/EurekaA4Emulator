@@ -74,14 +74,20 @@ class Budget {
   uint64_t amount_;
 };
 
-// What a wait for the machine to be idle listens to.  The probe's "." has
-// always watched the console alone, and keeps doing so; the speech trails the
-// work by seconds, though, so a wait that ignores it can end before the
-// machine has finished talking (eureka.md: after F2, "." ends between the hour
-// and the minutes).  kConsoleAndSpeech counts new speech *and* the time the
-// synthesiser spends saying it (Speaking()): a sentence arrives all at once
-// and then takes a second to say.
-enum class Quiet { kConsole, kConsoleAndSpeech };
+// How a wait decides that the machine is idle.
+//
+// kKeyPrompt asks the firmware: the machine is waiting for a key when the ROM
+// keeps checking for one (WaitingForKey).  Silence could not tell that: after
+// Escape out of the clock the machine says "ahoj", is silent for more than
+// half a second in a delay loop, and only then plays the Main Menu's tones --
+// a key sent in that gap is lost (eureka.md).
+//
+// kConsole is the probe's "." as it always was: half a second without new
+// console output.  The speech trails it, so it can end before the machine
+// has finished talking (after F2, between the hour and the minutes); kept
+// because the probe's output must not change under the commands written
+// down in HANDOFF.md.
+enum class Quiet { kConsole, kKeyPrompt };
 
 class Failure : public std::runtime_error {
  public:
@@ -188,13 +194,10 @@ class Session {
   // Just runs for `budget`.  False if the machine switched itself off first.
   bool Run(Budget budget);
 
-  // Until nothing new has appeared for `window`.  The first three seconds
-  // after a reset do not count as quiet: the machine is silent while it boots.
-  // A switched-off machine is asked once whether its alarm wakes it.
-  bool TryWaitIdle(Budget budget, Quiet quiet = Quiet::kConsoleAndSpeech,
-                   std::chrono::microseconds window = 500ms);
-  void WaitIdle(Budget budget = 10s, Quiet quiet = Quiet::kConsoleAndSpeech,
-                std::chrono::microseconds window = 500ms);
+  // Until the machine is idle as `quiet` says.  A switched-off machine is
+  // asked once whether its alarm wakes it, and counts as idle.
+  bool TryWaitIdle(Budget budget, Quiet quiet = Quiet::kKeyPrompt);
+  void WaitIdle(Budget budget = 10s, Quiet quiet = Quiet::kKeyPrompt);
   // As TryWaitIdle, and the loudspeaker has not moved either: the DAC's value,
   // not its writes, which the tone generator makes on every interrupt even in
   // a silence.
@@ -226,6 +229,10 @@ class Session {
   uint8_t Peek(uint16_t address) const { return machine_.debug_peek(address); }
   // Whether the synthesiser is in the middle of saying something (C621h).
   bool Speaking() const;
+  // Whether the machine is waiting for a key: for the last 20 ms the ROM has
+  // been checking for one without a break, and none is pending.  Measured
+  // 24. 9. 2026 (eureka.md, "Čakanie na kláves").
+  bool WaitingForKey() const;
   // Calls `changed(before, now)` after every instruction that left a different
   // value at `address`.  Checked between instructions, so a value one
   // instruction writes and the next one puts back goes unseen -- the
@@ -311,6 +318,11 @@ class Session {
   membrane::Keys held_;
   DiskStash stash_;
   int currentSlot_ = 0;  // 0: the diskette in the drive belongs to no slot
+  // The ROM's key check: when it last ran, and since when it has been running
+  // without a break.  Cleared by a power-up.
+  bool keyChecked_ = false;
+  uint64_t keyCheckLast_ = 0;
+  uint64_t keyCheckSince_ = 0;
   std::chrono::seconds clockShift_{0};
 };
 

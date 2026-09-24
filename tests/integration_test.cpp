@@ -2252,13 +2252,19 @@ bool CheckSession(EurekaMachine& machine) {
     });
     expect(time.Heard("HODIN") && time.Heard("MINUT"),
            ("WaitIdle nepockal na minuty po F2: \"" + time.Said() + "\"").c_str());
-    // Escape out of the clock says "ahoj", then falls silent for more than
-    // half a second, and only then plays the Main Menu's two tones.  A default
-    // WaitIdle ends in that gap and the next key is lost on the way into the
-    // menu (eureka.md) -- so a longer window here.
+    // Escape out of the clock says "ahoj", then sits in a delay loop for more
+    // than half a second, and only then plays the Main Menu's two tones.  A
+    // key sent in that gap is lost, and a wait that judged by silence ended
+    // in it.  WaitIdle asks the ROM whether it is checking for a key, so the
+    // F10 below has to be heard (eureka.md, "Čakanie na kláves").
     eureka.Pc(pc::Esc);
-    eureka.WaitSaid("ahoj");
-    eureka.WaitIdle(10s, Quiet::kConsoleAndSpeech, 2s);
+    eureka.WaitIdle();
+    const Recording back = eureka.Record([&] {
+      eureka.Press(keys::F10);
+      eureka.WaitIdle();
+    });
+    expect(back.Heard("hlavní menu"),
+           ("po Escape z hodin sa F10 stratil: \"" + back.Said() + "\"").c_str());
 
     // A recording across a reset keeps both sides of it.
     const RecordingMark mark = eureka.StartRecording();

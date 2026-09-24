@@ -87,11 +87,52 @@ namespace {
 // hour and the minutes of the clock's announcement.
 constexpr uint16_t kSpeaking = 0xc621;
 
+// The ROM's "is there a key?" check (logical D675h, slot 2 of the check table
+// at EBDDh).  Both ways the firmware waits for input run through it: the
+// blocking event dispatcher at 19B41-19B6C and the non-blocking poll at
+// 19B6D-19B94 that the clock application calls from its own loop instead.
+// While the machine waits it runs every 0.3-0.5 ms; while it speaks, formats,
+// boots, or sits in the delay loop at 19CD9-19CEC after "ahoj", it does not
+// run at all.  The PC alone cannot say this -- the clock never enters the
+// dispatcher.  Measured 24. 9. 2026 by sending keys: F10 at the moment this
+// holds after Escape out of the clock says "hlavní menu"; 300 ms after "ahoj"
+// it is lost without a word (eureka.md).
+constexpr uint32_t kKeyCheck = 0x18675;
+// The key event the check looks at; non-zero while a key waits to be taken.
+// SYSRAM.A does not name it; D675h reads it.
+constexpr uint16_t kKeyPending = 0xc677;
+// Longest gap between two checks in a real wait was 0.54 ms (the clock), and
+// the longest run of checks outside one 4.6 ms (a pass through the dispatcher
+// right after Escape): hence 2 ms and 20 ms.
+constexpr std::chrono::microseconds kKeyCheckGap = 2ms;
+constexpr std::chrono::microseconds kKeyCheckRun = 20ms;
+
 }  // namespace
 
 bool Session::Speaking() const { return Peek(kSpeaking) == 0xff; }
 
+bool Session::WaitingForKey() const {
+  // A key still in the machine's queues counts as pending too.  A safeguard,
+  // not a measured need: a press lasts 120 ms (kPressMs), but the ROM has the
+  // key in C677h well within the 20 ms below, and a typed line goes in faster
+  // than that too -- with this line taken out, the session mode still passes,
+  // typing included (24. 9. 2026).  Kept because it costs nothing and a
+  // slower delivery path would otherwise end a wait before its key landed.
+  if (machine_.queued_keys() != 0) return false;
+  if (!keyChecked_ || Peek(kKeyPending) != 0) return false;
+  const uint64_t now = machine_.cycles();
+  return now - keyCheckLast_ <= Budget::CyclesOf(kKeyCheckGap) &&
+         keyCheckLast_ - keyCheckSince_ >= Budget::CyclesOf(kKeyCheckRun);
+}
+
 bool Session::Step() {
+  if (machine_.physical_pc() == kKeyCheck) {
+    const uint64_t now = machine_.cycles();
+    if (!keyChecked_ || now - keyCheckLast_ > Budget::CyclesOf(kKeyCheckGap))
+      keyCheckSince_ = now;
+    keyChecked_ = true;
+    keyCheckLast_ = now;
+  }
   const bool running = machine_.Step();
   Absorb();
   if (!watches_.empty()) CheckWatches();
@@ -128,6 +169,7 @@ void Session::ClearOutput() {
   speech_.clear();
   console_.clear();
   audio_.clear();
+  keyChecked_ = false;
 }
 
 void Session::Reset() {
@@ -320,26 +362,32 @@ bool Session::Expired(const Deadline& deadline) const {
                                : machine_.cycles() >= deadline.limit;
 }
 
-// The probe's RunUntilPrompt, which this replaces, word for word in what it
-// does: step 1 must leave the probe's output unchanged (eureka.md).
-bool Session::TryWaitIdle(Budget budget, Quiet quiet,
-                          std::chrono::microseconds window) {
+bool Session::TryWaitIdle(Budget budget, Quiet quiet) {
   const Deadline deadline = Start(budget);
-  const uint64_t still = Budget::CyclesOf(window);
-  const uint64_t booted = EurekaMachine::kCpuHz * 3;
-  uint64_t lastOut = machine_.cycles() > booted ? machine_.cycles() : booted;
   // The clock chip's own supply never cuts, so a switched-off machine can
   // still wake itself: checked once per call, the same poll the run loop does
   // every ~2ms.
   if (machine_.powered_off()) WakeOnAlarm();
+  if (quiet == Quiet::kKeyPrompt) {
+    // Whatever the check saw before this call is history: the key that was
+    // just queued has not been looked at yet.
+    keyChecked_ = false;
+    while (!Expired(deadline)) {
+      if (WaitingForKey()) return true;
+      if (!Step() && machine_.powered_off()) return true;
+    }
+    return false;
+  }
+  // The probe's RunUntilPrompt, word for word in what it does: the probe's
+  // output must not change (eureka.md, step 1).  The first three seconds after
+  // a reset do not count as quiet -- the machine is silent while it boots.
+  const uint64_t still = EurekaMachine::kCpuHz / 2;
+  const uint64_t booted = EurekaMachine::kCpuHz * 3;
+  uint64_t lastOut = machine_.cycles() > booted ? machine_.cycles() : booted;
   uint64_t console = consoleTotal_;
-  uint64_t speech = speechTotal_;
   while (!Expired(deadline)) {
-    const bool spoke = quiet == Quiet::kConsoleAndSpeech &&
-                       (speechTotal_ != speech || Speaking());
-    if (consoleTotal_ != console || spoke) lastOut = machine_.cycles();
+    if (consoleTotal_ != console) lastOut = machine_.cycles();
     console = consoleTotal_;
-    speech = speechTotal_;
     if (machine_.cycles() > lastOut + still) return true;
     // A machine that touched pwr_stb has stopped for good: the counters
     // freeze, so the budget would never run out.
@@ -348,9 +396,9 @@ bool Session::TryWaitIdle(Budget budget, Quiet quiet,
   return false;
 }
 
-void Session::WaitIdle(Budget budget, Quiet quiet, std::chrono::microseconds window) {
+void Session::WaitIdle(Budget budget, Quiet quiet) {
   const uint64_t since = machine_.cycles();
-  if (!TryWaitIdle(budget, quiet, window)) Fail("WaitIdle", since);
+  if (!TryWaitIdle(budget, quiet)) Fail("WaitIdle", since);
 }
 
 bool Session::TryWaitSilent(Budget budget, std::chrono::microseconds window) {
