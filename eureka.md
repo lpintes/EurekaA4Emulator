@@ -248,6 +248,29 @@ a testy nerozišli v tom, ako sa kláves volá.
 Obmedzenie: text zostáva reťazec. Znak, ktorý sa na klávesnici Eureky
 napísať nedá, sa prezradí až za behu — výnimkou, nie ticho.
 
+### Reč sa vypisuje s diakritikou, porovnáva bez nej (24. 9. 2026)
+
+Dnešné `Readable` v sonde reč len zbavuje diakritiky, a to **chybne**:
+jeho tabuľka pre `80h`–`ABh` má o znak viac, než má, a od istého miesta
+je posunutá — `ř` (`A9h`) vychádza ako `s`, „Přeformátovat“ ako
+„Pseformatovat“. Správny dekodér projekt má (`DecodeKamenicky`
+v `src/text_codec`) a sonda ho má zlinkovaný.
+
+- **Výpis** (sonda, výnimka, záznam): `DecodeKamenicky` → UTF-8, text
+  s diakritikou. Konzola to znesie, správa diagnostiky sa tak vypisuje
+  už dnes.
+- **Porovnávanie** (`?text`, `WaitSaid`): diakritiky sa zbaví **oboje**,
+  počuté aj hľadané. `?vlož` aj `?vloz` nájdu „vlož“, staré príkazy
+  v HANDOFF platia ďalej a pravidlo „porovnávaj len ASCII kúsky“
+  z CLAUDE.md prestane byť potrebné.
+- **Riadiace sekvencie syntezátora** (`!%t154/50*5!%t230` — dva tóny po
+  resete) sa vypisujú ďalej. Sú to tiež reč: syntezátor ich premení na
+  zvuk ako všetko ostatné.
+- **Poradie:** samostatný krok **po** refaktore sondy (krok 1b).
+  Refaktor musí najprv dať bajtovo zhodný výstup s referenciou; potom sa
+  referencia vyrobí znova a v rozdiele smú byť len riadky s rečou.
+  Obe zmeny naraz by porovnanie znehodnotili.
+
 ## Otvorené otázky
 
 1. ~~Čo je ticho.~~ Rozhodnuté vyššie.
@@ -260,7 +283,31 @@ napísať nedá, sa prezradí až za behu — výnimkou, nie ticho.
 5. ~~Mená klávesov.~~ Rozhodnuté vyššie: enumy, typ podľa cesty.
 6. ~~Rozpočty.~~ Rozhodnuté vyššie: emulovaný čas v `std::chrono`.
 
-## Krok 1 — sonda nad `EurekaSession` (implementačné detaily, návrh)
+## Krok 1 — sonda nad `EurekaSession`
+
+**Stav 24. 9. 2026: časť A hotová.** V kóde: `tests/eureka_keys.h`,
+`tests/eureka_session.h` a `.cpp`, sonda prepojená, `SESSION_OBJS`
+v `Makefile`. Cez session idú všetky kroky stroja, reset, zapnutie,
+zobudenie budíkom, čakania (`.`, `?`, `@`), klávesy (`kXX` a `sXX` cez
+`Raw`), text a celá rodina `+b…`/`-b`. Overenie: všetkých desať
+sekvencií `tests/probe_golden.sh` je bajtovo zhodných s referenciou;
+`sweep` a `trace` aj tokeny `cas:`/`budik` sú zhodné so starou sondou
+zostavenou z gitu (pri hodinách sa líšili len sekundy hostiteľa medzi
+dvoma behmi); `run-tests.bat` 18× PASS.
+
+Zostáva (časť B): diskety a zásobník (`settleForSwap`, `DiskStash`,
+`slot1`/`slot2`, `nova`, `vysun`, `ram`, `folder`, `mount:`, `+wp`),
+posun hodín (`rtcShift`) a posuvníky — zatiaľ ich sonda robí priamo
+nad strojom. Na bufferoch to nezáleží (nič z toho ich nečistí ani
+nekrokuje mimo session), preto to mohlo počkať.
+
+Dve odchýlky od pôvodného kódu, ktoré referencia nezachytí, lebo ležia
+na hrane rozpočtu: `?text`, ktorý text dostane práve poslednou
+inštrukciou rozpočtu, sa teraz ohlási ako nájdený (predtým `NEDOCKAL
+SA`); a `@TEXT`, ktorý text nájde ešte pred prvou inštrukciou, zahodí
+nahromadený zvuk (predtým nie).
+
+Pôvodný návrh nasleduje.
 
 Cieľ kroku: session existuje, sonda ju používa a **výstup sondy sa
 nezmenil ani o bajt**. Nič nové sa v tomto kroku správať inak nesmie;
@@ -360,6 +407,7 @@ ručne v jednej minúte.
 1. Vytiahnuť zo sondy vstup a čakanie do `EurekaSession`, sondu na ňu
    prepojiť. Merítko: výstup sondy na niekoľkých známych sekvenciách je
    bajt na bajt rovnaký ako predtým.
+   Potom krok 1b: reč s diakritikou (viď Rozhodnuté).
 2. Pridať záznam a sledovanie pamäte.
 3. Preniesť dve alebo tri scenárové kontroly z `integration_test` ako
    ukážku; aspoň pri jednej mutáciou overiť, že stále chytá, čo chytala.

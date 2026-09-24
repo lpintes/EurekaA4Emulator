@@ -56,6 +56,9 @@ EMU_OBJS   := $(addprefix $(BUILD)/,$(addsuffix .o,$(EMU_NAMES))) \
 CORE_OBJS  := $(BUILD)/machine.o $(BUILD)/md5.o $(BUILD)/virtual_disk.o \
               $(BUILD)/cpm_disk.o $(BUILD)/disk_stash.o \
               $(BUILD)/diagnostics.o $(BUILD)/text_codec.o $(BUILD)/z80.o
+# Testovacia vrstva nad strojom (eureka.md). Zije v tests/, lebo GUI ju
+# nepotrebuje.
+SESSION_OBJS := $(BUILD)/test_eureka_session.o
 
 EMU        := $(BIN)/EurekaA4Emulator.exe
 TEST_EXES  := $(BIN)/codec_test.exe $(BIN)/disk_test.exe \
@@ -134,7 +137,7 @@ $(BIN)/settings_test.exe: $(BUILD)/test_settings_test.o $(BUILD)/settings.o | $(
 $(BIN)/zex_test.exe: $(BUILD)/test_zex_test.o $(BUILD)/z80.o | $(BIN)
 	$(CXX) $(STATIC) -o $@ $^
 
-$(BIN)/diag_probe.exe: $(BUILD)/test_diag_probe.o $(CORE_OBJS) | $(BIN)
+$(BIN)/diag_probe.exe: $(BUILD)/test_diag_probe.o $(SESSION_OBJS) $(CORE_OBJS) | $(BIN)
 	$(CXX) $(STATIC) -municode -o $@ $^
 
 $(BIN)/integration_test.exe: $(BUILD)/test_integration_test.o $(CORE_OBJS) | $(BIN)

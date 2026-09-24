@@ -51,7 +51,7 @@
 #include <vector>
 
 #include "disk_stash.h"
-#include "eureka_io.h"
+#include "eureka_session.h"
 #include "machine.h"
 #include "virtual_disk.h"
 
@@ -74,45 +74,17 @@ std::string Utf8(const std::wstring& text) {
   return out;
 }
 
-// Speech text is Kamenicky; fold it to plain ASCII so the report stays legible
-// whatever the console codepage happens to be.
-std::string Readable(const std::vector<uint8_t>& bytes) {
-  static const char* kHigh =
-      "CueDaDTcePILlrAAEzZooOuUyOUSLYRtaiouna UOsrrR";
-  std::string out;
-  for (uint8_t byte : bytes) {
-    if (byte >= 0x20 && byte < 0x7f) out.push_back(static_cast<char>(byte));
-    else if (byte >= 0x80 && byte < 0xac) out.push_back(kHigh[byte - 0x80]);
-    else out.push_back('.');
-  }
-  return out;
-}
+using eureka::Readable;
 
-// Runs until the machine goes quiet or the budget is spent.  It used to run
-// until the BIOS blocked on console input, but the CPU is not parked there
-// any more -- the ROM waits for a key by spinning, as the hardware does --
-// so silence on the console is what "ready for the next key" looks like now.
-// Returns true if it stopped because the machine went quiet.
-bool RunUntilPrompt(EurekaMachine& machine, uint64_t budget) {
-  const uint64_t deadline = machine.instructions() + budget;
-  const uint64_t quiet = EurekaMachine::kCpuHz / 2;
-  // The machine is silent while it boots, so the first call must not take
-  // that for a prompt.
-  const uint64_t booted = EurekaMachine::kCpuHz * 3;
-  uint64_t lastOut = machine.cycles() > booted ? machine.cycles() : booted;
-  // The clock chip's own supply never cuts, so a switched-off machine can
-  // still wake itself: checked once per call, the same poll the run loop
-  // does every ~2ms, so a sequence of "." tokens (or "cas:" moving the RTC
-  // across the alarm) sees it the way an interactive session would.
-  if (machine.powered_off()) machine.WakeOnAlarm();
-  while (machine.instructions() < deadline) {
-    if (!machine.TakeConsoleOutput().empty()) lastOut = machine.cycles();
-    if (machine.cycles() > lastOut + quiet) return true;
-    // A machine that touched pwr_stb has stopped for good: the counters freeze,
-    // so the budget below would never run out and the probe would spin.
-    if (!machine.Step() && machine.powered_off()) return true;
-  }
-  return false;
+// Runs until the console has been quiet for half a second or the budget is
+// spent.  It used to run until the BIOS blocked on console input, but the CPU
+// is not parked there any more -- the ROM waits for a key by spinning, as the
+// hardware does.  The console alone, as it always was here: the speech trails
+// it, and listening for that too is EurekaSession's default, not the probe's
+// (eureka.md).  Returns true if it stopped because the machine went quiet.
+bool RunUntilPrompt(eureka::Session& session, uint64_t budget) {
+  return session.TryWaitIdle(eureka::Budget::Instructions(budget),
+                             eureka::Quiet::kConsole);
 }
 
 unsigned HexValue(wchar_t ch) {
@@ -144,14 +116,15 @@ int wmain(int argc, wchar_t** argv) {
     return 2;
   }
   machine->diagnostics().set_enabled(true);
+  eureka::Session session(*machine);
 
   if (mode == L"seq") {
-    machine->Reset();
-    if (!RunUntilPrompt(*machine, 8'000'000)) {
+    session.Reset();
+    if (!RunUntilPrompt(session, 8'000'000)) {
       std::printf("nedosiel na prompt\n");
       return 1;
     }
-    std::printf("start: %s\n", Readable(machine->TakeSpeechInput()).c_str());
+    std::printf("start: %s\n", Readable(session.TakeSpeech()).c_str());
     // The probe keeps diskettes the way the emulator does, so a sequence can
     // put the same one back in rather than a fresh copy of it -- which is the
     // difference the bulk copy turns on.
@@ -161,14 +134,6 @@ int wmain(int argc, wchar_t** argv) {
     // rather than read back from the machine because "cas:" tokens add up:
     // "cas:+7d cas:+1h" has to land a week and an hour on, not an hour on.
     int64_t rtcShift = 0;
-    // What the "+bN"/"-bN" family below has told HoldMembrane the fingers are
-    // doing.  Kept here, across tokens, because each of those tokens only
-    // flips one bit and HoldMembrane wants the whole row every time -- the
-    // same reason rtcShift is kept here rather than read back from the
-    // machine.
-    uint8_t heldRow0 = 0;
-    uint8_t heldRow1 = 0;
-    uint8_t heldRow2 = 0;
     // Cycle count at which the last typed line went in, for "@text" to
     // measure from.  Set only by a line that is followed by "@": any other
     // token runs until the machine falls quiet, and that wait would be
@@ -180,9 +145,9 @@ int wmain(int argc, wchar_t** argv) {
         // Wait without pressing anything: some answers arrive long after the
         // machine has gone quiet, and a key sent to fill the gap would be an
         // answer to a question that has not been asked yet.
-        const bool waited = RunUntilPrompt(*machine, budget);
+        const bool waited = RunUntilPrompt(session, budget);
         std::printf("%-10ls -> %s%s\n", token.c_str(),
-                    Readable(machine->TakeSpeechInput()).c_str(),
+                    Readable(session.TakeSpeech()).c_str(),
                     waited ? "" : "  [nezastavil sa na vstupe]");
         continue;
       }
@@ -195,16 +160,10 @@ int wmain(int argc, wchar_t** argv) {
         std::string wanted;
         for (wchar_t ch : token.substr(1))
           wanted.push_back(static_cast<char>(ch));
-        std::string heard;
-        const uint64_t deadline = machine->instructions() + budget;
-        bool found = false;
-        while (machine->instructions() < deadline && !found) {
-          heard += Readable(machine->TakeSpeechInput());
-          found = heard.find(wanted) != std::string::npos;
-          if (!found && !machine->Step() && machine->powered_off()) break;
-        }
-        heard += Readable(machine->TakeSpeechInput());
-        std::printf("%-10ls -> %s%s\n", token.c_str(), heard.c_str(),
+        const bool found =
+            session.TryWaitSaid(wanted, eureka::Budget::Instructions(budget));
+        std::printf("%-10ls -> %s%s\n", token.c_str(),
+                    Readable(session.TakeSpeech()).c_str(),
                     found ? "" : "  [NEDOCKAL SA]");
         continue;
       }
@@ -221,28 +180,18 @@ int wmain(int argc, wchar_t** argv) {
         std::string wanted;
         for (wchar_t ch : token.substr(1))
           wanted.push_back(static_cast<char>(ch == L'_' ? L' ' : ch));
-        std::string seen;
         uint64_t programCycles = 0;
-        const uint64_t deadline = machine->instructions() + budget;
-        bool found = false;
-        while (machine->instructions() < deadline && !found) {
-          seen += Readable(machine->TakeConsoleOutput());
-          found = seen.find(wanted) != std::string::npos;
-          if (found) break;
-          machine->TakeAudio();
-          const bool inProgram = machine->pc() < 0xc000 &&
-                                 machine->physical_pc() >= EurekaMachine::kRamBase;
-          const uint64_t before = machine->cycles();
-          if (!machine->Step() && machine->powered_off()) break;
-          if (inProgram) programCycles += machine->cycles() - before;
-        }
+        const bool found = session.TryWaitConsole(
+            wanted, eureka::Budget::Instructions(budget), &programCycles);
         const uint64_t elapsed = machine->cycles() - sentAt;
         std::printf("%-10ls -> [%llu cyklov = %.2f s, z toho v programe %.2f s] %s%s\n",
                     token.c_str(), static_cast<unsigned long long>(elapsed),
                     elapsed / double(EurekaMachine::kCpuHz),
-                    programCycles / double(EurekaMachine::kCpuHz), seen.c_str(),
+                    programCycles / double(EurekaMachine::kCpuHz),
+                    Readable(session.TakeConsole()).c_str(),
                     found ? "" : "  [NEDOCKAL SA]");
-        machine->TakeSpeechInput();
+        session.TakeAudio();
+        session.TakeSpeech();
         continue;
       }
       if (token.starts_with(L"spin:")) {
@@ -259,10 +208,10 @@ int wmain(int argc, wchar_t** argv) {
           for (auto& entry : seen)
             if (entry.first == at) { ++entry.second; found = true; break; }
           if (!found && seen.size() < 4096) seen.push_back({at, 1});
-          machine->TakeConsoleOutput();
-          machine->TakeAudio();
-          if (!machine->Step() && machine->powered_off()) break;
+          if (!session.Step() && machine->powered_off()) break;
         }
+        session.TakeConsole();
+        session.TakeAudio();
         std::sort(seen.begin(), seen.end(),
                   [](const auto& a, const auto& b) { return a.second > b.second; });
         std::printf("%-10ls -> [citani BIOSu +%llu, najcastejsie PC:",
@@ -295,17 +244,17 @@ int wmain(int argc, wchar_t** argv) {
           machine->PressPowerOffChord();
           const uint64_t deadline = machine->instructions() + budget;
           while (machine->instructions() < deadline && !machine->powered_off())
-            machine->Step();
+            session.Step();
         } else if (token == L"zapni") {
-          machine->PowerOn();
+          session.PowerOn();
         } else {
-          machine->Reset();
+          session.Reset();
         }
-        const bool blocked = RunUntilPrompt(*machine, budget);
+        const bool blocked = RunUntilPrompt(session, budget);
         std::printf("%-10ls -> [%s, C45Ah=%02X] %s%s\n", token.c_str(),
                     machine->powered_off() ? "vypnute" : "bezi",
                     machine->power_down_marker(),
-                    Readable(machine->TakeSpeechInput()).c_str(),
+                    Readable(session.TakeSpeech()).c_str(),
                     blocked ? "" : "  [nezastavil sa na vstupe]");
         continue;
       }
@@ -347,7 +296,7 @@ int wmain(int argc, wchar_t** argv) {
         // tick the strobe would on the hardware; report it here rather than
         // silently, since a sequence measuring the alarm needs to know
         // whether this token was the one that crossed it.
-        const bool woke = machine->powered_off() && machine->WakeOnAlarm();
+        const bool woke = machine->powered_off() && session.WakeOnAlarm();
         const auto now = machine->debug_rtc_now();
         std::printf("%-10ls -> [hodiny %02u.%02u.%02u %02u:%02u:%02u, posun %lld s%s]\n",
                     token.c_str(), unsigned(now[5]), unsigned(now[4]),
@@ -390,7 +339,7 @@ int wmain(int argc, wchar_t** argv) {
         uint64_t jumps[9] = {};  // by size, 32 apart
         uint64_t worst = 0;
         for (uint64_t step = 0; step < steps; ++step) {
-          if (!machine->Step() && machine->powered_off()) break;
+          if (!session.Step() && machine->powered_off()) break;
           if (machine->debug_dac_writes() == seen) continue;
           seen = machine->debug_dac_writes();
           const uint8_t now = machine->debug_dac();
@@ -425,7 +374,7 @@ int wmain(int argc, wchar_t** argv) {
         // nothing of the host's in it -- no device, no queue, no clock being
         // steered -- so a defect that survives into the file is in the model,
         // and one that does not is in the real time path (HANDOFF 6.37).
-        const std::vector<int16_t> samples = machine->TakeAudio();
+        const std::vector<int16_t> samples = session.TakeAudio();
         const std::wstring path = token.substr(4);
         FILE* out = _wfopen(path.c_str(), L"wb");
         if (!out) {
@@ -461,7 +410,7 @@ int wmain(int argc, wchar_t** argv) {
         // clicks and key echo of .spchar, and while it took .speak alone the
         // clock's whole announcement was missing from it; the samples cannot
         // be fooled that way.
-        const std::vector<int16_t> samples = machine->TakeAudio();
+        const std::vector<int16_t> samples = session.TakeAudio();
         int32_t low = 0;
         int32_t high = 0;
         for (int16_t sample : samples) {
@@ -495,11 +444,11 @@ int wmain(int argc, wchar_t** argv) {
       // swaps: mid-sector is the one moment a swap tears the image, and a
       // probe that ignored that would be measuring a machine the user can
       // never produce.
-      const auto settleForSwap = [&machine, budget] {
+      const auto settleForSwap = [&machine, &session, budget] {
         const uint64_t deadline = machine->instructions() + budget;
         while (machine->instructions() < deadline) {
           if (machine->DiskSwappable()) return true;
-          if (!machine->Step() && machine->powered_off()) return false;
+          if (!session.Step() && machine->powered_off()) return false;
         }
         return false;
       };
@@ -603,52 +552,39 @@ int wmain(int argc, wchar_t** argv) {
       // is built is exactly what a real "seq" run hears.
       if (token.size() >= 2 &&
           (token[0] == L'+' || token[0] == L'-')) {
+        namespace m = eureka::membrane;
+        static const std::pair<const wchar_t*, m::Keys> kNames[] = {
+            {L"b1", m::Dot1}, {L"b2", m::Dot2}, {L"b3", m::Dot3},
+            {L"b4", m::Dot4}, {L"b5", m::Dot5}, {L"b6", m::Dot6},
+            {L"bs", m::Space}, {L"bh", m::Shift},
+            {L"f1", m::F1}, {L"f2", m::F2}, {L"f3", m::F3}, {L"f4", m::F4},
+            {L"f5", m::F5}, {L"f6", m::F6}, {L"f7", m::F7}, {L"f8", m::F8},
+            {L"ku", m::Up}, {L"kd", m::Down}, {L"kl", m::Left},
+            {L"kr", m::Right}};
         const bool down = token[0] == L'+';
         const std::wstring rest = token.substr(1);
-        bool matched = true;
-        if (rest.size() == 2 && rest[0] == L'b' && rest[1] >= L'1' &&
-            rest[1] <= L'6') {
-          static const uint8_t kDots[] = {hw::kBkbDot1, hw::kBkbDot2,
-                                          hw::kBkbDot3, hw::kBkbDot4,
-                                          hw::kBkbDot5, hw::kBkbDot6};
-          const uint8_t bit = kDots[rest[1] - L'1'];
-          if (down) heldRow0 |= bit;
-          else heldRow0 &= static_cast<uint8_t>(~bit);
-        } else if (rest == L"bs") {
-          if (down) heldRow0 |= hw::kBkbSpace;
-          else heldRow0 &= static_cast<uint8_t>(~hw::kBkbSpace);
-        } else if (rest == L"bh") {
-          machine->HoldShift(down);
-        } else if (rest.size() == 2 && rest[0] == L'f' && rest[1] >= L'1' &&
-                  rest[1] <= L'8') {
-          const uint8_t bit = static_cast<uint8_t>(1u << (rest[1] - L'1'));
-          if (down) heldRow1 |= bit;
-          else heldRow1 &= static_cast<uint8_t>(~bit);
-        } else if (rest == L"ku" || rest == L"kd" || rest == L"kl" ||
-                  rest == L"kr") {
-          const uint8_t bit = rest == L"ku" ? 1 : rest == L"kd" ? 2
-                                              : rest == L"kl"    ? 4
-                                                                  : 8;
-          if (down) heldRow2 |= bit;
-          else heldRow2 &= static_cast<uint8_t>(~bit);
-        } else if (!down && rest == L"b") {
-          heldRow0 = heldRow1 = heldRow2 = 0;
-          machine->HoldShift(false);
-        } else {
-          matched = false;
+        bool matched = false;
+        if (!down && rest == L"b") {
+          session.ReleaseAll();
+          matched = true;
+        }
+        for (const auto& [name, keys] : kNames) {
+          if (matched || rest != name) continue;
+          if (down) session.Hold(keys);
+          else session.Release(keys);
+          matched = true;
         }
         if (matched) {
-          machine->HoldMembrane(heldRow0, heldRow1, heldRow2);
-          const bool blocked = RunUntilPrompt(*machine, budget);
+          const bool blocked = RunUntilPrompt(session, budget);
           std::printf("%-10ls -> %s%s\n", token.c_str(),
-                      Readable(machine->TakeSpeechInput()).c_str(),
+                      Readable(session.TakeSpeech()).c_str(),
                       blocked ? "" : "  [nezastavil sa na vstupe]");
           continue;
         }
       }
       if (token.size() == 3 && (token[0] == L'k' || token[0] == L'K')) {
-        machine->QueueKey(static_cast<uint8_t>(HexValue(token[1]) * 16 +
-                                               HexValue(token[2])));
+        session.Press(eureka::keys::Key::Raw(
+            static_cast<uint8_t>(HexValue(token[1]) * 16 + HexValue(token[2]))));
       } else if (token.size() == 3 && (token[0] == L's' || token[0] == L'S')) {
         // The same key over the PC keyboard's own wire, make and break.  It is
         // not the same thing as kXX: that one drops a finished key code into
@@ -656,10 +592,8 @@ int wmain(int argc, wchar_t** argv) {
         // 1DDB0/1DE47, which is also where speech is aborted (hardware-map).
         // Anything that behaves differently for a real keyboard than for an
         // injected code shows up as the difference between the two tokens.
-        const uint8_t code = static_cast<uint8_t>(HexValue(token[1]) * 16 +
-                                                  HexValue(token[2]));
-        machine->QueueScanCode(code);
-        machine->QueueScanCode(static_cast<uint8_t>(code | 0x80));
+        session.Pc(eureka::pc::Key::Raw(
+            static_cast<uint8_t>(HexValue(token[1]) * 16 + HexValue(token[2]))));
       } else {
         std::string text;
         for (wchar_t ch : token)
@@ -669,7 +603,7 @@ int wmain(int argc, wchar_t** argv) {
         // machine than the one the sequence asked for, and the answer printed
         // below would then be an answer to a question nobody posed.
         uint8_t unmapped = 0;
-        if (!machine->QueueText(text, &unmapped)) {
+        if (!session.TryType(text, &unmapped)) {
           std::printf("%-10ls -> [znak %02Xh nie je v tabulkach DF05, DF5E "
                       "ani DF98, nedal sa napisat]\n",
                       token.c_str(), unmapped);
@@ -679,15 +613,15 @@ int wmain(int argc, wchar_t** argv) {
         // once.  Waiting for quiet first would swallow the answer, or count
         // half a second of it twice.
         if (index + 1 < argc && argv[index + 1][0] == L'@') {
-          machine->TakeConsoleOutput();
+          session.TakeConsole();
           sentAt = machine->cycles();
           std::printf("%-10ls -> [odoslane]\n", token.c_str());
           continue;
         }
       }
-      const bool blocked = RunUntilPrompt(*machine, budget);
+      const bool blocked = RunUntilPrompt(session, budget);
       std::printf("%-10ls -> %s%s\n", token.c_str(),
-                  Readable(machine->TakeSpeechInput()).c_str(),
+                  Readable(session.TakeSpeech()).c_str(),
                   blocked ? "" : "  [nezastavil sa na vstupe]");
     }
   } else if (mode == L"sweep") {
@@ -695,19 +629,19 @@ int wmain(int argc, wchar_t** argv) {
     for (uint8_t code = 0xc0; code <= 0xc9; ++code) keys.push_back(code);
     for (uint8_t code = 0xd0; code <= 0xd9; ++code) keys.push_back(code);
     for (uint8_t key : keys) {
-      machine->Reset();
-      if (!RunUntilPrompt(*machine, 8'000'000)) {
+      session.Reset();
+      if (!RunUntilPrompt(session, 8'000'000)) {
         std::printf("klaves %02X: nedosiel na prompt\n", key);
         continue;
       }
-      machine->TakeSpeechInput();
-      machine->QueueKey(key);
+      session.TakeSpeech();
+      session.Press(eureka::keys::Key::Raw(key));
       for (int round = 0; round < 3; ++round) {
-        if (!RunUntilPrompt(*machine, budget)) break;
-        machine->QueueText("\x1b");
+        if (!RunUntilPrompt(session, budget)) break;
+        session.TryType("\x1b");
       }
       std::printf("klaves %02X: %s\n", key,
-                  Readable(machine->TakeSpeechInput()).c_str());
+                  Readable(session.TakeSpeech()).c_str());
     }
   } else if (mode == L"trace") {
     // Records every access to the floppy controller, the status port and the
@@ -724,13 +658,13 @@ int wmain(int argc, wchar_t** argv) {
         needle.push_back(static_cast<char>(ch));
     }
 
-    machine->Reset();
-    RunUntilPrompt(*machine, 8'000'000);
-    machine->TakeSpeechInput();
-    machine->QueueKey(0xd7);          // Shift+F8, format disk
-    RunUntilPrompt(*machine, budget);
-    std::string spoken = Readable(machine->TakeSpeechInput());
-    if (!machine->QueueText("Y")) {
+    session.Reset();
+    RunUntilPrompt(session, 8'000'000);
+    session.TakeSpeech();
+    session.Press(eureka::keys::Key::Raw(0xd7));         // Shift+F8, format disk
+    RunUntilPrompt(session, budget);
+    std::string spoken = Readable(session.TakeSpeech());
+    if (!session.TryType("Y")) {
       std::printf("nedalo sa napisat \"Y\"\n");
       return 1;
     }
@@ -740,20 +674,20 @@ int wmain(int argc, wchar_t** argv) {
          ++slice) {
       const uint64_t deadline = machine->instructions() + 5000;
       while (machine->instructions() < deadline) {
-        if (!machine->Step()) {
-          machine->QueueText("\x1b");
+        if (!session.Step()) {
+          session.TryType("\x1b");
           break;
         }
       }
-      spoken += Readable(machine->TakeSpeechInput());
+      spoken += Readable(session.TakeSpeech());
       found = spoken.find(needle) != std::string::npos;
     }
     std::printf("rec: %s\nhladane=\"%s\" najdene=%s\n", spoken.c_str(),
                 needle.c_str(), found ? "ano" : "NIE");
   } else {
-    machine->Reset();
-    RunUntilPrompt(*machine, 8'000'000);
-    std::printf("start: %s\n", Readable(machine->TakeSpeechInput()).c_str());
+    session.Reset();
+    RunUntilPrompt(session, 8'000'000);
+    std::printf("start: %s\n", Readable(session.TakeSpeech()).c_str());
   }
 
   std::printf("\ninstrukcii=%llu\n",
