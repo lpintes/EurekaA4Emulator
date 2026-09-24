@@ -182,9 +182,20 @@ check-settings: $(BIN)/settings_test.exe
 # vzorove pravidla na .PHONY cieloch nehlada, takze vsetkych sedem rezimov
 # zostalo bez receptu, make ich vyhlasil za splnene a run-tests.bat oznamil
 # uspech bez toho, aby cokolvek z nich bezalo.
+# ROM a DISK su v UVODZOVKACH, a nie je to kozmetika. Bez nich zavisi vyznam
+# cesty na tom, ktory shell si make vybral podla PATH: sh zozere spatne
+# lomky ako escape sekvencie, takze z `D:\b\a4rom.dmp` pride programu
+# `D:ba4rom.dmp` a test hlasi, ze nevie otvorit ROM -- vyzera to ako chyba
+# emulatora a nie je. Davky to doteraz obchadzali tym, ze cestu vopred
+# prepisali na lomky dopredu (`%A4ROM:\=/%`), lenze `mingw32-make` sa da
+# zavolat aj priamo, a hlavicka tohto suboru to vyslovne ponuka.
+# S uvodzovkami prejdu obe podoby cesty v oboch shelloch: sh ich odstrani
+# a backslash vnutri nich necha byt, cmd ich podava programu, kde ich zhodi
+# az parser argv z CRT. Odmerane 24. 9. 2026 na sh: sedemnast PASS s cestou
+# so spatnymi lomkami aj s cestou s lomkami dopredu.
 define CHECK_RULE
 check-$(1): $$(BIN)/integration_test.exe
-	$$(BIN)/integration_test.exe $$(ROM) $$(DISK) $(1)
+	$$(BIN)/integration_test.exe "$$(ROM)" "$$(DISK)" $(1)
 endef
 $(foreach m,$(MODES),$(eval $(call CHECK_RULE,$(m))))
 
