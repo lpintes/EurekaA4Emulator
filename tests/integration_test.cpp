@@ -1659,6 +1659,45 @@ bool CheckProtectedDiskRefusesFormat(EurekaMachine& machine) {
   return true;
 }
 
+// Saving on a protected diskette, which is where the lock matters most.  A save
+// goes through BIOS 14, and InterceptBios serves that without the controller,
+// so neither the Write Sector branch nor the status bit is involved (HANDOFF
+// 6.47).  Two things stand in the way: VirtualDisk::WriteRecord refuses, which
+// disk_test holds, and DiskFailure(true) turns the refusal into status 2 --
+// which nothing held.  Without it the machine told a user who had only locked
+// the diskette that it was "vadny disk", the sentence that means a damaged one
+// (6.30).
+bool CheckProtectedDiskRefusesSave(EurekaMachine& machine) {
+  using namespace eureka;
+  Session eureka(machine);
+  try {
+    eureka.InsertBlank(true);
+    eureka.Protect(true);
+    eureka.Reset();
+    eureka.WaitIdle(10s);
+    eureka.Press(keys::F6);  // BASIC
+    eureka.WaitIdle();
+    const Recording saving = eureka.Record([&] {
+      eureka.Type("SAVE \"X\"\r");
+      eureka.WaitSaid("chráněn proti zápisu", 20s);
+      eureka.WaitIdle();
+    });
+    if (saving.Heard("vadn")) {
+      std::cout << "  pri ukladani na chranenu disketu zaznelo \"vadny disk\": \""
+                << saving.Said() << "\"\n";
+      return false;
+    }
+  } catch (const Failure& failure) {
+    std::cout << "  " << failure.what() << "\n";
+    return false;
+  }
+  if (machine.disk().StoredFiles() != 0) {
+    std::cout << "  na chranenej diskete pribudol subor\n";
+    return false;
+  }
+  return true;
+}
+
 // What the machine says about a drive it cannot read, which is three different
 // sentences and used to be one.
 //
@@ -2342,10 +2381,12 @@ int wmain(int argc, wchar_t** argv) {
     // check needs a blank in memory and cannot give it back.
     const bool reads = CheckProtectedDiskStillReads(*machine);
     const bool refuses = CheckProtectedDiskRefusesFormat(*machine);
-    const bool passed = reads && refuses;
+    const bool save = CheckProtectedDiskRefusesSave(*machine);
+    const bool passed = reads && refuses && save;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=WP"
               << " citanie=" << (reads ? "ok" : "chyba")
-              << " odmietnutie=" << (refuses ? "ok" : "chyba") << "\n";
+              << " odmietnutie=" << (refuses ? "ok" : "chyba")
+              << " ukladanie=" << (save ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 

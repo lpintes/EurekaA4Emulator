@@ -3366,6 +3366,25 @@ Príkazy (bash, čerstvý priečinok s dvoma súbormi v `slot1`):
   zápisy rýchlosti reči do `0Eh`/`0Fh` ho prepláchnu; na meranie treba
   dočasne zväčšiť `kRingSize` v `src/diagnostics.h`.
 
+**Doplnené v ten istý deň (`ea4-6ak`): čo drží ochranu pri ukladaní.**
+Veta vyššie „či ju drží aj nejaký test, sa nezisťovalo“ je zodpovedaná
+mutáciami. Ochrana má pri ukladaní dve časti:
+
+- **Zápis do obrazu** odmieta `VirtualDisk::WriteRecord`. Drží to
+  `disk_test` (`chranena_disketa_odmietne_zapis_cez_bios`); vypnutá kontrola
+  zhodí práve tú.
+- **Veta, ktorú stroj povie**, stojí na `DiskFailure(true)`, ktoré
+  odmietnutie prevedie na stav BIOS `2`. To nedržalo **nič** — s vypnutým
+  riadkom prešlo všetkých 19 režimov, hoci stroj potom pri `SAVE` na
+  zamknutú disketu povedal „vadný disk. chyba 21“, teda vetu o poškodenej
+  diskete (6.30). Dáta by sa nestratili, ale používateľovi by klamal.
+
+Odteraz to drží `CheckProtectedDiskRefusesSave` v režime `wp` (výpis
+`ukladanie=`): naformátovaná neuložená disketa so zámkom, BASIC, `SAVE "X"`;
+musí zaznieť „chráněn proti zápisu“, nesmie „vadn“ a súbor nesmie pribudnúť.
+Overené tou istou mutáciou: kontrola padne s prepisom „vadný disk.chyba 21“.
+Textový procesor ide tým istým BIOS 14, preto ho kontrola neopakuje.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
