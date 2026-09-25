@@ -171,7 +171,11 @@ class Session {
 
   // --- Input -------------------------------------------------------------
 
-  void Press(keys::Key key) { machine_.QueueKey(key.code); }
+  // Every input below starts what WaitSaid listens to afresh; see there.
+  void Press(keys::Key key) {
+    Listen();
+    machine_.QueueKey(key.code);
+  }
   // Make and break, through the ROM's own delivery routine (1DDB0).
   void Pc(pc::Key key);
   // Text on the PC keyboard.  Throws if a character has no key in the ROM's
@@ -203,7 +207,12 @@ class Session {
   // a silence.
   bool TryWaitSilent(Budget budget, std::chrono::microseconds window = 500ms);
   void WaitSilent(Budget budget = 10s, std::chrono::microseconds window = 500ms);
-  // Until the speech not yet taken contains `text` (compared by Contains).
+  // Until `text` is said (compared by Contains): the answer to the last input,
+  // so only what came after the last key sent -- or after the last TakeSpeech,
+  // if that was later -- counts.  Listening to everything not yet taken was a
+  // trap for a test, which takes nothing: a question asked a second time was
+  // found at once in the first one (eureka.md, step 3).  The probe takes the
+  // speech after every token, so for it nothing changed.
   bool TryWaitSaid(std::string_view text, Budget budget);
   void WaitSaid(std::string_view text, Budget budget = 10s);
   // Until the console output not yet taken contains `text`.  The cycles spent
@@ -278,6 +287,8 @@ class Session {
   void AbsorbAudio();
   void CheckWatches();
   void ClearOutput();
+  // Marks where WaitSaid starts listening.
+  void Listen() { saidFrom_ = speechTotal_; }
   // Where a budget started, and whether it has run out.
   struct Deadline {
     bool instructions;
@@ -294,6 +305,9 @@ class Session {
   // taking it away from whoever prints it.
   uint64_t speechTotal_ = 0;
   uint64_t consoleTotal_ = 0;
+  // Where WaitSaid listens from, counted like speechTotal_.  Never behind the
+  // start of speech_: taking the speech and clearing it both move it up.
+  uint64_t saidFrom_ = 0;
   // The transcript: never cleared, so a recording's marks stay valid.
   std::vector<uint8_t> speechLog_;
   std::vector<uint8_t> consoleLog_;

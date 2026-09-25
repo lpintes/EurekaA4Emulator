@@ -330,6 +330,8 @@ povedať nevie: po Escape z hodín je medzi „ahoj“ a znelkou menu vyše pol
 sekundy oneskorovacej slučky a kláves poslaný vtedy sa stratí. Rozhodujúce
 kontroly sú F10 hneď po tom Escape a hodina aj minúty po F2. Overené
 mutáciou: návrat k tichu konzoly aj zrušenie 20 ms behu režim zhodia.
+Drží aj to, že `WaitSaid` počúva **len odpoveď na posledný kláves** — test
+reč neberie, takže inak by opakovaná otázka našla sama seba z minulého kola.
 
 `settings_test` beží tiež bez ROM a v `%TEMP%`. Drží formát súboru
 s nastaveniami a hlavne to, že cesta s diakritikou prežije zápis aj čítanie.

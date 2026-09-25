@@ -1631,10 +1631,6 @@ bool CheckProtectedDiskRefusesFormat(EurekaMachine& machine) {
     eureka.Reset();
     eureka.WaitIdle(10s);
 
-    // WaitSaid looks at the speech not yet taken, so each question starts
-    // from an empty one -- the second half would otherwise find the first
-    // half's question at once.
-    eureka.TakeSpeech();
     eureka.Press(Shift | F8);  // "formatovat disk"
     eureka.WaitSaid("ano nebo ne");
     eureka.WaitIdle();
@@ -1650,7 +1646,6 @@ bool CheckProtectedDiskRefusesFormat(EurekaMachine& machine) {
     // keystrokes through.  Only the first track is waited for -- the whole
     // format is the format mode's job, this one is about the notch.
     eureka.Protect(false);
-    eureka.TakeSpeech();
     eureka.Press(Shift | F8);
     eureka.WaitSaid("ano nebo ne");
     eureka.WaitIdle();
@@ -2241,6 +2236,16 @@ bool CheckSession(EurekaMachine& machine) {
     eureka.WaitUntil([&] { return eureka.Speaking(); }, 2s, "rec nezacala");
     eureka.WaitUntil([&] { return !eureka.Speaking(); }, 5s, "rec neskoncila");
     expect(eureka.TryWaitSilent(10s), "WaitSilent sa nedockal ticha");
+
+    // WaitSaid hears the answer to the last key, not everything since the
+    // speech was last taken: "hlavní menu" has been said twice above and
+    // nothing here took it, yet it must not count as F2's answer.
+    eureka.Press(keys::F2);
+    expect(!eureka.TryWaitSaid("hlavní menu", 1s),
+           "WaitSaid nasiel odpoved spred klavesu");
+    eureka.WaitIdle();
+    eureka.Pc(pc::Esc);
+    eureka.WaitIdle();
 
     // The case the synthesiser flag is there for: the clock says the hour,
     // and a second later the minutes.  A wait that only counted new speech

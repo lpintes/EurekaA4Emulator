@@ -7,13 +7,13 @@ pripíše sa k nej, kde v kóde stojí; keď sa zamietne, pripíše sa prečo.
 
 Hotové: kroky 1, 1b, 2 a 3 — režim `session`, `WaitIdle` podľa kontroly
 klávesu vo firmvéri a dve prenesené kontroly (sekcie nižšie, každá so
-svojím overením). Kód: `tests/eureka_keys.h`, `tests/eureka_session.*`,
+svojím overením). Bead je zavretý. Kód: `tests/eureka_keys.h`, `tests/eureka_session.*`,
 sonda a v `tests/integration_test.cpp` `CheckSession`,
 `CheckProtectedDiskRefusesFormat` a `CheckAnnouncesTime`.
 
 Ďalej podľa Postupu už len bod 4: ostatné kontroly prenášať, až keď sa na
-ne siahne. Otvorené z kroku 3 (viď tam): `WaitSaid` vidí reč od
-posledného `TakeSpeech()`, nie od začiatku kroku.
+ne siahne. `WaitSaid` od 25. 9. 2026 počúva len odpoveď na posledný
+kláves (krok 3).
 
 Nástroje po ruke:
 - `sh tests/probe_golden.sh build/after` a porovnanie s `build\golden\`
@@ -425,6 +425,16 @@ berie reč po každom tokene, takže to nevidí; test, ktorý ju neberie, by
 v druhej polovici našiel otázku z prvej hneď. Kontrola preto volá
 `TakeSpeech()` pred každou otázkou. Či to má riešiť session (napríklad
 `WaitSaid` od značky), zostáva otvorené.
+
+*Vyriešené v ten istý deň:* `WaitSaid` počúva **odpoveď na posledný
+vstup** — reč od posledného klávesu (`Press`, `Pc`, `Type`, `Hold`,
+`Release`, `ReleaseAll`), resetu alebo `TakeSpeech()`, podľa toho, čo
+bolo neskôr. Sonda berie reč po každom tokene, takže sa pre ňu nič
+nezmenilo: všetkých desať referenčných výstupov bajtovo zhodných.
+`TakeSpeech()` z kontroly `wp` zmizlo. Drží to nová kontrola v režime
+`session`: po dvoch „hlavní menu“, ktoré nikto nevzal, F2 nesmie
+„hlavní menu“ nájsť. Overené mutáciou: bez značky v `Press` režim padne
+s „WaitSaid nasiel odpoved spred klavesu“.
 
 ## Krok 2 — záznam a pamäť
 

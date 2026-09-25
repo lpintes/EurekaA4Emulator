@@ -170,6 +170,7 @@ void Session::ClearOutput() {
   console_.clear();
   audio_.clear();
   keyChecked_ = false;
+  Listen();
 }
 
 void Session::Reset() {
@@ -311,12 +312,15 @@ void Session::SetVolume(int position) {
 }
 
 void Session::Pc(pc::Key key) {
+  Listen();
   machine_.QueueScanCode(key.make);
   machine_.QueueScanCode(static_cast<uint8_t>(key.make | hw::kScanBreak));
 }
 
 bool Session::TryType(std::string_view text, uint8_t* unmapped) {
-  return machine_.QueueText(std::string(text), unmapped);
+  if (!machine_.QueueText(std::string(text), unmapped)) return false;
+  Listen();
+  return true;
 }
 
 void Session::Type(std::string_view text) {
@@ -329,12 +333,14 @@ void Session::Type(std::string_view text) {
 }
 
 void Session::Hold(membrane::Keys keys) {
+  Listen();
   held_ = held_ | keys;
   if (keys.shift) machine_.HoldShift(true);
   machine_.HoldMembrane(held_.dots, held_.fn, held_.cursor);
 }
 
 void Session::Release(membrane::Keys keys) {
+  Listen();
   held_.dots &= static_cast<uint8_t>(~keys.dots);
   held_.fn &= static_cast<uint8_t>(~keys.fn);
   held_.cursor &= static_cast<uint8_t>(~keys.cursor);
@@ -346,6 +352,7 @@ void Session::Release(membrane::Keys keys) {
 }
 
 void Session::ReleaseAll() {
+  Listen();
   held_ = membrane::Keys{};
   machine_.HoldShift(false);
   machine_.HoldMembrane(0, 0, 0);
@@ -432,7 +439,13 @@ void Session::WaitSilent(Budget budget, std::chrono::microseconds window) {
 // but this runs once per instruction.
 bool Session::TryWaitSaid(std::string_view text, Budget budget) {
   const Deadline deadline = Start(budget);
-  const auto heard = [&] { return Contains(speech_, text); };
+  // Asked only when new speech arrives, so the copy costs nothing worth
+  // counting.
+  const auto heard = [&] {
+    const std::size_t from = speech_.size() - (speechTotal_ - saidFrom_);
+    return Contains(std::vector<uint8_t>(speech_.begin() + from, speech_.end()),
+                    text);
+  };
   bool found = heard();
   while (!found && !Expired(deadline)) {
     const uint64_t before = speechTotal_;
@@ -475,6 +488,7 @@ void Session::WaitConsole(std::string_view text, Budget budget) {
 std::vector<uint8_t> Session::TakeSpeech() {
   std::vector<uint8_t> out;
   out.swap(speech_);
+  Listen();
   return out;
 }
 
