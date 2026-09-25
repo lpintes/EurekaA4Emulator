@@ -3,19 +3,17 @@
 Stav: **koncept**, píše sa postupne. Keď sa niektorá časť zrealizuje,
 pripíše sa k nej, kde v kóde stojí; keď sa zamietne, pripíše sa prečo.
 
-## Kde pokračovať (stav 24. 9. 2026, bead `ea4-7t4`)
+## Kde pokračovať (stav 25. 9. 2026, bead `ea4-7t4`)
 
-Hotové: kroky 1, 1b a 2, z kroku 3 režim `session` a `WaitIdle`
-podľa kontroly klávesu vo firmvéri (sekcie nižšie, každá so svojím
-overením). Kód: `tests/eureka_keys.h`, `tests/eureka_session.*`, sonda
-a `CheckSession` v `tests/integration_test.cpp`.
+Hotové: kroky 1, 1b, 2 a 3 — režim `session`, `WaitIdle` podľa kontroly
+klávesu vo firmvéri a dve prenesené kontroly (sekcie nižšie, každá so
+svojím overením). Kód: `tests/eureka_keys.h`, `tests/eureka_session.*`,
+sonda a v `tests/integration_test.cpp` `CheckSession`,
+`CheckProtectedDiskRefusesFormat` a `CheckAnnouncesTime`.
 
-Ďalší krok: preniesť na session dve existujúce kontroly
-z `integration_test` — navrhnuté `CheckProtectedDiskRefusesFormat`
-(50 riadkov ručných slučiek) a `CheckAnnouncesTime` (hodina a minúty
-po F2) — a aspoň pri jednej overiť mutáciou, že chytá, čo chytala.
-Pri prenose pozor: prenesená kontrola musí zlyhať na tom istom, na čom
-pôvodná, nielen prejsť.
+Ďalej podľa Postupu už len bod 4: ostatné kontroly prenášať, až keď sa na
+ne siahne. Otvorené z kroku 3 (viď tam): `WaitSaid` vidí reč od
+posledného `TakeSpeech()`, nie od začiatku kroku.
 
 Nástroje po ruke:
 - `sh tests/probe_golden.sh build/after` a porovnanie s `build\golden\`
@@ -394,6 +392,39 @@ F10 po Escape).
 Zostáva: preniesť dve alebo tri existujúce scenárové kontroly
 z `integration_test` na session a pri jednej overiť mutáciou, že chytá,
 čo chytala.
+
+**Druhá časť hotová 25. 9. 2026:** na session sú prenesené
+`CheckProtectedDiskRefusesFormat` (režim `wp`) a `CheckAnnouncesTime`
+(režim `rtc`). Pevné rozpočty (8, 12 a 40 miliónov inštrukcií) nahradili
+`WaitIdle`, `WaitSaid` na otázku a na odmietnutie a `WaitUntil` na prvú
+naformátovanú stopu; posun hodín ide cez `ShiftClock` a na konci sa vráti.
+
+Pri prenose sa ukázalo, že pôvodná kontrola posielala **druhé `y`
+zbytočne**. Sonda (`nova +wp studeno . kD7 ?ne y ?proti`) ukázala, že
+nenaformátovaná disketa dostane jedinú otázku „mám formátovat disk, ano
+nebo ne?“ a hneď po „ano“ zaznie „disk je chráněn proti zápisu“; druhá
+otázka „preformátovať“ prichádza len pri diskete s formátom. Prenesená
+kontrola posiela jedno `y`.
+
+Overené mutáciou, oboma verziami kontroly: keď stavový bit radiča
+(`machine.cpp`, `kFdcStatusWriteProtect` v stave po príkaze typu I)
+ochranu nehlási, pôvodná aj prenesená padnú na tom istom — stroj povie
+„formátovací chyba“ namiesto „chráněn proti zápisu“. Prenesená navyše
+povie čas a PC (`WaitSaid(„chráněn proti zápisu“) sa nedočkal po 20 s,
+PC 18685`) a reč s diakritikou.
+
+Druhá mutácia **neprešla ani jednou verziou**: vetva Write Track, ktorá
+na chránenej diskete vráti `kFdcStatusWriteProtect`, sa dá vypnúť a režim
+`wp` prejde. ROM odmietne skôr, podľa stavového bitu, takže na Write Track
+nedôjde. Tú vetvu dnes nedrží nič v tomto režime; či ju drží iný, sa
+nezisťovalo.
+
+Pasca v rozhraní, na ktorú sa pri prenose narazilo: `WaitSaid` hľadá
+v reči **od posledného `TakeSpeech()`**, nie od začiatku kroku. Sonda
+berie reč po každom tokene, takže to nevidí; test, ktorý ju neberie, by
+v druhej polovici našiel otázku z prvej hneď. Kontrola preto volá
+`TakeSpeech()` pred každou otázkou. Či to má riešiť session (napríklad
+`WaitSaid` od značky), zostáva otvorené.
 
 ## Krok 2 — záznam a pamäť
 

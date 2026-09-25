@@ -1613,61 +1613,55 @@ void Say(const char* label, const std::vector<uint8_t>& spoken) {
 // well -- not one track may be laid down.
 //
 // The refusal comes at the end of the dialogue, not at the keystroke: the ROM
-// asks "mam formatovat disk" and, on a diskette that has a format on it, "disk
-// je uz naformatovan, preformatovat" as well, and the notch is answered for
-// only once those are.  Both confirmations are therefore sent here, and the
-// check is on the refusal arriving somewhere in what follows -- exactly when
-// it falls inside that dialogue is the firmware's business, and pinning it
-// would make this a test of the probe's key timing rather than of the notch.
+// asks "mam formatovat disk" first, and the notch is answered for only once
+// that is.  On a diskette with a format on it a second question, "disk je uz
+// naformatovan, preformatovat", comes in between; this blank has none, so one
+// answer is all it takes (measured with the probe 25. 9. 2026).  The refusal
+// is waited for by what it says, not by when it falls inside the dialogue --
+// that is the firmware's business, and pinning it would make this a test of
+// key timing rather than of the notch.
 bool CheckProtectedDiskRefusesFormat(EurekaMachine& machine) {
-  machine.CreateEmptyDisk(false);
-  machine.SetDiskWriteProtected(true);
-  machine.Reset();
-  for (int step = 0; step < 8'000'000; ++step)
-    if (!machine.Step()) break;
+  using namespace eureka;
+  using keys::F8;
+  using keys::Shift;
+  Session eureka(machine);
+  try {
+    eureka.InsertBlank(false);
+    eureka.Protect(true);
+    eureka.Reset();
+    eureka.WaitIdle(10s);
 
-  machine.TakeSpeechInput();
-  machine.QueueKey(0xd7);  // Shift+F8, "formatovat disk"
-  for (int step = 0; step < 8'000'000; ++step)
-    if (!machine.Step() && machine.queued_keys() == 0) break;
-  if (!Type(machine, "y")) return false;
-  std::vector<uint8_t> spoken = RunAndListen(machine, 12'000'000);
-  if (!Type(machine, "y")) return false;
-  const auto more = RunAndListen(machine, 12'000'000);
-  spoken.insert(spoken.end(), more.begin(), more.end());
+    // WaitSaid looks at the speech not yet taken, so each question starts
+    // from an empty one -- the second half would otherwise find the first
+    // half's question at once.
+    eureka.TakeSpeech();
+    eureka.Press(Shift | F8);  // "formatovat disk"
+    eureka.WaitSaid("ano nebo ne");
+    eureka.WaitIdle();
+    eureka.Type("y");
+    eureka.WaitSaid("chráněn proti zápisu", 20s);
+    eureka.WaitIdle();
+    if (machine.disk().has_format()) {
+      std::cout << "  chranena disketa sa napriek odmietnutiu naformatovala\n";
+      return false;
+    }
 
-  // "chranen proti zapisu" with the diacritics kept out of the way: the speech
-  // is Kamenicky, so only plain-ASCII stretches are safe to match on.
-  if (!Contains(spoken, "n proti z")) {
-    Say("na chranenej diskete stroj nepovedal, ze je chranena, povedal", spoken);
+    // And the lock is a lock, not a wall: taking it off lets the very same
+    // keystrokes through.  Only the first track is waited for -- the whole
+    // format is the format mode's job, this one is about the notch.
+    eureka.Protect(false);
+    eureka.TakeSpeech();
+    eureka.Press(Shift | F8);
+    eureka.WaitSaid("ano nebo ne");
+    eureka.WaitIdle();
+    eureka.Type("y");
+    eureka.WaitUntil([&] { return machine.disk().TrackFormatted(0, 0); }, 20s,
+                     "po zruseni ochrany prvu naformatovanu stopu");
+  } catch (const Failure& failure) {
+    std::cout << "  " << failure.what() << "\n";
     return false;
   }
-  if (machine.disk().has_format()) {
-    std::cout << "  chranena disketa sa napriek odmietnutiu naformatovala\n";
-    return false;
-  }
-
-  // And the lock is a lock, not a wall: taking it off lets the very same
-  // keystrokes through.  Only the first track is waited for -- the whole
-  // format is the format mode's job, this one is about the notch.
-  machine.SetDiskWriteProtected(false);
-  machine.TakeSpeechInput();
-  machine.QueueKey(0xd7);
-  for (int step = 0; step < 8'000'000; ++step)
-    if (!machine.Step() && machine.queued_keys() == 0) break;
-  if (!Type(machine, "y")) return false;
-  for (int step = 0; step < 8'000'000; ++step)
-    if (!machine.Step() && machine.queued_keys() == 0) break;
-  if (!Type(machine, "y")) return false;
-  for (int step = 0; step < 40'000'000; ++step) {
-    machine.TakeSpeechInput();
-    machine.TakeConsoleOutput();
-    machine.TakeAudio();
-    if (!machine.Step() && machine.powered_off()) break;
-    if (machine.disk().TrackFormatted(0, 0)) return true;
-  }
-  std::cout << "  po zruseni ochrany sa nenaformatovala ani prva stopa\n";
-  return false;
+  return true;
 }
 
 // What the machine says about a drive it cannot read, which is three different
@@ -1866,26 +1860,31 @@ void TypeDigit(EurekaMachine& machine, int value) {
 // full hour the minutes sentence is empty (the buffer holds a bare zero), and a
 // check on the host's own clock would fail once an hour.
 bool CheckAnnouncesTime(EurekaMachine& machine) {
+  using namespace eureka;
   const std::time_t now = std::time(nullptr);
   std::tm local{};
   localtime_s(&local, &now);
-  machine.Reset();
-  machine.SetRtcOffset(
-      static_cast<int64_t>((7 - local.tm_min) * 60 + (20 - local.tm_sec)));
-  Grind(machine, 12'000'000);
-  machine.QueueKey(0xc1);  // F2, clock and calendar
-  const std::vector<uint8_t> spoken = RunAndListen(machine, 8'000'000);
+  Session eureka(machine);
+  std::string said;
+  try {
+    eureka.Reset();
+    eureka.ShiftClock(std::chrono::seconds((7 - local.tm_min) * 60 +
+                                           (20 - local.tm_sec)));
+    eureka.WaitIdle(10s);
+    said = eureka.Record([&] {
+      eureka.Press(keys::F2);  // clock and calendar
+      eureka.WaitIdle();
+    }).Said();
+  } catch (const Failure& failure) {
+    std::cout << "  " << failure.what() << "\n";
+  }
   // The alarm check that follows types the host's own time.
-  machine.SetRtcOffset(0);
-  const std::string said(spoken.begin(), spoken.end());
+  eureka.ShiftClock(-eureka.clock_shift());
   const std::size_t hours = said.find("HODIN");
   if (hours != std::string::npos &&
       said.find("MINUT", hours) != std::string::npos)
     return true;
-  std::cout << "  F2 neohlasil cas, prepis \"";
-  for (uint8_t byte : spoken)
-    std::cout << (byte >= 0x20 && byte < 0x7f ? static_cast<char>(byte) : '.');
-  std::cout << "\"\n";
+  std::cout << "  F2 neohlasil cas, prepis \"" << said << "\"\n";
   return false;
 }
 
