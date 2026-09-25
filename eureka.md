@@ -420,7 +420,8 @@ nedôjde. Tú vetvu dnes nedrží nič v tomto režime; či ju drží iný, sa
 nezisťovalo.
 
 *Doplnené v ten istý deň:* nedrží ju ani žiadny iný — s vypnutou vetvou
-prejde všetkých 19 režimov. Evidované ako `ea4-62u`.
+prejde všetkých 19 režimov. Evidované ako `ea4-62u`. Uzavreté: ROM na
+tú vetvu nedôjde, zámok pozná zo stavového bitu (HANDOFF 6.47).
 
 Pasca v rozhraní, na ktorú sa pri prenose narazilo: `WaitSaid` hľadá
 v reči **od posledného `TakeSpeech()`**, nie od začiatku kroku. Sonda

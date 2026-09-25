@@ -3304,6 +3304,68 @@ na cyklus rovnako a úroveň 5 len 1,5-krát dlhšie než 4 (inak je krok 5- až
 z úvodnej pozície, od Enteru po vypísanie ťahu. Emulátor tam dáva 22,96 s,
 z toho 18,43 s v programe; sekvencia je v `tests/README.md` pri `@TEXT`.
 
+### 6.47 Ochrana proti zápisu: ROM sa pýta stavového bitu, radič zápis nedostane (`ea4-62u`)
+
+Pri prenose kontroly `wp` na `EurekaSession` (eureka.md, krok 3) sa ukázalo,
+že vetvu modelu radiča, ktorá na chránenej diskete odmietne **Write Track**,
+sa dá vypnúť a všetkých 19 režimov prejde. Otázka bola, či je to diera
+v testoch, alebo vetva, na ktorú ROM nikdy nedôjde. Je to to druhé.
+Zmerané 25. 9. 2026 sondou s `trace` (pracovné poznámky
+`build\wsector\progress.md` a `build\wcopy\progress.md`, mimo gitu).
+
+- **Formátovanie** (`Shift+F8`) pozrie bit 6 stavu po príkaze typu I
+  a Write Track na chránenej diskete nevydá.
+- **Ukladanie súboru** (BASIC `SAVE`, textový procesor `Shift+F1` `s`) ide
+  cez BIOS 14 a ten obsluhuje `InterceptBios` cez `VirtualDisk::WriteRecord`
+  — porty `98h`–`9Bh` sa nedotknú vôbec, s ochranou ani bez nej. Ochranu tu
+  drží `WriteRecord` a `DiskFailure(true)`; či ju drží aj nejaký test, sa
+  nezisťovalo.
+- **Kopírovanie** — `F4` (jeden súbor) aj `Shift+F4` (hromadné, po
+  `Shift+F3`) — číta aj zapisuje cez BIOS. Radič dostane len Restore, Seek
+  s overením pri vstupe do diskových funkcií a Seek `10h` pri každej
+  kontrole diskety, po ktorom sa číta stav (`46h` chránená, `06h` nie).
+  Chránený cieľ odmietnu obe vopred: „cílový disk je chráněn proti zápisu“,
+  cieľ nezmenený. Nechránený **zdroj** odmietne len `Shift+F4` („zdrojový
+  disk není chráněn proti zápisu“); `F4` súbor skopíruje. **Majiteľ
+  potvrdil, že tak je to aj na stroji** — jeden súbor sa o zámok nestará,
+  hromadné kopírovanie áno.
+- **Ovládač ROM sám vopred nekontroluje.** Keď sa zachytávanie BIOS
+  dočasne vypne, ROM na chránenú disketu vydá Write Sector (`A0h`) aj po
+  Seeku so stavom `46h`, prečíta odmietnutie (`40h`) a po štyroch pokusoch
+  to vzdá. Vetva Write Sector v modeli teda nie je zbytočná — len na ňu pri
+  zapnutom `InterceptBios` nič bežné nedôjde.
+
+Záver: zámok, ako ho ROM pozná, je **stavový bit po Seeku**, a ten drží
+režim `wp` (mutácia bitu zhodí odmietnutie formátovania). Vetvy Write Sector
+a Write Track sú vernosť k 1770 pre kód, ktorý radič ovláda sám, a test
+ich nemá ako dosiahnuť bez obídenia BIOS. Pri oboch to stojí v komentári
+v `machine.cpp`.
+
+Jedna tichá vec, ak by vetva Write Sector niekedy vypadla: obraz by
+neutrpel, lebo `VirtualDisk::WritePhysicalSector` na chránenej diskete
+vráti `false`, ale `WriteFdcData` tú hodnotu zahodí a radič ohlási úspech.
+Stroj by potom povedal „hotovo“ (BASIC) alebo „Y je uložen“ (textový
+procesor) a súbor by nevznikol.
+
+Pre otvorenú otázku zo 6.30 (`ea4-4gw`, či veta o zamknutej diskete znie
+zo všetkých vstupných bodov rovnako): model hovorí pri `SAVE` v BASIC-u aj
+v textovom procesore „disk chráněn proti zápisu“ (textový procesor potom
+„Y není uložen“), pri formátovaní „disk je chráněn proti zápisu“ a pri
+kopírovaní „cílový disk je chráněn proti zápisu“. So strojom to porovnané
+nie je.
+
+Príkazy (bash, čerstvý priečinok s dvoma súbormi v `slot1`):
+
+- `diag_probe ROM DISK seq 60000000 slot1 trace kD5 . k82 k82 kD2 . kD3 . y "?cílový disk" slot2 +wp stav kC0 "?zápisu" . stav`
+  — chránený cieľ pri hromadnom kopírovaní.
+- `diag_probe ROM DISK seq 60000000 slot1 -wp trace kD5 . k82 k82 kD2 . kD3 . y "?disk" . . stav`
+  — nechránený zdroj.
+- Výmenu diskety pri kopírovaní potvrdzuje **F1** (`kC0`); Enter, Escape
+  ani `y` na výzvu nereagujú. `y` poslané počas reči sa stratí, spoľahlivé
+  je `. y`. Záznamník udalostí (512 položiek) celé kopírovanie neudrží —
+  zápisy rýchlosti reči do `0Eh`/`0Fh` ho prepláchnu; na meranie treba
+  dočasne zväčšiť `kRingSize` v `src/diagnostics.h`.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

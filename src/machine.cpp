@@ -1081,6 +1081,8 @@ uint8_t EurekaMachine::TypeOneStatus(uint8_t command) const {
   // The firmware reads it here: DEVICES.10 reports it as bit 6 of both
   // fdc_ctl_chkdsk and fdc_ctl_diskin, and SYSEQU.LIB has it in
   // write_error_mask but not in read_error_mask, so it stops writes only.
+  // This bit is the lock as the ROM knows it: formatting and both copies
+  // refuse on it before writing anything (HANDOFF 6.47), and mode wp holds it.
   if (disk_.write_protected()) status |= hw::kFdcStatusWriteProtect;
   // The verify flag makes the controller read an ID header off the track it
   // landed on, and that one read is the only thing in the machine that tells
@@ -1169,6 +1171,13 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
       // surface: it raises bit 6 and drops BUSY at once, with no data request
       // at all.  Leaving fdcWriting_ false is the point -- the guest's DMA
       // then finds nothing to feed and the image is never opened for writing.
+      //
+      // Nothing measured reaches this, and no test holds it: saving goes
+      // through BIOS 14, which InterceptBios serves without the controller,
+      // and formatting and both copies refuse beforehand on bit 6 after a
+      // Seek.  The ROM's own driver does not look first -- it issues the
+      // write and reads the refusal -- so this is fidelity for code that
+      // drives the controller itself (HANDOFF 6.47).
       fdcStatus_ = hw::kFdcStatusWriteProtect;
       fdcIntrq_ = true;
     } else {
@@ -1222,6 +1231,8 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
       // Write Track is a write like any other, and DEVICES.10 says so from
       // the other end: fdc_ctl_write_track returns status 2, "Disk Write
       // Protected".  So a protected diskette cannot be formatted either.
+      // The ROM never gets this far: Shift+F8 refuses on bit 6 of the Type I
+      // status first, so no test holds this branch (HANDOFF 6.47).
       fdcStatus_ = hw::kFdcStatusWriteProtect;
       fdcIntrq_ = true;
       return;
