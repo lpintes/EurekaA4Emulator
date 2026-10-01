@@ -4085,6 +4085,71 @@ oba len s `EA4_COM_PAIR`. **Neoverené:** strata portu (vytiahnutý USB adaptér
 (com0com bez `EmuBR=yes` posiela bajty, ako prišli) a skutočná tlačiareň či
 Eureka na druhom konci. Skúška dvoch okien rukou zostáva na majiteľovi.
 
+### 6.54 Zvuk disketovej mechaniky — krok 1: stroj hlási, čo robí mechanika
+
+Prianie majiteľa (1. 10. 2026): počuť mechaniku tak ako na skutočnom stroji —
+kroky hlavičky, presuny, točenie diskety — a nakoniec aj so skutočným
+časovaním, teda s čakaním na disketu. Ide sa postupne, od najmenšieho
+kompromisu k najvernejšiemu: (1) stroj hlási udalosti mechaniky bez zmeny
+správania, (2) syntetizovaný zvuk ako kulisa s vlastnou hlasitosťou
+a vypínačom, (3) ladenie zvukov podľa sluchu majiteľa, (4) voliteľné skutočné
+časovanie radiča. Nahrávky nemáme; zvuky sa budú **syntetizovať**, lebo
+nahrávky tretích strán by do zverejneného stromu nepatrili.
+
+**Prečo dve cesty.** Bežné čítanie a zápis súborov radič vôbec nevidí —
+BIOS 13 a 14 vybavuje `InterceptBios` sám. Radičom ide len formátovanie,
+`fdc_ctl_disk_test` (verify) a `fdc_ctl_disk_in`. Udalosti preto hlásia obe
+cesty jedným slovníkom mechaniky (`EurekaMachine::DriveEvent`: presun, čítanie,
+zápis, formátovanie, s časom v cykloch), nie príkazmi radiča.
+
+**Hlavička je vlastný stav, nie `fdcTrack_`.** Register stopy je to, čo si
+myslí radič, a za obídením BIOS-u zostáva stáť. Poloha hlavičky
+(`headCylinder_`) sa hýbe aj pri kroku bez príznaku update, Seek ide na cieľ
+a nie o rozdiel voči registru, Restore na nulu (na nule krok nie je, TR00 je
+už aktívne), cesta BIOS-u na `stopa / 2` (logická stopa je cylinder × 2 +
+strana). Hostiteľ nič z toho nečíta, správanie stroja sa nemení.
+
+**Čip je WD1772-02** (`SERVICE.3`, U14) a rýchlosť kroku r1r0 je vo firmvéri
+vždy `00`, teda 6 ms na krok: `fdc_home`, `fdc_seek` a `fdc_stepin`
+v `SYSEQU.LIB` ju nenastavujú. Udalosť nesie r1r0 surovo
+(`hw::kFdcStepRate`), prevod na milisekundy patrí jednému miestu v kroku 2.
+
+**Zmerané sondou** (token `mechanika`):
+
+- **Formátovanie** nenaformátovanej diskety: na každom cylindri Write Track
+  na oboch stranách, za každým desať čítaní (overenie) a medzi cylindrami
+  jeden Step In o jeden cylinder dnu. Firmvér formátuje **81 cylindrov**
+  (0 až 80) a hlavička skončí na **81**; späť na nulu ide až pri ďalšom
+  prístupe. Na nenaformátovanej diskete sa stroj pýta len raz — „disk je už
+  naformátován“ nepríde. Spolu 162 formátovaní, 163 čítaní, 81 presunov.
+- **Kontrola „už naformátován“** na naformátovanej diskete je jediné verify
+  na cylindri 0, hlavička sa nepohne. Hlási sa ako čítanie, lebo radič pri
+  ňom číta hlavičku sektora.
+- **Načítanie programu** (`Shift+F7`, `READ`): adresár na cylindri 0,
+  dáta na 1 a 2, návrat na 0 a znova na 2 — 196 čítaní cez BIOS.
+- **`F8`** (adresár): 65 čítaní, všetky na cylindri 0.
+
+**Časovanie je teraz okamžité.** Celé formátovanie trvá v emulátore asi
+milión cyklov, desatinu sekundy; na skutočnom stroji je to rádovo minúta
+(otáčka 200 ms na stopu aj s overením). Zvuk v kroku 2 preto pôjde ako kulisa
+za strojom, verné tempo prinesie až krok 4.
+
+**Drží to** `integration_test format` (`CheckFormatMovedTheHead`: formátovanie
+hlásené na každej stope 0–79/0–1, každý presun presne o jeden dnu, aspoň 79
+presunov) a `wp` (načítanie `READ.COM`: aspoň 150 čítaní a presun z cylindra
+0 von). Overené mutáciou: krok bez pohybu hlavičky zhodí `format`, čítanie
+BIOS-u bez presunu zhodí `wp`. `wp` bez manuálu nebeží, takže cestu BIOS-u
+vtedy nedrží nič.
+
+#### Otvorené
+
+- **Motor.** `pol_disk` (`A0h` bit 0, `IOPORT.LIB`: „high to power up fdc
+  and disk drive“) firmvér pri formátovaní dvakrát zapne a vypne — je to
+  kandidát na točenie diskety v kroku 2. WD1772 má vlastný výstup motora
+  (stavový bit 7, `kFdcStatusMotorOn`), ktorý model nevedie. Ktorý z nich
+  točí motor na Eureke, nie je zmerané.
+- Krok 2 až 4 podľa poradia vyššie.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

@@ -585,6 +585,12 @@ Tokeny sekvencie:
 - `stav` — vypíše, čo je naozaj na diskete v mechanike (médium, počet
   súborov, zámok). Reč hovorí, čo si stroj myslí; toto hovorí, čo je na
   médiu, a práve ten rozdiel odhalil 6.24.
+- `mechanika` — čo prežila mechanika od posledného opýtania: presuny hlavičky
+  (z cylindra na cylinder, s rýchlosťou kroku), čítania, zápisy
+  a formátovania, s odstupom v cykloch. Hlási obe cesty, radič aj obídený
+  BIOS, takže aj bežné čítanie súborov. Je to podklad pre zvuk mechaniky
+  (HANDOFF 6.54). Čakaj na dokončenie (`?text` alebo viac `.`), inak výpis
+  príde prázdny skôr, než firmvér na disketu siahne.
 - `zvuk` — koľko vzoriek dostal reproduktor a aký majú rozkmit. **Prepis reči
   nie je dôkaz ticha:** záznam berie `.speak` a `.spconv`, ale kliky a ozvenu
   klávesu cez `.spchar` zámerne nie (HANDOFF sekcia 3). Kým bral len

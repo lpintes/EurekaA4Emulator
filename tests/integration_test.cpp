@@ -1732,6 +1732,43 @@ bool CheckMusicStops(EurekaMachine& machine) {
 // formatting asks a question and waits for the answer to be typed.
 bool Type(EurekaMachine& machine, const std::string& text);
 
+// What the drive's mechanics went through during a format, as the drive sound
+// will hear it (HANDOFF 6.54).  Measured with diag_probe's "mechanika" before
+// it was written: one Write Track per side of every cylinder, and between
+// cylinders one Step In (50h at 19EE8) -- a step of exactly one, inward.
+// The format walks with Step In and not with Seek, and the head is recorded
+// apart from the update flag, so a model that moved it only with the track
+// register would still pass every other check here and fall silent in this
+// one.
+bool CheckFormatMovedTheHead(const std::vector<EurekaMachine::DriveEvent>& events) {
+  using Kind = EurekaMachine::DriveEvent::Kind;
+  bool formatted[80][2]{};
+  unsigned steps = 0;
+  for (const auto& event : events) {
+    if (event.kind == Kind::kFormat && event.to < 80) formatted[event.to][event.side] = true;
+    if (event.kind != Kind::kSeek) continue;
+    if (event.to != event.from + 1) {
+      std::cout << "  formatovanie pohlo hlavickou z " << unsigned(event.from) << " na "
+                << unsigned(event.to) << ", nie o jeden cylinder dnu\n";
+      return false;
+    }
+    ++steps;
+  }
+  for (unsigned cylinder = 0; cylinder < 80; ++cylinder) {
+    for (unsigned side = 0; side <= 1; ++side) {
+      if (formatted[cylinder][side]) continue;
+      std::cout << "  mechanika nehlasila formatovanie stopy " << cylinder << "/" << side
+                << "\n";
+      return false;
+    }
+  }
+  if (steps < 79) {
+    std::cout << "  pri formatovani sa hlavicka pohla len " << steps << "-krat\n";
+    return false;
+  }
+  return true;
+}
+
 // Formatting a diskette that has never been formatted.
 //
 // Until now the format routine only ever ran against a host folder, where it
@@ -1759,6 +1796,7 @@ bool CheckFormatsBlankDiskette(EurekaMachine& machine) {
   }
 
   machine.TakeSpeechInput();
+  machine.TakeDriveEvents();
   machine.QueueKey(0xd7);
   // It asks first -- "mam formatovat disk, ano nebo ne?" -- and waits.  Not a
   // detail worth skipping past: a format that started on a keystroke alone
@@ -1827,7 +1865,7 @@ bool CheckFormatsBlankDiskette(EurekaMachine& machine) {
     std::cout << "  has_format() zostalo false aj po formatovani\n";
     return false;
   }
-  return true;
+  return CheckFormatMovedTheHead(machine.TakeDriveEvents());
 }
 
 // Runs for a fixed stretch and hands back everything the machine said in it.
@@ -1865,6 +1903,7 @@ std::vector<uint8_t> RunAndListen(EurekaMachine& machine, uint64_t budget) {
 bool CheckProtectedDiskStillReads(EurekaMachine& machine) {
   machine.SetDiskWriteProtected(true);
   machine.Reset();
+  machine.TakeDriveEvents();
   const uint64_t kQuiet = EurekaMachine::kCpuHz / 2;
   std::vector<uint8_t> console;
   uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
@@ -1895,6 +1934,23 @@ bool CheckProtectedDiskStillReads(EurekaMachine& machine) {
   if (machine.debug_bios_reads() < 150) {
     std::cout << "  chranena disketa dala len " << machine.debug_bios_reads()
               << " citani BIOSu\n";
+    return false;
+  }
+  // The same load as the drive hears it (HANDOFF 6.54).  Those reads never
+  // reach the controller -- InterceptBios answers them -- so this is the one
+  // check that the drive sound is not deaf to ordinary file I/O.  Measured
+  // with diag_probe: the directory on cylinder 0, then out to the data on 1
+  // and 2, and back.
+  using Kind = EurekaMachine::DriveEvent::Kind;
+  unsigned reads = 0;
+  unsigned outward = 0;
+  for (const auto& event : machine.TakeDriveEvents()) {
+    if (event.kind == Kind::kRead) ++reads;
+    if (event.kind == Kind::kSeek && event.from == 0 && event.to > 0) ++outward;
+  }
+  if (reads < 150 || outward == 0) {
+    std::cout << "  mechanika pri nacitani programu: citani " << reads
+              << ", presunov z adresara " << outward << "\n";
     return false;
   }
   return true;

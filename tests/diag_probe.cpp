@@ -18,6 +18,8 @@
 // "vypni"/"zapni"/"studeno" for the power switch and the two ways back on,
 // "cas:+7d" to move the clock the RTC answers with, "budik" to print it
 // beside the alarm the firmware armed, "zvuk" for what the loudspeaker got,
+// "mechanika" for what the drive's head and surface went through since it
+// was last asked,
 // "wav:SUBOR" to write those samples out as a WAV instead of counting them,
 // "rychlost:N" and "hlasitost:N" to move the two sliders (sliders.h),
 // "+banka4"/"-banka4" to fit or remove the extra RAM at 40000h,
@@ -422,6 +424,40 @@ int wmain(int argc, wchar_t** argv) {
         }
         std::printf("%s -> [vzoriek=%zu, rozkmit %d..%d]\n", Label(token).c_str(),
                     samples.size(), low, high);
+        continue;
+      }
+      if (token == L"mechanika") {
+        // What the drive's mechanics did since the last time this was asked
+        // (HANDOFF 6.54): the ground truth a drive sound is built on.  A run
+        // of transfers on one cylinder and side is folded into one line with
+        // a count -- a file load is dozens of reads, and what the sound turns
+        // on is where the head went between them and how long it took.
+        using Kind = EurekaMachine::DriveEvent::Kind;
+        const auto events = machine->TakeDriveEvents();
+        std::printf("%s -> [udalosti=%zu]\n", Label(token).c_str(), events.size());
+        uint64_t previous = events.empty() ? 0 : events.front().cycle;
+        for (std::size_t i = 0; i < events.size();) {
+          const auto& event = events[i];
+          std::size_t run = 1;
+          if (event.kind != Kind::kSeek) {
+            while (i + run < events.size() && events[i + run].kind == event.kind &&
+                   events[i + run].to == event.to && events[i + run].side == event.side)
+              ++run;
+          }
+          const unsigned long long gap = event.cycle - previous;
+          if (event.kind == Kind::kSeek) {
+            std::printf("  +%llu presun %u -> %u, rychlost %u\n", gap, event.from, event.to,
+                        event.stepRate);
+          } else {
+            std::printf("  +%llu %s cylinder %u strana %u x%zu\n", gap,
+                        event.kind == Kind::kRead    ? "citanie"
+                        : event.kind == Kind::kWrite ? "zapis"
+                                                     : "formatovanie",
+                        event.to, event.side, run);
+          }
+          previous = events[i + run - 1].cycle;
+          i += run;
+        }
         continue;
       }
       if (token == L"budik") {

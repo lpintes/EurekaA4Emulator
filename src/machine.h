@@ -278,6 +278,31 @@ class EurekaMachine {
   std::vector<uint8_t> TakeSpeechInput();
   std::vector<int16_t> TakeAudio();
 
+  // What the drive's mechanics did, for a drive sound to be built on
+  // (HANDOFF 6.54).  It is the drive, not the controller: ordinary file I/O
+  // never reaches the WD1772 because InterceptBios answers BIOS 13 and 14
+  // itself, so both paths report here in one vocabulary, and a consumer never
+  // has to reconcile two sources.  Recording changes nothing the guest sees.
+  struct DriveEvent {
+    enum class Kind : uint8_t {
+      kSeek,    // the head moved from `from` to `to`
+      kRead,    // a transfer off the surface at `to`, `side`
+      kWrite,   // a transfer onto it
+      kFormat,  // Write Track: one whole revolution laid down
+    };
+    Kind kind;
+    uint64_t cycle;
+    uint8_t from;
+    uint8_t to;
+    uint8_t side;
+    // r1r0 of the Type I command that moved the head, kSeek only.  Kept raw
+    // rather than in milliseconds: on the WD1772-02 (SERVICE.3, U14) 00 is
+    // 6 ms per step, but the meaning is the chip's, and a consumer should
+    // translate it in one place.
+    uint8_t stepRate;
+  };
+  std::vector<DriveEvent> TakeDriveEvents();
+
   uint64_t cycles() const { return cycles_; }
   uint64_t instructions() const { return instructions_; }
   uint16_t pc() const { return cpu_.pc; }
@@ -588,6 +613,18 @@ class EurekaMachine {
   bool dma1Armed_ = false;
   // Last direction a Type I step moved the head; a bare Step repeats it.
   int fdcStepDirection_ = 1;
+  // Where the head physically is, which is not fdcTrack_.  That register is
+  // the controller's belief and goes stale behind InterceptBios, which moves
+  // nothing through it; the head is what the drive sound has to follow.
+  // Nothing the guest can read depends on it.
+  uint8_t headCylinder_ = 0;
+  // Bounded: tests and the probe run for hundreds of millions of cycles
+  // without ever draining it.  A format is about 400 events, so the cap only
+  // ever drops what nobody was listening to.
+  static constexpr std::size_t kMaxDriveEvents = 4096;
+  std::deque<DriveEvent> driveEvents_;
+  void RecordDrive(DriveEvent::Kind kind, uint8_t side, uint8_t stepRate = 0);
+  void MoveHead(int cylinder, uint8_t stepRate);
   // Position of the last Write Track, so a verify read of it always succeeds.
   int fdcFormattedCylinder_ = -1;
   int fdcFormattedSide_ = -1;

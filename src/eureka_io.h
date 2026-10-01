@@ -375,6 +375,10 @@ constexpr uint8_t kFdcFlagUpdateTrack = 0x10;
 // fdc_ctl_disk_test -- and that one command is how the machine tells an empty
 // drive from an unformatted diskette from a good one.
 constexpr uint8_t kFdcVerify = 0x04;  // fdc_verify
+// Type I field r1r0: time per step.  The chip is a WD1772-02 (SERVICE.3,
+// U14), where 00 is 6 ms, and the ROM never sets anything else -- fdc_home,
+// fdc_seek and fdc_stepin in SYSEQU.LIB all leave it 00.
+constexpr uint8_t kFdcStepRate = 0x03;
 // Type I commands leave bit 7 clear, and they finish inside the controller.
 constexpr uint8_t kFdcTypeTwoOrThree = 0x80;
 

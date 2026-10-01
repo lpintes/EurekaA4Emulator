@@ -146,7 +146,10 @@ them on the same diskette.
   first and skips it when the medium has no format at all -- what made it look
   unconditional was the model answering that test with "formatted" whatever was
   in the drive (6.30). Measured: on an unformatted diskette the format now runs
-  straight through on one `y`;
+  straight through on one `y`. It also holds what the drive's mechanics
+  reported for the drive sound (`CheckFormatMovedTheHead`, HANDOFF 6.54): a
+  format on every track and the head walking in one cylinder at a time.
+  Mutation-checked: a Step that does not move the head fails it;
 
 - `hlaseni` asks the machine about drives it cannot read, entry point by
   entry point, and checks it says what the real machine said when the owner
@@ -332,7 +335,11 @@ is `C:\b\eurekatech`) and `run-tests.bat` copies the file in for you.
 Without it the `com` and `wp` modes are skipped and the suite reports
 twenty `PASS` lines instead of twenty-two, saying so as it goes.  Both modes run that
 same `READ.COM`: `com` to start it, `wp` to show a write-protected diskette
-still reads (`CheckProtectedDiskStillReads`).  Nothing else needs the manual.
+still reads (`CheckProtectedDiskStillReads`).  `wp` also holds that the
+drive events see ordinary file I/O, which never reaches the controller: the
+load has to report its reads and a seek out from the directory (HANDOFF 6.54;
+a BIOS read that leaves the head where it was fails it).  Without the manual
+nothing holds that.  Nothing else needs the manual.
 Copy the file yourself only if you are running `integration_test.exe` by hand
 -- and keep it byte for byte as it came off the original diskette, because
 both modes depend on that.
