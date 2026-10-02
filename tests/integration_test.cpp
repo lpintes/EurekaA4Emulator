@@ -2647,7 +2647,9 @@ class CableEnd : public SerialLink {
   std::deque<uint8_t> inbox;
   std::vector<uint8_t> sent;
   std::vector<uint64_t> sentAt;
+  std::vector<LineFormat> formats;
 
+  void SetLineFormat(const LineFormat& format) override { formats.push_back(format); }
   bool ClearToSend() override {
     if (peer != nullptr) return peer->rts;
     return ready && clock_.cycles() >= readyFrom;
@@ -2731,6 +2733,16 @@ bool CheckPrinter(EurekaMachine& machine) {
       closest = std::min(closest, printer.sentAt[i] - printer.sentAt[i - 1]);
     expect(closest >= kCharacterCycles,
            "znaky idu rychlejsie nez 9600 Bd: " + std::to_string(closest) + " cyklov");
+    // A real port at the other end makes the bits itself from this (ea4-7zw.3),
+    // so the format it is told must be the one the characters were timed by.
+    const LineFormat line{9600, 8, LineFormat::Parity::kNone, 1};
+    expect(!printer.formats.empty() && printer.formats.back() == line,
+           "kabel nedostal format 9600 8N1");
+    // Plugged in before the reset, it was told 8N1 at once; the boot after it
+    // sets the channel up again, passing through 7 bits (CNTLA1 is written
+    // twice), and the cable has to hear that, not just the plug-in.
+    expect(printer.formats.size() >= 2,
+           "kabel sa o nastaveni kanala po resete nedozvedel");
 
     CableEnd stalling(machine);
     machine.SetSerialLink(&stalling);

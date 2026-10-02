@@ -959,9 +959,10 @@ void EurekaMachine::WritePort(z80* cpu, uint16_t port, uint8_t value) {
   if (low != hw::kTcr) machine->io_[low] = value;
   switch (low) {
     // Format and bit rate are read back from io_ each time a character starts,
-    // so a change in Komunikace takes effect at once (18423-18445).
-    case hw::kCntla1: break;
-    case hw::kCntlb1: break;
+    // so a change in Komunikace takes effect at once (18423-18445).  The cable
+    // is told too, for a real port at the other end of it.
+    case hw::kCntla1:
+    case hw::kCntlb1: machine->NotifyLineFormat(); break;
     // Written while TDRE is clear, the byte replaces the waiting one, as on
     // the chip; this ROM always checks TDRE first (184F2).
     case hw::kTdr1: machine->asci1Tdr_ = value; break;
@@ -1589,8 +1590,22 @@ bool EurekaMachine::Asci1Interrupt() const {
 
 void EurekaMachine::SetSerialLink(SerialLink* link) {
   serialLink_ = link;
-  if (link != nullptr)
+  linkFormat_.reset();
+  if (link != nullptr) {
     link->SetRequestToSend((outputLatch_ & hw::kRts1Mask) == 0);
+    NotifyLineFormat();
+  }
+}
+
+// The firmware sets the format at boot (18390) and Komunikace again for each
+// speed it is told (18423-18445).  CNTLA1 is also written just to switch RE
+// and TE, and that is not a new format for the far end.
+void EurekaMachine::NotifyLineFormat() {
+  if (serialLink_ == nullptr) return;
+  const LineFormat format = Asci1LineFormat();
+  if (linkFormat_ == format) return;
+  linkFormat_ = format;
+  serialLink_->SetLineFormat(format);
 }
 
 // PHI / (PS * DR * SS), per the data sheet; the firmware's nine speeds all land
@@ -1619,6 +1634,23 @@ uint32_t EurekaMachine::Asci1CharacterCycles() const {
 // construction, and a mismatch between them is not simulated (HANDOFF 6.53).
 uint8_t EurekaMachine::Asci1DataMask() const {
   return (io_[hw::kCntla1] & hw::kCntlaMod2) != 0 ? 0xff : 0x7f;
+}
+
+// The rate rounded to whole bauds; every speed the firmware offers comes out
+// exact (6144000 / 640 = 9600).  PEO counts only when MOD1 asks for parity --
+// the boot value 12h of CNTLB1 has it set with parity off.
+LineFormat EurekaMachine::Asci1LineFormat() const {
+  const uint8_t format = io_[hw::kCntla1];
+  LineFormat line;
+  if (const uint32_t bit = Asci1BitCycles(); bit != 0)
+    line.baud = (kCpuHz + bit / 2) / bit;
+  line.dataBits = (format & hw::kCntlaMod2) != 0 ? 8 : 7;
+  if ((format & hw::kCntlaMod1) != 0)
+    line.parity = (io_[hw::kCntlb1] & hw::kCntlbPeo) != 0
+                      ? LineFormat::Parity::kOdd
+                      : LineFormat::Parity::kEven;
+  line.stopBits = (format & hw::kCntlaMod0) != 0 ? 2 : 1;
+  return line;
 }
 
 uint8_t EurekaMachine::ReadAsci1Status() const {

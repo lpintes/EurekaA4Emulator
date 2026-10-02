@@ -448,6 +448,8 @@ class EurekaMachine {
   uint32_t Asci1BitCycles() const;
   uint32_t Asci1CharacterCycles() const;
   uint8_t Asci1DataMask() const;
+  LineFormat Asci1LineFormat() const;
+  void NotifyLineFormat();
   uint8_t ReadAsci1Status() const;
   bool Asci1Interrupt() const;
   void PumpAsci1();
@@ -607,6 +609,8 @@ class EurekaMachine {
   uint8_t asci1Rdr_ = 0;
   bool asci1Rdrf_ = false;
   uint64_t asci1RxReadyAt_ = 0;
+  // What the cable was last told, so that it hears about a change only once.
+  std::optional<LineFormat> linkFormat_;
   // The keyboard the ROM expects, worked out from its own tables: for each
   // character of the machine's charset, the scan code that types it and the
   // modifier that has to be held down.  code 0 means the character is not on

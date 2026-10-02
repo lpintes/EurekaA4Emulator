@@ -376,7 +376,11 @@ do zásuvky zapojený `TcpLink` (`EmulatorThread`, ponuka **Stroj → Sériový
 kábel**, `ea4-7zw.4`); bez spojenia sa správa ako prázdna zásuvka. `tlac` tlačí z textového procesora postupom majiteľa:
 bez kábla musí zaznieť „tiskárna není připravena“, s tlačiarňou v pamäti
 prísť 174 bajtov strany nie rýchlejšie než znak za 6400 cyklov, a pri
-sekundovom výpadku CTS tá istá strana celá. `kabel` spojí dva stroje
+sekundovom výpadku CTS tá istá strana celá. Drží aj to, že kábel sa
+dozvie **formát linky** (`SetLineFormat`, 9600 8N1 z CNTLA1/CNTLB1) nielen
+pri zapojení, ale aj keď ho firmvér po resete nastaví znova — skutočný COM
+port (`ea4-7zw.3`) si z neho robí štart, paritu a stop bity. Overené
+mutáciou: neohlásený zápis do CNTLA1/CNTLB1 zhodí `tlac`. `kabel` spojí dva stroje
 nulmodemom v jednom procese, pošle XMODEM-om 1340 bajtov a porovná prijatý
 súbor s pôvodným; stroje beží striedavo podľa vlastného času, inak by jeden
 odbehol druhému do časového limitu. Ten istý prenos potom zopakuje cez dva
