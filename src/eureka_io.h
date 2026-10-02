@@ -414,6 +414,13 @@ constexpr unsigned kSectorsPerTrack = 10;
 constexpr uint8_t kSectorSizeCode = 2;
 // What a freshly formatted surface reads back as.
 constexpr uint8_t kFormatFill = 0xe5;
+// One double-density revolution, raw: 250 kbit/s for 200 ms at 300 rpm,
+// gaps and address marks included (WD1772 data sheet).  It is the size of a
+// Write Track, and the unit a transfer's rotation time is measured in.
+constexpr unsigned kRawTrackBytes = 6250;
+// An ID field as Read Address returns it: track, side, sector, size code and
+// two CRC bytes.
+constexpr unsigned kIdFieldBytes = 6;
 
 // ---------------------------------------------------------------------------
 // Power latch (IOPORT.LIB).  Write only; SYSRAM keeps power_copy.

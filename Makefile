@@ -196,7 +196,9 @@ $(BIN)/com_test.exe: $(BUILD)/test_com_test.o $(BUILD)/com_link.o | $(BIN)
 $(BIN)/zex_test.exe: $(BUILD)/test_zex_test.o $(BUILD)/z80.o | $(BIN)
 	$(CXX) $(STATIC) -o $@ $^
 
-$(BIN)/diag_probe.exe: $(BUILD)/test_diag_probe.o $(SESSION_OBJS) $(CORE_OBJS) | $(BIN)
+# drive_sound.o pre token wavm: (HANDOFF 6.54).
+$(BIN)/diag_probe.exe: $(BUILD)/test_diag_probe.o $(SESSION_OBJS) $(CORE_OBJS) \
+                       $(BUILD)/drive_sound.o | $(BIN)
 	$(CXX) $(STATIC) -municode -o $@ $^
 
 # tcp_link.o pre rezim kabel, ktory prenos skusa aj cez skutocny socket,

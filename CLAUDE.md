@@ -601,6 +601,15 @@ Tokeny sekvencie:
   výstup samotného modelu — bez zariadenia, bez fronty, bez steerovaného
   taktu — takže chyba, ktorá prežije do súboru, je v modeli, a tá, ktorá
   neprežije, je v real-time ceste (HANDOFF 6.38).
+- `wavm:SUBOR` — to isté so zvukom mechaniky (`src/drive_sound.*`, HANDOFF
+  6.54) a so všetkými udalosťami mechaniky od posledného opýtania. Mechanika
+  má vlastný, pomalší čas, takže súbor pokračuje za koncom vzoriek stroja,
+  kým sa motor nezastaví (najviac dve minúty). `wav:` zostáva čistý model.
+  Šum má pevné semienko: tá istá sekvencia dá bajtovo ten istý súbor, takže
+  ladenie zvuku sa dá porovnávať. Premenná `EA4_ZVUKY_MECHANIKY` s cestou
+  k priečinku nahrávok (`DriveSound::LoadSamples`) prepne syntézu na ne;
+  sonda na začiatku vypíše, ktoré zvuky hrá. Z WSL ju treba pustiť cez
+  `WSLENV=EA4_ZVUKY_MECHANIKY/w`, inak ju EXE nedostane.
 - `dac:N` — prebehne N inštrukcií a vypíše dva histogramy o tom, ako je DAC
   naozaj poháňaný: rozostupy medzi **zápismi** (pri melódii vždy 540 cyklov;
   dvojnásobok by znamenal stratené prerušenie PRT0) a veľkosti skokov hodnoty

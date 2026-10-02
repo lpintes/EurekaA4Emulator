@@ -4134,12 +4134,155 @@ milión cyklov, desatinu sekundy; na skutočnom stroji je to rádovo minúta
 (otáčka 200 ms na stopu aj s overením). Zvuk v kroku 2 preto pôjde ako kulisa
 za strojom, verné tempo prinesie až krok 4.
 
+**Opravené pri kroku 2a:** „desatina sekundy“ bola zle prepočítaná. Takt
+je 6,144 MHz (`kCpuHz`), takže milión cyklov je asi 0,16 s a zmeraných asi
+0,9 M cyklov formátovania asi 0,15 s.
+
 **Drží to** `integration_test format` (`CheckFormatMovedTheHead`: formátovanie
 hlásené na každej stope 0–79/0–1, každý presun presne o jeden dnu, aspoň 79
 presunov) a `wp` (načítanie `READ.COM`: aspoň 150 čítaní a presun z cylindra
 0 von). Overené mutáciou: krok bez pohybu hlavičky zhodí `format`, čítanie
 BIOS-u bez presunu zhodí `wp`. `wp` bez manuálu nebeží, takže cestu BIOS-u
 vtedy nedrží nič.
+
+#### Krok 2a: syntetizovaný zvuk, zatiaľ len v sonde (1. 10. 2026, `ea4-tvd.2`)
+
+Aby majiteľ počul zvuk skôr, než sa siahne na okno, je krok 2 rozdelený:
+2a je `src/drive_sound.*` a token sondy `wavm:SUBOR`, 2b zapojenie do
+emulátora s vypínačom podľa toho, čo majiteľ na nahrávke povie.
+
+**Udalosť nesie veľkosť prenosu** (`DriveEvent::bytes`): záznam BIOS-u 128 B,
+sektor radiča 512, verify a Read Address 6 (`hw::kIdFieldBytes`), Write
+Track a Read Track celá surová stopa, 6250 B (`hw::kRawTrackBytes`). Bez nej
+by jeden čas na udalosť bol na jednej z ciest štyrikrát zle.
+
+**Čo sa syntetizuje** (`DriveSound`, čisté C++ bez hostiteľa):
+
+- **Krok hlavičky** — jedno cvaknutie, 12 ms: tri tlmené rezonancie (1800,
+  650 a 3900 Hz) a krátky výbuch šumu, každý krok trochu inak silný. Presun
+  je rad krokov po 6 ms (r1r0 = 00 na WD1772), takže dlhý presun bzučí.
+- **Točenie** — šum v pásme okolo 380 Hz, modulovaný raz za otáčku (5 Hz),
+  a slabé pískanie motora, oboje podľa rýchlosti vretena; roztočenie
+  a dobeh majú zotrvačnosť.
+- **Čas práce** — prenos trvá svoj podiel otáčky (200 ms na 6250 B), po
+  presune sa čaká v priemere pol otáčky na sektor. Motor sa po príkaze
+  roztáča 6 otáčok (1,2 s) a vypne sa 9 otáčok (1,8 s) po poslednej práci;
+  obe čísla sú správanie WD1772 s príznakom h v nule, ktorý firmvér nikdy
+  nenastavuje.
+- **Mechanika nepracuje, kým hrá DAC.** Majiteľ si pamätá zo skutočného
+  stroja (1. 10. 2026): počas reči aj inej hry na DAC disketa stála a len
+  motor dobiehal; keď reč skončila dosť skoro, alebo ju používateľ prerušil
+  Shiftom, disketa sa rozbehla bez roztáčania. Jeden procesor obsluhuje oboje.
+  Model: práca nezačne, kým výstup stroja neutíchne aspoň na 50 ms (prah 64);
+  motor medzitým dobieha a po 1,8 s sa zastaví.
+- **Motor nasleduje činnosť, nie `pol_disk`.** Je to predpoklad, nie meranie
+  (pozri Otvorené).
+
+Šum má pevné semienko, tá istá sekvencia dá bajtovo ten istý WAV (overené).
+Hladiny sú prvý odhad na ladenie v kroku 3: na nahrávke načítania `READ` má
+reč špičky 20 000 – 30 000, cvaknutia okolo 7 000 (asi o 10 dB nižšie)
+a točenie efektívnu hodnotu okolo 180 proti 5 000 pri reči (asi −29 dB).
+Načítanie dá 5,8 s stroja a 12,3 s spolu, formátovanie 6,8 s stroja a 79 s
+spolu — mechanika hrá ešte vyše minúty po „formátování skončeno“, čo je
+kompromis kulisy, nie chyba.
+
+**Ladenie s majiteľom, 1. 10. 2026 — popis točenia a kroku vyššie už
+neplatí.** Päť kôl nahrávok `nacitanie-N.wav` a `formatovanie-N.wav`:
+
+- Šum s hlbokým vlnením raz za otáčku znel pri formátovaní „ako vlak“;
+  stíšený o 12 dB „ako veľký pevný disk alebo osempalcová mechanika bez
+  krytu“. Majiteľ: na pozadí bolo vždy **vrčanie motorčeka**, šum diskety
+  v obale bolo počuť len pri poškodenej diskete alebo uvoľnenom okienku.
+  Točenie je preto teraz pílovitý tón **140 Hz so šiestimi harmonickými**,
+  výška nasleduje rýchlosť vretena (rozvrčí sa a dovrčí), jemné vlnenie raz
+  za otáčku; šum zostal len ako stopa (0,002). Po zosilnení o 6 dB má
+  samotné točenie efektívnu hodnotu okolo 92.
+- Krok s rezonanciami 1800 a 3900 Hz znel ako tikanie hlavičky pevného
+  disku; teraz 420, 1100 a 2600 Hz, 20 ms, menej šumu.
+- „Pozadie pri formátovaní silnie“ — v súbore nie: efektívna hodnota
+  pozadia 43 – 44 po celý čas. Pripísané automatickému vyrovnávaniu
+  hlasitosti pri prehrávaní; majiteľ odvtedy počúva iným prehrávačom.
+- **Roztočenie motora po prerušení reči pred formátovaním majiteľ označil
+  za dokonalé.** Pravidlo „mechanika stojí, kým hrá DAC“ teda sedí s jeho
+  pamäťou.
+
+**Prvé točenie si treba pamätať — „poškodená disketa“.** Majiteľ (1. 10.
+2026): šum z prvej verzie znel ako disketa, ktorá sa v obale drhne, a mohol
+by sa pre zábavu primiešať, napríklad náhodne pri jednej z desiatich
+vložených diskiet. Parametre tej verzie, keďže v kóde sú už iné: šum
+(xorshift32) cez pásmovú priepusť RBJ 380 Hz, Q 0,8, úroveň **0,05** plnej
+škály, vlnenie raz za otáčku `0,4 + 0,6 · (0,5 + 0,5 · sin)`, k tomu
+pískanie 420 Hz na 0,006; všetko násobené rýchlosťou vretena. Eviduje to
+`ea4-tvd.5`.
+
+**Nahrávky namiesto syntézy (pokus, 1. 10. 2026).** Syntéza majiteľa
+neuspokojila, z voľne licencovaných nahrávok sa mu priblížili dve:
+
+- **Flopster** (Shiru, mechanika NEC FD1231H, vzorky pod **CC-BY**):
+  `spindle.wav` je vrčanie, ktoré majiteľ označil za výborné, a nesie
+  značky slučky (`smpl`: 48707 – 181012 pri 44,1 kHz), takže sa delí na
+  rozbeh 1,10 s, slučku 3,00 s a dobeh 0,50 s; `step_00` až `step_79` sú
+  kroky na každý cylinder zvlášť.
+- **BigSoundBank** 1396 „Floppy disk (3.5"), reading“ (**CC0**): úsek
+  4,5 – 8 s je to „hrabanie“, ktoré si majiteľ pamätá pri načítaní
+  dlhších programov. Rozbor: nárazy 40 – 240 ms, vnútri rad krokov asi po
+  8 ms — teda rýchle presuny hlavičky cez mnoho cylindrov. Dlhý rovnomerný
+  úsek 8 – 23 s to **nie je**.
+
+`DriveSound::LoadSamples` berie priečinok so súbormi `motor-rozbeh`,
+`motor-slucka`, `motor-dobeh`, `krok-00` … `krok-79` a `presun` (48 kHz,
+mono, 16 bit; iné odmietne). Jeden krok hrá vzorku daného cylindra, presun
+o viac cylindrov hrá `presun` tak dlho, koľko krokov trvá, a dozvoní 15 ms.
+Motor: rozbeh prejde do slučky, vypnutie do dobehu, zmena inde sa prelína
+10 ms; motor zachytený ešte v dobehu ide rovno do slučky. Všetko jedným
+ziskom 0,25. Sonda ich načíta z `EA4_ZVUKY_MECHANIKY`; bez nej hrá syntéza.
+Vzorky zatiaľ ležia mimo stromu (`%TEMP%\ea4-zvuk\vzory\eureka-test`);
+kam patria a ako sa uvedie autor, sa rozhodne v 2b.
+
+**Zvolená sada, verzia 8 (1. – 2. 10. 2026) — odsek vyššie už neplatí
+v dvoch veciach:** kroky nie sú z Flopsteru po cylindroch a slučka motora
+nie je surová. Majiteľovi Flopster vo verzii 7 „klapal ako ochodená
+disketa“ a hrabanie v nahrávke načítania nepočul (`READ` leží na začiatku
+diskety, presuny sú o 1 – 2 cylindre, hrabanie teda trvá ~12 ms).
+Verziu 8 prijal: „hrabanie je úchvatné, ale kroky tiež“; zvuky sú
+podľa neho hlučnejšie a tvrdšie, než mala Eureka — jej mechanika bola
+jemnejšia —, ale **radšej verná nahrávka jednej mechaniky než
+upravovaná**. Majiteľ je v kontakte s niekým, kto by mohol nahrať
+skutočnú mechaniku Eureky; sada sa potom len vymení.
+
+Recept, z ktorého sa sada dá zopakovať (priečinok `eureka-test-2`, 48 kHz):
+
+- **Motor** — Flopster `spindle.wav` cez `lowpass=f=1500,acompressor=
+  threshold=0.05:ratio=8:attack=0.1:release=20:makeup=1` (ffmpeg), až
+  potom rozdelený podľa značiek slučky na `motor-rozbeh` (0 – 1,104467 s),
+  `motor-slucka` (do 4,104580 s) a `motor-dobeh`. Klapanie je zhluk štyroch
+  ťuknutí raz za otáčku (200 ms); úprava ho zníži zo 4,2× na 1,7× nad
+  bežnú úroveň. Majiteľ vybral z troch ukážok túto (B). `adeclick` na tie
+  dlhé ťuknutia nezaberie — výsledok bol bajtovo rovnaký ako originál.
+  Surovú slučku si treba nechať pre „opotrebovanú“ disketu (`ea4-tvd.5`).
+- **Kroky** — Wikimedia Commons `Floppy drive sounds.ogg` (AlepouTheFox,
+  **CC0**), kde sa od 5,5 s do 15 s opakuje jeden krok presne každých
+  1,199 s. Krok je len ~12 dB nad šumom točiacej sa diskety a trvá ~40 ms;
+  vystrihnutý sám znel ako ďalší šum, a afftdn (ffmpeg) ho od šumu
+  neoddelil. `tools/drive_steps.py commons.wav krok 7.0 7.6 6.730 9.125
+  12.722` šum odčíta po frekvenciách (profil z 7,0 – 7,6 s) — o ~20 dB,
+  krok ostane. Tri zábery `krok-1` až `krok-3` sa striedajú.
+- **Hrabanie** — BigSoundBank 1396 (**CC0**), úseky 4,88 – 5,13 s
+  a 7,22 – 7,52 s spojené `acrossfade=d=0.02` do `presun.wav` (0,53 s).
+- Zisk 0,25 pre všetko.
+
+**Ako hrabanie počuť v sonde.** Po formátovaní stojí hlavička na cylindri
+81; prvý kláves len opustí formátovanie („ahoj“), druhý sa stratí počas
+znelky hlavného menu. Funguje `... ?skonceno . kD6 . spin:6000000 . kD6
+?programu READ~ . .` — `mechanika` potom ukáže `presun 81 -> 0`. Samotné
+`F8` (adresár) disketu nečíta, kým sa v aplikácii nestlačí ďalší kláves.
+V nahrávke `navrat-hlavicky-8.wav` je hrabanie až po reči (~25,9 s), lebo
+mechanika stojí, kým hrá DAC, a stroj disketu prečíta okamžite — súbeh
+hrabania s načítaním, ako si ho majiteľ pamätá, prinesie až krok 4.
+
+Vlastný test 2a nemá; plánovanie by mal pribiť test bez ROM v kroku 2b.
+Vypnutý stroj nevyrába zvuk, takže zvuk mechaniky by s ním zamrzol — rieši
+sa v 2b.
 
 #### Otvorené
 
@@ -4165,6 +4308,7 @@ V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
 | `latches.py` | všetky odkazy na tiene latchov + súhrn po bitoch |
 | `melodies.py` | vyrenderuje melódie z ROM do `audio/melodie/` |
 | `check_io_names.py` | overí `src/eureka_io.h` proti `IOPORT.LIB`, `IOREG.LIB`, `SYSEQU.LIB` a `KB.H` |
+| `drive_steps.py IN OUT T0 T1 KROK…` | vystrihne kroky hlavičky z nahrávky mechaniky a odčíta z nich šum točenia (6.54) |
 
 Príklad:
 

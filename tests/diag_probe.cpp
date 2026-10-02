@@ -54,6 +54,7 @@
 #include <utility>
 #include <vector>
 
+#include "drive_sound.h"
 #include "eureka_session.h"
 #include "machine.h"
 #include "virtual_disk.h"
@@ -86,6 +87,31 @@ std::string Label(const std::wstring& token) {
 }
 
 using eureka::Readable;
+
+// 16-bit mono PCM at the machine's rate.  False if the file could not be made.
+bool WriteWav(const std::wstring& path, const std::vector<int16_t>& samples) {
+  FILE* out = _wfopen(path.c_str(), L"wb");
+  if (!out) return false;
+  const uint32_t rate = EurekaMachine::kAudioHz;
+  const uint32_t bytes = static_cast<uint32_t>(samples.size() * 2);
+  auto put32 = [out](uint32_t value) { std::fwrite(&value, 4, 1, out); };
+  auto put16 = [out](uint16_t value) { std::fwrite(&value, 2, 1, out); };
+  std::fwrite("RIFF", 1, 4, out);
+  put32(36 + bytes);
+  std::fwrite("WAVEfmt ", 1, 8, out);
+  put32(16);
+  put16(1);
+  put16(1);
+  put32(rate);
+  put32(rate * 2);
+  put16(2);
+  put16(16);
+  std::fwrite("data", 1, 4, out);
+  put32(bytes);
+  std::fwrite(samples.data(), 1, bytes, out);
+  std::fclose(out);
+  return true;
+}
 
 // Runs until the console has been quiet for half a second or the budget is
 // spent.  It used to run until the BIOS blocked on console input, but the CPU
@@ -128,6 +154,14 @@ int wmain(int argc, wchar_t** argv) {
   }
   machine->diagnostics().set_enabled(true);
   eureka::Session session(*machine);
+  DriveSound drive;
+  // The recorded drive sounds are not in the tree; a folder of them is named
+  // here, and without one wavm: plays the synthesized drive (HANDOFF 6.54).
+  if (const wchar_t* folder = _wgetenv(L"EA4_ZVUKY_MECHANIKY")) {
+    std::string why;
+    if (drive.LoadSamples(folder, why)) std::printf("zvuky mechaniky: nahravky\n");
+    else std::printf("zvuky mechaniky: nahravky sa nenacitali (%s), syntetizovane\n", why.c_str());
+  }
 
   if (mode == L"seq") {
     session.Reset();
@@ -380,33 +414,42 @@ int wmain(int argc, wchar_t** argv) {
         // steered -- so a defect that survives into the file is in the model,
         // and one that does not is in the real time path (HANDOFF 6.37).
         const std::vector<int16_t> samples = session.TakeAudio();
-        const std::wstring path = token.substr(4);
-        FILE* out = _wfopen(path.c_str(), L"wb");
-        if (!out) {
+        const uint32_t rate = EurekaMachine::kAudioHz;
+        if (!WriteWav(token.substr(4), samples)) {
           std::printf("%s -> [nepodarilo sa zapisat]\n", Label(token).c_str());
           continue;
         }
-        const uint32_t rate = EurekaMachine::kAudioHz;
-        const uint32_t bytes = static_cast<uint32_t>(samples.size() * 2);
-        auto put32 = [out](uint32_t value) { std::fwrite(&value, 4, 1, out); };
-        auto put16 = [out](uint16_t value) { std::fwrite(&value, 2, 1, out); };
-        std::fwrite("RIFF", 1, 4, out);
-        put32(36 + bytes);
-        std::fwrite("WAVEfmt ", 1, 8, out);
-        put32(16);
-        put16(1);
-        put16(1);
-        put32(rate);
-        put32(rate * 2);
-        put16(2);
-        put16(16);
-        std::fwrite("data", 1, 4, out);
-        put32(bytes);
-        std::fwrite(samples.data(), 1, bytes, out);
-        std::fclose(out);
         std::printf("%s -> [vzoriek=%zu, %.2f s pri %u Hz]\n", Label(token).c_str(),
                     samples.size(),
                     double(samples.size()) / double(rate), unsigned(rate));
+        continue;
+      }
+      if (token.starts_with(L"wavm:")) {
+        // The same samples with the drive mixed in (HANDOFF 6.54), the way the
+        // emulator will play them -- "wav:" stays the model's own output.  The
+        // drive keeps its own, slower timeline, so the file runs on past the
+        // machine's samples until the drive has stopped, or for two minutes.
+        std::vector<int16_t> samples = session.TakeAudio();
+        uint64_t end = machine->cycles();
+        drive.Mix(machine->TakeDriveEvents(), samples, end);
+        const std::size_t machineSamples = samples.size();
+        constexpr std::size_t kChunk = EurekaMachine::kAudioHz / 10;
+        constexpr uint64_t kCyclesPerChunk =
+            kChunk * (EurekaMachine::kCpuHz / EurekaMachine::kAudioHz);
+        for (int chunk = 0; chunk < 1200 && !drive.Idle(); ++chunk) {
+          std::vector<int16_t> tail(kChunk, 0);
+          end += kCyclesPerChunk;
+          drive.Mix({}, tail, end);
+          samples.insert(samples.end(), tail.begin(), tail.end());
+        }
+        const uint32_t rate = EurekaMachine::kAudioHz;
+        if (!WriteWav(token.substr(5), samples)) {
+          std::printf("%s -> [nepodarilo sa zapisat]\n", Label(token).c_str());
+          continue;
+        }
+        std::printf("%s -> [%.2f s stroja, %.2f s spolu, mechanika %s]\n",
+                    Label(token).c_str(), double(machineSamples) / rate,
+                    double(samples.size()) / rate, drive.Idle() ? "stoji" : "este bezi");
         continue;
       }
       if (token == L"zvuk") {

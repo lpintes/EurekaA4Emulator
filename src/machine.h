@@ -300,6 +300,12 @@ class EurekaMachine {
     // 6 ms per step, but the meaning is the chip's, and a consumer should
     // translate it in one place.
     uint8_t stepRate;
+    // Bytes that pass under the head, for a transfer: what turns the event
+    // into rotation time.  The two paths move very different amounts -- a
+    // BIOS record is 128, a controller sector 512, a verify only the six of
+    // an ID field and Write Track the whole raw track -- so one fixed time
+    // per event would be wrong by a factor of four on one of them.
+    uint16_t bytes;
   };
   std::vector<DriveEvent> TakeDriveEvents();
 
@@ -623,7 +629,7 @@ class EurekaMachine {
   // ever drops what nobody was listening to.
   static constexpr std::size_t kMaxDriveEvents = 4096;
   std::deque<DriveEvent> driveEvents_;
-  void RecordDrive(DriveEvent::Kind kind, uint8_t side, uint8_t stepRate = 0);
+  void RecordDrive(DriveEvent::Kind kind, uint8_t side, uint16_t bytes);
   void MoveHead(int cylinder, uint8_t stepRate);
   // Position of the last Write Track, so a verify read of it always succeeds.
   int fdcFormattedCylinder_ = -1;

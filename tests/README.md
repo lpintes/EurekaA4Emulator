@@ -485,7 +485,11 @@ swung, which is the one report no hole in the speech capture can fool.
 sound from silence and nothing else, while a crackle is a shape that has to be
 looked at.  What comes out is the model alone -- no device, no queue, no
 steered clock -- so a defect that survives into the file is in the model and
-one that does not is in the real time path.  `dac:N` asks the other half of
+one that does not is in the real time path.  `wavm:FILE` is the same with the
+drive sound mixed in (HANDOFF 6.54) and runs on until the drive has stopped,
+because the drive keeps a slower timeline of its own; with
+`EA4_ZVUKY_MECHANIKY` naming a folder of recordings it plays those instead
+of the synthesized drive.  `dac:N` asks the other half of
 the question, how the DAC is being driven: the gaps between **writes** (always
 540 cycles while a tune plays; twice that would be a lost PRT0 interrupt) and
 how far the value moves when they come (a jump near 256 would be the

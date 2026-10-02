@@ -1217,7 +1217,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     }
     fdcStatus_ = TypeOneStatus(command);
   } else if ((command & hw::kFdcCommandGroup) == hw::kFdcCmdReadSector) {
-    RecordDrive(DriveEvent::Kind::kRead, side);
+    RecordDrive(DriveEvent::Kind::kRead, side, hw::kSectorBytes);
     fdcBuffer_.resize(hw::kSectorBytes);
     // A read finishes on its own: the controller walks the whole sector and
     // drops BUSY even when nobody services DRQ, merely flagging lost data.
@@ -1250,7 +1250,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
       fdcIntrq_ = true;
     }
   } else if ((command & hw::kFdcCommandGroup) == hw::kFdcCmdWriteSector) {
-    RecordDrive(DriveEvent::Kind::kWrite, side);
+    RecordDrive(DriveEvent::Kind::kWrite, side, hw::kSectorBytes);
     if (!disk_.present()) {
       fdcStatus_ = hw::kFdcStatusNotFound;
       fdcIntrq_ = true;
@@ -1280,7 +1280,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     // is already formatted.  An unformatted track has no ID headers at all,
     // so it has to come back Record Not Found; answering with a made-up
     // header made a blank diskette claim to be formatted.
-    RecordDrive(DriveEvent::Kind::kRead, side);
+    RecordDrive(DriveEvent::Kind::kRead, side, hw::kIdFieldBytes);
     if (!disk_.present() ||
         !disk_.TrackFormatted(fdcTrack_, outputLatch_ & hw::kFdcSide)) {
       fdcStatus_ = hw::kFdcStatusNotFound;
@@ -1297,7 +1297,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   } else if (type == hw::kFdcCmdReadTrack) {
     // Read Track reads the raw surface, so the same applies: nothing written
     // means nothing to read.
-    RecordDrive(DriveEvent::Kind::kRead, side);
+    RecordDrive(DriveEvent::Kind::kRead, side, hw::kRawTrackBytes);
     if (!disk_.present() ||
         !disk_.TrackFormatted(fdcTrack_, outputLatch_ & hw::kFdcSide)) {
       fdcStatus_ = hw::kFdcStatusNotFound;
@@ -1312,7 +1312,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     }
     fdcStatus_ = hw::kFdcStatusDrq;  // Completes on its own, as above.
   } else if (type == hw::kFdcCmdWriteTrack) {
-    RecordDrive(DriveEvent::Kind::kFormat, side);
+    RecordDrive(DriveEvent::Kind::kFormat, side, hw::kRawTrackBytes);
     if (!disk_.present()) {
       fdcStatus_ = hw::kFdcStatusNotFound;
       fdcIntrq_ = true;
@@ -1329,7 +1329,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
       return;
     }
     // One raw double-density track, gaps and address marks included.
-    fdcBuffer_.assign(6250, 0);
+    fdcBuffer_.assign(hw::kRawTrackBytes, 0);
     fdcWriting_ = true;
     fdcFormattedCylinder_ = fdcTrack_;
     fdcFormattedSide_ = static_cast<int>(outputLatch_ & hw::kFdcSide);
@@ -1348,7 +1348,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   // TypeOneStatus), so to the drive it is a read.  It is also the whole of
   // the format's "already formatted?" check, which moves the head nowhere.
   if ((command & hw::kFdcTypeTwoOrThree) == 0 && (command & hw::kFdcVerify) != 0)
-    RecordDrive(DriveEvent::Kind::kRead, side);
+    RecordDrive(DriveEvent::Kind::kRead, side, hw::kIdFieldBytes);
   // Type I commands and Force Interrupt finish inside this model, so they
   // raise INTRQ straight away.  Type II and III commands raise it when their
   // data transfer runs out, in ReadFdcData and WriteFdcData below.  The one
@@ -1793,7 +1793,7 @@ bool EurekaMachine::InterceptBios() {
       // Logical tracks are cylinder * 2 + side (virtual_disk.h).  The ROM's
       // driver would seek here with its only step rate, 00 (kFdcStepRate).
       MoveHead(biosTrack_ / 2, 0);
-      RecordDrive(DriveEvent::Kind::kRead, biosTrack_ % 2);
+      RecordDrive(DriveEvent::Kind::kRead, biosTrack_ % 2, VirtualDisk::kRecordSize);
       std::array<uint8_t, VirtualDisk::kRecordSize> record{};
       const bool ok = disk_.ReadRecord(biosTrack_, biosSector_, record.data());
       if (ok) for (unsigned i = 0; i < record.size(); ++i) Poke(biosDma_ + i, record[i]);
@@ -1803,7 +1803,7 @@ bool EurekaMachine::InterceptBios() {
     }
     case 14: {
       MoveHead(biosTrack_ / 2, 0);
-      RecordDrive(DriveEvent::Kind::kWrite, biosTrack_ % 2);
+      RecordDrive(DriveEvent::Kind::kWrite, biosTrack_ % 2, VirtualDisk::kRecordSize);
       std::array<uint8_t, VirtualDisk::kRecordSize> record{};
       for (unsigned i = 0; i < record.size(); ++i) record[i] = Peek(biosDma_ + i);
       const bool ok = disk_.WriteRecord(biosTrack_, biosSector_, record.data());
@@ -2095,10 +2095,10 @@ std::vector<EurekaMachine::DriveEvent> EurekaMachine::TakeDriveEvents() {
   return output;
 }
 
-void EurekaMachine::RecordDrive(DriveEvent::Kind kind, uint8_t side, uint8_t stepRate) {
+void EurekaMachine::RecordDrive(DriveEvent::Kind kind, uint8_t side, uint16_t bytes) {
   if (driveEvents_.size() >= kMaxDriveEvents) driveEvents_.pop_front();
   driveEvents_.push_back(
-      DriveEvent{kind, cycles_, headCylinder_, headCylinder_, side, stepRate});
+      DriveEvent{kind, cycles_, headCylinder_, headCylinder_, side, 0, bytes});
 }
 
 // Recorded with or without a diskette: an empty drive still steps, and
@@ -2112,6 +2112,6 @@ void EurekaMachine::MoveHead(int cylinder, uint8_t stepRate) {
   if (driveEvents_.size() >= kMaxDriveEvents) driveEvents_.pop_front();
   driveEvents_.push_back(DriveEvent{DriveEvent::Kind::kSeek, cycles_, headCylinder_, target,
                                     static_cast<uint8_t>(outputLatch_ & hw::kFdcSide),
-                                    stepRate});
+                                    stepRate, 0});
   headCylinder_ = target;
 }
