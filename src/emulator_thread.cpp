@@ -409,7 +409,8 @@ void EmulatorThread::Start(std::unique_ptr<EurekaMachine> machine, HWND notify,
     }
     if (notify) PostMessageW(notify, WM_EMU_CABLE, static_cast<WPARAM>(event), 0);
   });
-  machine_->SetSerialLink(&cable_);
+  machine_->SetSerialLink(&socket_);
+  socket_.Plug(&cable_);
   mode_.store(startMode, std::memory_order_relaxed);
   diagnostics_.store(diagnostics, std::memory_order_relaxed);
   running_.store(true, std::memory_order_relaxed);

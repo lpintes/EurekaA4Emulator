@@ -399,6 +399,12 @@ neskôr. Diskety si robí v `%TEMP%`, zdieľanú
 nepoužíva. Overené mutáciou: znaky bez času znaku zhodia `tlac`, chýbajúce
 prerušenie od prijatého bajtu `kabel`, CTS aktívne bez kábla zase `tlac`,
 zahodené RTS na sockete variant `tcp` v `kabel`.
+Tretí variant, `com=`, pošle ten istý súbor cez dva `ComLink` na dvojici
+portov z premennej `EA4_COM_PAIR` (com0com, `ea4-7zw.3`), zapojené tak ako v
+okne: stroj je od začiatku v `SerialSocket` a port sa doň zastrčí až potom.
+Bez premennej vypíše `com=preskocene` a režim prejde — CI ani iný stroj
+dvojicu portov nemá. Overené mutáciou: zásuvka, ktorá pri zastrčení nepodá
+RTS, zhodí `com` (príjemca zostane na „přijímám“).
 Odpovede na výzvy tlače idú cez `Type`, nie `Press` — hotový kód tam
 nedôjde (`ea4-7zw.5`).
 
@@ -451,6 +457,11 @@ kábel; odpojenie počas pripájania na adresu, kde nikto neodpovedá, nečaká
 (volá ho okno); a adresa sa rozoberie tak, ako ju napíše používateľ. Overené mutáciou:
 vynechané escapovanie `FFh` zhodí tri kontroly. Vynechané nulovanie CTS po
 strate nezhodí nič a je to správne — `ClearToSend` sa pýta aj na stav spojenia.
+Drží aj **zásuvku** (`src/serial_socket.h`), do ktorej sa káble zastrkávajú:
+že prázdna nemá CTS a znaky z nej nikam nejdú, a hlavne že **zastrčený kábel
+dostane RTS aj formát, ktoré stroj nastavil pred ním** — stroj ich hlási len
+pri zmene, takže kábel zastrčený neskôr by ich inak nepočul nikdy a druhá
+strana by ticho neposielala. Overené mutáciou: vynechané RTS pri `Plug`.
 
 ## Spustenie testov
 
@@ -691,7 +702,9 @@ lebo NVDA považuje doplnky za odvodené dielo (`nvda-addon/COPYING.txt`).
   Klávesy idú tou istou frontou ako príkazy, aby si prepnutie režimu
   nepredbehlo kláves napísaný po ňom.
   **Sériový kábel do fronty nejde** a nie je to výnimka z pravidla: `TcpLink`
-  nie je stroj. Vlákno ho vlastní a zapojí do stroja pri `Start`, okno volá
+  nie je stroj. Vlákno ho vlastní a pri `Start` zapojí do stroja **zásuvku**
+  (`SerialSocket`) a do nej kábel; vymeniť kábel (TCP za COM port, `ea4-7zw.3`)
+  tak znamená `Plug` pod zámkom zásuvky, nie prepojenie stroja. Okno volá
   `CableListen`, `CableConnect` a `CableClose` priamo, stroj volá len polovicu
   `SerialLink`, ktorá má vlastný zámok. Nikto z nich nečaká na druhého —
   `Close()` vyhľadávanie mena **zruší** (`GetAddrInfoExCancel`), nečaká naň.

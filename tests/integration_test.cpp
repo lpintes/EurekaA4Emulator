@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
 #include <deque>
 #include <filesystem>
@@ -18,7 +19,9 @@
 #include "eureka_io.h"
 #include "eureka_session.h"
 #include "machine.h"
+#include "com_link.h"
 #include "md5.h"
+#include "serial_socket.h"
 #include "tcp_link.h"
 
 namespace {
@@ -2771,12 +2774,23 @@ bool CheckPrinter(EurekaMachine& machine) {
 // the cable in memory (ea4-7zw.4): link_test holds the bytes, this holds that
 // Komunikace still gets through when they arrive on another thread, a little
 // later than the machine expected them.
-bool CheckCable(const wchar_t* romPath, bool overTcp) {
+//
+// comPair puts it through two ComLinks on a null-modem pair of host ports
+// instead (ea4-7zw.3), plugged the way the emulator plugs them: the machine is
+// wired to a SerialSocket from the start and the port goes in later, so RTS
+// and the format reach it only because the socket kept them.
+enum class Wire { kMemory, kTcp, kCom };
+
+bool CheckCable(const wchar_t* romPath, Wire wire,
+                const std::pair<std::wstring, std::wstring>& comPair = {}) {
   using namespace eureka;
   using namespace std::chrono_literals;
+  const bool overTcp = wire == Wire::kTcp;
   std::error_code ec;
   const fs::path root =
-      fs::temp_directory_path(ec) / (overTcp ? L"ea4_kabel_tcp" : L"ea4_kabel");
+      fs::temp_directory_path(ec) / (overTcp            ? L"ea4_kabel_tcp"
+                                     : wire == Wire::kCom ? L"ea4_kabel_com"
+                                                          : L"ea4_kabel");
   fs::remove_all(root, ec);
   fs::create_directories(root / L"a", ec);
   fs::create_directories(root / L"b", ec);
@@ -2802,7 +2816,20 @@ bool CheckCable(const wchar_t* romPath, bool overTcp) {
   CableEnd receiverEnd(*receiver);
   TcpLink senderSocket;
   TcpLink receiverSocket;
-  if (overTcp) {
+  SerialSocket senderPlug;
+  SerialSocket receiverPlug;
+  ComLink senderCom;
+  ComLink receiverCom;
+  if (wire == Wire::kCom) {
+    sender->SetSerialLink(&senderPlug);
+    receiver->SetSerialLink(&receiverPlug);
+    if (!senderCom.Open(comPair.first, error) || !receiverCom.Open(comPair.second, error)) {
+      std::wcout << L"  " << error << L"\n";
+      return false;
+    }
+    senderPlug.Plug(&senderCom);
+    receiverPlug.Plug(&receiverCom);
+  } else if (overTcp) {
     if (!receiverSocket.Listen(0, error)) {
       std::wcout << L"  " << error << L"\n";
       return false;
@@ -2891,6 +2918,18 @@ bool CheckCable(const wchar_t* romPath, bool overTcp) {
   return passed;
 }
 
+// The pair from EA4_COM_PAIR, "COM8,COM9"; nothing when it is not set, and
+// the kabel mode then says it skipped rather than that it passed.
+std::optional<std::pair<std::wstring, std::wstring>> ComPairFromEnvironment() {
+  const char* value = std::getenv("EA4_COM_PAIR");
+  if (value == nullptr) return std::nullopt;
+  const std::string narrow(value);
+  const std::wstring text(narrow.begin(), narrow.end());
+  const std::size_t comma = text.find(L',');
+  if (comma == std::wstring::npos) return std::nullopt;
+  return std::make_pair(text.substr(0, comma), text.substr(comma + 1));
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -2917,12 +2956,17 @@ int wmain(int argc, wchar_t** argv) {
   // Two machines of its own on diskettes of its own; the shared one is not
   // touched, so the other modes running beside it cannot see this one.
   if (std::wstring(argv[3]) == L"kabel") {
-    const bool inMemory = CheckCable(argv[1], false);
-    const bool overTcp = CheckCable(argv[1], true);
-    std::cout << (inMemory && overTcp ? "PASS" : "FAIL")
-              << " mode=KABEL pamat=" << (inMemory ? "ok" : "chyba")
-              << " tcp=" << (overTcp ? "ok" : "chyba") << "\n";
-    return inMemory && overTcp ? 0 : 1;
+    const bool inMemory = CheckCable(argv[1], Wire::kMemory);
+    const bool overTcp = CheckCable(argv[1], Wire::kTcp);
+    // Only where a null-modem pair of ports exists (com0com); elsewhere the
+    // line says so, so that a skip is never read as a pass.
+    const auto pair = ComPairFromEnvironment();
+    const bool overCom = !pair || CheckCable(argv[1], Wire::kCom, *pair);
+    const bool passed = inMemory && overTcp && overCom;
+    std::cout << (passed ? "PASS" : "FAIL") << " mode=KABEL pamat=" << (inMemory ? "ok" : "chyba")
+              << " tcp=" << (overTcp ? "ok" : "chyba")
+              << " com=" << (!pair ? "preskocene" : overCom ? "ok" : "chyba") << "\n";
+    return passed ? 0 : 1;
   }
   const bool basic = std::wstring(argv[3]) == L"bas";
   auto machine = std::make_unique<EurekaMachine>();

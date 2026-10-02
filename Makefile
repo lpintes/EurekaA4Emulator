@@ -199,9 +199,10 @@ $(BIN)/zex_test.exe: $(BUILD)/test_zex_test.o $(BUILD)/z80.o | $(BIN)
 $(BIN)/diag_probe.exe: $(BUILD)/test_diag_probe.o $(SESSION_OBJS) $(CORE_OBJS) | $(BIN)
 	$(CXX) $(STATIC) -municode -o $@ $^
 
-# tcp_link.o pre rezim kabel, ktory prenos skusa aj cez skutocny socket.
+# tcp_link.o pre rezim kabel, ktory prenos skusa aj cez skutocny socket,
+# a com_link.o pre jeho variant cez dvojicu COM portov (EA4_COM_PAIR).
 $(BIN)/integration_test.exe: $(BUILD)/test_integration_test.o $(SESSION_OBJS) $(CORE_OBJS) \
-                            $(BUILD)/tcp_link.o | $(BIN)
+                            $(BUILD)/tcp_link.o $(BUILD)/com_link.o | $(BIN)
 	$(CXX) $(STATIC) -municode -o $@ $^ -lws2_32
 
 # ---------------------------------------------------------------------------

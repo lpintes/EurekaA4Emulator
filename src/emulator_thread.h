@@ -26,6 +26,7 @@
 #include "disk_stash.h"
 #include "machine.h"
 #include "settings.h"
+#include "serial_socket.h"
 #include "tcp_link.h"
 
 // How the host keyboard is presented to the machine.  The Eureka had exactly
@@ -363,6 +364,8 @@ class EmulatorThread {
   std::mutex cableMutex_;
   std::wstring cableDetail_;
   TcpLink cable_;
+  // What the machine is wired to; the cable goes into it (serial_socket.h).
+  SerialSocket socket_;
 
   std::atomic<InputMode> mode_{InputMode::kPc};
   std::atomic<bool> diagnostics_{false};

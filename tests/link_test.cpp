@@ -15,6 +15,7 @@
 #include <thread>
 #include <vector>
 
+#include "serial_socket.h"
 #include "tcp_link.h"
 
 namespace {
@@ -259,12 +260,70 @@ void Failures() {
   Check(heardHanging.Count(Event::kFailed) == 0, "zrusene pripajanie sa nehlasi ako zlyhanie");
 }
 
+// A cable that only remembers what it was told, for the socket below.
+class Probe : public SerialLink {
+ public:
+  bool cts = false;
+  bool rts = false;
+  std::optional<LineFormat> format;
+  std::vector<uint8_t> sent;
+  std::vector<uint8_t> waiting;
+
+  void SetLineFormat(const LineFormat& line) override { format = line; }
+  bool ClearToSend() override { return cts; }
+  void SetRequestToSend(bool asserted) override { rts = asserted; }
+  void Transmit(uint8_t character) override { sent.push_back(character); }
+  std::optional<uint8_t> Receive() override {
+    if (waiting.empty()) return std::nullopt;
+    const uint8_t character = waiting.front();
+    waiting.erase(waiting.begin());
+    return character;
+  }
+};
+
+// The socket the machine stays wired to while cables go in and out of it
+// (src/serial_socket.h, ea4-7zw.3).  The machine says RTS and the format only
+// when they change, so a cable plugged in after that would otherwise run with
+// RTS dropped -- and the far end would never send -- and a real port at
+// whatever rate it had before.  Both are quiet.
+void Socket() {
+  std::cout << "zasuvka\n";
+  const LineFormat line{9600, 8, LineFormat::Parity::kNone, 1};
+  SerialSocket socket;
+  socket.SetRequestToSend(true);
+  socket.SetLineFormat(line);
+  socket.Transmit('a');
+  Check(!socket.ClearToSend() && !socket.Receive(), "prazdna zasuvka: bez CTS a bez znakov");
+
+  Probe first;
+  first.cts = true;
+  first.waiting = {'z'};
+  socket.Plug(&first);
+  Check(first.rts, "zastrceny kabel dostane RTS, ktore stroj nastavil pred nim");
+  Check(first.format == line, "zastrceny kabel dostane format, ktory stroj nastavil pred nim");
+  Check(first.sent.empty(), "co islo do prazdnej zasuvky, sa do kabla nedostane");
+  socket.Transmit('b');
+  Check(socket.ClearToSend() && socket.Receive() == uint8_t{'z'} && first.sent.size() == 1,
+        "zasuvka prepusta CTS, prijem aj vysielanie");
+
+  Probe second;
+  socket.SetRequestToSend(false);
+  socket.Plug(&second);
+  socket.Transmit('c');
+  Check(first.sent.size() == 1 && second.sent.size() == 1,
+        "po vymene kabla ide vysielanie len do noveho");
+  Check(!second.rts && second.format == line, "novy kabel dostane posledne RTS aj format");
+  socket.Plug(nullptr);
+  Check(!socket.ClearToSend(), "vytiahnuty kabel: CTS nie je");
+}
+
 }  // namespace
 
 int main() {
   Addresses();
   Cable();
   Failures();
+  Socket();
 
   std::cout << (failures == 0 ? "PASS" : "FAIL") << " mode=LINK kontrol=" << checks
             << " chyb=" << failures << "\n";
