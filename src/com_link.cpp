@@ -62,10 +62,18 @@ bool ComLink::Open(const std::wstring& name, std::wstring& error) {
   const HANDLE port = CreateFileW((L"\\\\.\\" + name).c_str(), GENERIC_READ | GENERIC_WRITE, 0,
                                   nullptr, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
   if (port == INVALID_HANDLE_VALUE) {
-    error = ErrorText(GetLastError());
+    // The two everyday cases in words of the situation; Windows says "Access
+    // is denied" and "cannot find the file", which is true of the device
+    // object and says nothing about the port.
+    const DWORD code = GetLastError();
+    error = code == ERROR_ACCESS_DENIED ? L"Port používa iný program."
+            : code == ERROR_FILE_NOT_FOUND
+                ? L"Taký port na tomto počítači nie je — adaptér možno nie je zapojený."
+                : ErrorText(code);
     return false;
   }
   port_ = port;
+  name_ = name;
   // A read returns whatever has arrived as soon as anything has; writes
   // never time out, the machine already paces them by the character time.
   COMMTIMEOUTS timeouts{};

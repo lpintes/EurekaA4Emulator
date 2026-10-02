@@ -346,6 +346,29 @@ a meno súboru, na odosielajúcej `F4`, `Shift+F3` a meno súboru.
 Emulátor si pamätá posledný port a poslednú adresu a ponúkne ich nabudúce,
 ale sám sa nikdy nepripojí — po spustení je kábel vždy vytiahnutý.
 
+### Kábel do sériového portu počítača
+
+Ten istý kábel sa dá zapojiť aj do sériového portu počítača — napríklad cez
+USB adaptér na RS-232 k tlačiarni alebo ku skutočnej Eureke. Zvoľte **Stroj →
+Sériový kábel → Pripojiť na COM port…** a vyberte port zo zoznamu. Zoznam
+obsahuje porty, ktoré Windows pozná v okamihu otvorenia dialógu, takže adaptér
+treba zapojiť skôr.
+
+Rýchlosť, počet bitov, paritu a stop bity si port berie z toho, čo nastaví
+Eureka, napríklad v programe Komunikácia; v emulátore sa nenastavuje nič.
+Signály RTS a CTS idú rovno na vodiče, takže sa tok riadi tak ako na skutočnej
+Eureke. Port je zapojený hneď, ako sa otvorí — zaznejú stúpajúce tóny a v
+titulku stojí napríklad „kábel na COM3“. Keď adaptér vytiahnete, zaznejú
+klesajúce. Ak port používa iný program alebo neexistuje, emulátor to povie.
+
+Naraz je zapojený jeden kábel: kým je kábel v porte, čakanie a pripájanie
+k inému emulátoru sú nedostupné a naopak. Kábel sa vytiahne položkou
+**Odpojiť**. Emulátor si pamätá posledný port, ale sám ho nikdy neotvorí.
+
+Bez skutočného hardvéru sa to dá vyskúšať s dvojicou virtuálnych portov
+spojených nulmodemom, napríklad programom com0com: dva emulátory, každý na
+jednom konci dvojice, si potom posielajú súbory rovnako ako cez sieť.
+
 ## Výmena diskety za behu
 
 Disketa sa dá vymeniť bez toho, aby ste Eureku ukončili: ponuka
@@ -821,9 +844,9 @@ neprepísal obsah pripojeného obrazu.
   signály RTS a CTS, prerušenie od prijatého znaku;
 - stavové registre modemového kanála ASCI 0 potrebné na štart ROM.
 
-Do sériového portu sa dá zapojiť kábel k druhému emulátoru (viď Sériový
-kábel medzi dvoma emulátormi). Tlačiareň zatiaľ nie, takže tlač povie
-„tiskárna není připravena“ — a bez kábla Komunikácia „není odezva“ — presne
+Do sériového portu sa dá zapojiť kábel k druhému emulátoru alebo do sériového
+portu počítača (viď Sériový kábel medzi dvoma emulátormi). Bez kábla tlač povie
+„tiskárna není připravena“ a Komunikácia „není odezva“ — presne
 ako skutočná Eureka, za ktorou nič nevisí. Externý modem a telefónna linka tiež nemajú most na
 zariadenia Windows; ich vstupy zostávajú v bezpečnom pokojovom stave. Jedinou
 výnimkou je vymyslená linka z ponuky Stroj (viď Telefónna linka), ktorá hlási

@@ -54,6 +54,9 @@ class ComLink : public SerialLink {
   void Close();
 
   bool is_open() const { return open_.load(); }
+  // The port last opened, kept after it is closed or lost.  For the thread
+  // that calls Open.
+  const std::wstring& name() const { return name_; }
 
   // SerialLink.  With no port open, CTS is not asserted and what is
   // transmitted is lost -- the same as an unplugged socket.  The format and
@@ -71,6 +74,7 @@ class ComLink : public SerialLink {
   void Notify(Event event, const std::wstring& detail = {});
 
   Listener listener_;
+  std::wstring name_;
   std::thread worker_;
   // HANDLEs; void* so that this header does not drag in windows.h.  The port
   // belongs to the worker while it runs.

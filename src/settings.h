@@ -131,6 +131,9 @@ class Settings {
   void SetCablePort(std::wstring port) { cablePort_ = std::move(port); }
   const std::wstring& cable_address() const { return cableAddress_; }
   void SetCableAddress(std::wstring address) { cableAddress_ = std::move(address); }
+  // The serial port of the host last plugged into, "COM8" (ea4-7zw.3).
+  const std::wstring& cable_com() const { return cableCom_; }
+  void SetCableCom(std::wstring port) { cableCom_ = std::move(port); }
 
   // An out-of-range number reads empty and writes nowhere, so a caller that
   // miscounts cannot corrupt the file or walk off the array.
@@ -172,6 +175,7 @@ class Settings {
   std::wstring skippedVersion_;
   std::wstring cablePort_;
   std::wstring cableAddress_;
+  std::wstring cableCom_;
   std::array<std::wstring, kSlots> slots_;
   // In the order they were locked, so the file stays diffable and a lock the
   // user set is not silently reordered under them.

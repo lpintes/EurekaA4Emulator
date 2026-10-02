@@ -409,6 +409,13 @@ void EmulatorThread::Start(std::unique_ptr<EurekaMachine> machine, HWND notify,
     }
     if (notify) PostMessageW(notify, WM_EMU_CABLE, static_cast<WPARAM>(event), 0);
   });
+  com_.SetListener([this, notify](ComLink::Event event, const std::wstring& detail) {
+    {
+      std::lock_guard<std::mutex> lock(cableMutex_);
+      cableDetail_ = detail;
+    }
+    if (notify) PostMessageW(notify, WM_EMU_COM, static_cast<WPARAM>(event), 0);
+  });
   machine_->SetSerialLink(&socket_);
   socket_.Plug(&cable_);
   mode_.store(startMode, std::memory_order_relaxed);
@@ -605,6 +612,38 @@ std::wstring EmulatorThread::TakeDiskError() {
 std::wstring EmulatorThread::TakeCableDetail() {
   std::lock_guard<std::mutex> lock(cableMutex_);
   return std::move(cableDetail_);
+}
+
+// The cable that goes in is plugged before it opens, and the one that comes
+// out is unplugged before it closes, so the machine never talks to a cable
+// that is half gone.  An idle TcpLink in the socket is an empty socket.
+bool EmulatorThread::CableListen(uint16_t port, std::wstring& error) {
+  socket_.Plug(&cable_);
+  com_.Close();
+  return cable_.Listen(port, error);
+}
+
+void EmulatorThread::CableConnect(const std::wstring& host, uint16_t port) {
+  socket_.Plug(&cable_);
+  com_.Close();
+  cable_.Connect(host, port);
+}
+
+bool EmulatorThread::CableOpenCom(const std::wstring& name, std::wstring& error) {
+  socket_.Plug(nullptr);
+  cable_.Close();
+  if (!com_.Open(name, error)) {
+    socket_.Plug(&cable_);
+    return false;
+  }
+  socket_.Plug(&com_);
+  return true;
+}
+
+void EmulatorThread::CableClose() {
+  socket_.Plug(&cable_);
+  com_.Close();
+  cable_.Close();
 }
 
 SaveResult EmulatorThread::TakeSaveResult() {

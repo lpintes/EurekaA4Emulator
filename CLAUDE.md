@@ -429,7 +429,7 @@ Drží aj **aktualizácie** (`aktualizacie=`, `posledna-kontrola=`,
 aj iné slovo než `0` znamenajú zapnuté — súbor spred aktualizácií ich nesmie
 ticho vypnúť. Overené mutáciou (`!= L"0"` → `== L"1"`).
 Drží aj **posledné odpovede sériového kábla** (`kabel-port=`, `kabel-adresa=`,
-`ea4-7zw.4`): že adresa s dvojbodkami, zátvorkami aj diakritikou príde späť
+`ea4-7zw.4`, a `kabel-com=`, `ea4-7zw.3`): že adresa s dvojbodkami, zátvorkami aj diakritikou príde späť
 tak, ako bola napísaná, a že zrušená zo súboru zmizne. Sú to texty, nie čísla —
 či dávajú zmysel, rozhoduje dialóg (`ParseTcpAddress`, drží `link_test`).
 Pravidlá samotnej ponuky — čo je značka vydania v presmerovaní GitHubu, súčet
@@ -708,7 +708,8 @@ lebo NVDA považuje doplnky za odvodené dielo (`nvda-addon/COPYING.txt`).
   `CableListen`, `CableConnect` a `CableClose` priamo, stroj volá len polovicu
   `SerialLink`, ktorá má vlastný zámok. Nikto z nich nečaká na druhého —
   `Close()` vyhľadávanie mena **zruší** (`GetAddrInfoExCancel`), nečaká naň.
-  Udalosti kábla prichádzajú oknu ako `WM_EMU_CABLE` z vlákna kábla.
+  Udalosti kábla prichádzajú oknu ako `WM_EMU_CABLE` z vlákna kábla, udalosti
+  COM portu (`ComLink`: strata, odmietnutý formát) ako `WM_EMU_COM`.
 - Vlákno tam nie je kvôli poriadku. Rozbalená ponuka, modálny dialóg aj
   ťahanie okna si spustia **vlastnú správovú slučku**; jednovláknový
   emulátor by v nich stál a pri 22 ms latencie by sa reč zasekla uprostred

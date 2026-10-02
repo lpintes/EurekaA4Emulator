@@ -137,7 +137,8 @@ void CableAnswersRoundTrip() {
   {
     Settings settings(FileNamed("neexistuje.txt"));
     settings.Load();
-    Check(settings.cable_port().empty() && settings.cable_address().empty(),
+    Check(settings.cable_port().empty() && settings.cable_address().empty() &&
+              settings.cable_com().empty(),
           "chybajuci subor: kabel bez predvyplnenia");
   }
   const fs::path file = FileNamed("kabel.txt");
@@ -146,12 +147,14 @@ void CableAnswersRoundTrip() {
     Settings settings(file);
     settings.SetCablePort(L"5000");
     settings.SetCableAddress(L"[fd7a:115c::1]:4200");
+    settings.SetCableCom(L"COM12");
     Check(settings.Save(error), "ulozenie kabla prejde", Narrow(error));
   }
   {
     Settings loaded(file);
     loaded.Load();
     Check(loaded.cable_port() == L"5000", "port kabla prezije");
+    Check(loaded.cable_com() == L"COM12", "COM port kabla prezije");
     Check(loaded.cable_address() == L"[fd7a:115c::1]:4200",
           "adresa s dvojbodkami a zatvorkami prezije");
   }

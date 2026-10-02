@@ -325,10 +325,34 @@ void MainWindow::RegisterCommands() {
     emulator_.CableConnect(dialog.host(), dialog.port());
     RefreshTitle();
   });
+  OnCommand(ID_CABLE_COM, [this] {
+    std::vector<std::wstring> ports = ListComPorts();
+    if (ports.empty()) {
+      MessageBoxW(hwnd_, L"Na tomto počítači nie je žiadny sériový port.", L"Sériový kábel",
+                  MB_OK | MB_ICONWARNING);
+      return;
+    }
+    ComPortDialog dialog(std::move(ports), settings_.cable_com());
+    if (dialog.ShowModal(hwnd_, IDD_COMPORT) != IDOK) return;
+    settings_.SetCableCom(dialog.port());
+    SaveSettings();
+    std::wstring error;
+    if (emulator_.CableOpenCom(dialog.port(), error)) {
+      // A port is in the moment it opens; nothing to wait for, as there is
+      // with a connection.
+      ToneCableIn();
+    } else {
+      const std::wstring text =
+          L"Port " + dialog.port() + L" sa nedá otvoriť.\r\n\r\n" + error;
+      MessageBoxW(hwnd_, text.c_str(), L"Sériový kábel", MB_OK | MB_ICONWARNING);
+    }
+    RefreshTitle();
+  });
   OnCommand(ID_CABLE_CLOSE, [this] {
     // Only a cable that was in says it went; unplugging a socket that was
     // merely waiting takes nothing away from the machine.
-    const bool wasConnected = emulator_.cable_state() == TcpLink::State::kConnected;
+    const bool wasConnected =
+        emulator_.cable_state() == TcpLink::State::kConnected || emulator_.com_open();
     emulator_.CableClose();
     if (wasConnected) ToneCableOut();
     RefreshTitle();
@@ -1050,6 +1074,7 @@ void MainWindow::RefreshTitle() const {
     case TcpLink::State::kConnecting: line += L" — kábel sa pripája"; break;
     case TcpLink::State::kConnected: line += L" — kábel pripojený"; break;
   }
+  if (emulator_.com_open()) line += L" — kábel na " + emulator_.com_name();
   SetTitle(released_
                ? L"Eureka A4 — klávesnica uvoľnená — režim: " +
                      std::wstring(ModeName(emulator_.mode())) +
@@ -1121,9 +1146,11 @@ void MainWindow::RefreshMenu() const {
   // pull it out without a word, so those two wait for Odpojiť -- which is in
   // turn greyed when there is nothing to unplug.  None of the three has an
   // accelerator, so greying swallows no key (see ea4-6kz above).
-  const bool cableIdle = emulator_.cable_state() == TcpLink::State::kIdle;
+  const bool cableIdle =
+      emulator_.cable_state() == TcpLink::State::kIdle && !emulator_.com_open();
   EnableMenuItem(menu, ID_CABLE_LISTEN, MF_BYCOMMAND | (cableIdle ? MF_ENABLED : MF_GRAYED));
   EnableMenuItem(menu, ID_CABLE_CONNECT, MF_BYCOMMAND | (cableIdle ? MF_ENABLED : MF_GRAYED));
+  EnableMenuItem(menu, ID_CABLE_COM, MF_BYCOMMAND | (cableIdle ? MF_ENABLED : MF_GRAYED));
   EnableMenuItem(menu, ID_CABLE_CLOSE, MF_BYCOMMAND | (cableIdle ? MF_GRAYED : MF_ENABLED));
   // Before RefreshShortcutText, which reads the item text back and would
   // otherwise be working on the names this is about to replace.
@@ -1434,6 +1461,23 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         // a box, and the reason is Windows' own, in the user's language.
         const std::wstring text =
             L"Spojenie s druhým emulátorom sa nepodarilo.\r\n\r\n" + emulator_.TakeCableDetail();
+        MessageBoxW(hwnd_, text.c_str(), L"Sériový kábel", MB_OK | MB_ICONWARNING);
+      }
+      return 0;
+    }
+
+    case WM_EMU_COM: {
+      const auto event = static_cast<ComLink::Event>(wParam);
+      RefreshTitle();
+      RefreshMenu();
+      if (event == ComLink::Event::kLost) {
+        // A USB adapter pulled out: the same as the far end going away.
+        ToneCableOut();
+      } else {
+        // Not something the user did, but the far end will not understand a
+        // word from now on, and nothing else would ever say why.  The detail
+        // is the whole sentence: which port setting, and Windows' reason.
+        const std::wstring text = emulator_.TakeCableDetail();
         MessageBoxW(hwnd_, text.c_str(), L"Sériový kábel", MB_OK | MB_ICONWARNING);
       }
       return 0;

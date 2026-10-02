@@ -116,6 +116,7 @@ BEGIN
         BEGIN
             MENUITEM "Č&akať na spojenie…",                     ID_CABLE_LISTEN
             MENUITEM "&Pripojiť sa…",                            ID_CABLE_CONNECT
+            MENUITEM "Pripojiť na &COM port…",                   ID_CABLE_COM
             MENUITEM "&Odpojiť",                                 ID_CABLE_CLOSE
         END
     END
@@ -336,6 +337,20 @@ FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     LTEXT           "&Adresa:", IDC_CABLE_LABEL, 7, 9, 186, 9
     EDITTEXT        IDC_CABLE_TEXT, 7, 20, 186, 14, ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "OK", IDOK, 86, 42, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 143, 42, 50, 14
+END
+
+// The ports are the ones Windows knows of at the moment the dialog opens, so
+// a USB adapter plugged in a second ago is there and one pulled out is not.
+IDD_COMPORT DIALOGEX 0, 0, 200, 62
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Pripojiť na COM port"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "&Port:", IDC_STATIC, 7, 9, 186, 9
+    COMBOBOX        IDC_COMPORT_LIST, 7, 20, 186, 100,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_GROUP | WS_TABSTOP
     DEFPUSHBUTTON   "OK", IDOK, 86, 42, 50, 14, WS_GROUP
     PUSHBUTTON      "Zrušiť", IDCANCEL, 143, 42, 50, 14
 END

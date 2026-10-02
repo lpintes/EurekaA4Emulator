@@ -78,6 +78,24 @@ bool CableDialog::OnOk() {
   return true;
 }
 
+bool ComPortDialog::OnInit() {
+  const HWND list = Item(IDC_COMPORT_LIST);
+  WPARAM chosen = 0;
+  for (std::size_t i = 0; i < ports_.size(); ++i) {
+    SendMessageW(list, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(ports_[i].c_str()));
+    if (ports_[i] == port_) chosen = i;
+  }
+  SendMessageW(list, CB_SETCURSEL, chosen, 0);
+  return false;
+}
+
+bool ComPortDialog::OnOk() {
+  const LRESULT chosen = SendMessageW(Item(IDC_COMPORT_LIST), CB_GETCURSEL, 0, 0);
+  if (chosen == CB_ERR || static_cast<std::size_t>(chosen) >= ports_.size()) return false;
+  port_ = ports_[static_cast<std::size_t>(chosen)];
+  return true;
+}
+
 namespace {
 
 // Whether this slot's lock outlives the emulator.  It is written into

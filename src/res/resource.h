@@ -20,6 +20,8 @@
 // One template for both ends of the serial cable; the window sets the caption
 // and the label, because the two differ only in what the one field holds.
 #define IDD_CABLE            207
+// The cable to a serial port of the host: a list to pick from, not a field.
+#define IDD_COMPORT          208
 
 // Menu and accelerator commands.
 #define ID_FILE_EXPORT       40001
@@ -49,6 +51,8 @@
 #define ID_CABLE_LISTEN      40080
 #define ID_CABLE_CONNECT     40081
 #define ID_CABLE_CLOSE       40082
+// The same socket wired to a serial port of the host (ComLink, ea4-7zw.3).
+#define ID_CABLE_COM         40083
 #define ID_KEYBOARD_BRAILLE  40020
 #define ID_KEYBOARD_PC       40021
 #define ID_KEYBOARD_TOGGLE   40022
@@ -133,6 +137,7 @@
 // Serial cable dialog controls.
 #define IDC_CABLE_LABEL      1070
 #define IDC_CABLE_TEXT       1071
+#define IDC_COMPORT_LIST     1072
 
 // Slots dialog controls.
 #define IDC_SLOT_LIST        1020

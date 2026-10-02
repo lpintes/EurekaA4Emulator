@@ -7,6 +7,7 @@
 #include <array>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "disk_layout.h"
 #include "emulator_thread.h"
@@ -80,6 +81,25 @@ class CableDialog : public win::Dialog {
   std::wstring text_;
   std::wstring host_;
   uint16_t port_ = TcpLink::kDefaultPort;
+};
+
+// The serial cable to a port of the host (ea4-7zw.3).  `ports` is what
+// Windows lists now and must not be empty -- the window says so instead of
+// opening an empty list.  `offered` is the last port used, chosen if present.
+class ComPortDialog : public win::Dialog {
+ public:
+  ComPortDialog(std::vector<std::wstring> ports, std::wstring offered)
+      : ports_(std::move(ports)), port_(std::move(offered)) {}
+
+  const std::wstring& port() const { return port_; }
+
+ protected:
+  bool OnInit() override;
+  bool OnOk() override;
+
+ private:
+  std::vector<std::wstring> ports_;
+  std::wstring port_;
 };
 
 // The nine quick-choice slots as the dialogs pass them around.

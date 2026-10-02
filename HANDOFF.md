@@ -4064,6 +4064,27 @@ Drží to `link_test` (bajty, RTS, strata, odmietnutie, adresa) a druhá polovic
 `integration_test kabel` (XMODEM cez dva `TcpLink` na `127.0.0.1`, overené
 mutáciou). Skúška dvoch okien rukou zostáva na majiteľovi.
 
+**Kábel do COM portu hostiteľa, 2. 10. 2026 (`ea4-7zw.3`).** Do zásuvky sa
+dá namiesto `TcpLink` zastrčiť `ComLink` (`src/com_link.*`), ponuka **Stroj →
+Sériový kábel → Pripojiť na COM port…**. Stroj je od toho dňa zapojený do
+`SerialSocket` (`src/serial_socket.h`) a kábel sa vymieňa v nej; zásuvka si
+pamätá RTS a formát, lebo stroj ich hlási len pri zmene. Formát linky stroj
+odvodzuje z CNTLA1/CNTLB1 (`SetLineFormat`, rýchlosť `kCpuHz / Asci1BitCycles`)
+a skutočný port si z neho robí štart, paritu a stop bity — veta vyššie, že
+parita sa neemuluje, platí pre emulovaný kábel ďalej, pre COM port ju robí
+UART hostiteľa. Tok neriadi ovládač: RTS stroja ide na vodič cez
+`EscapeCommFunction`, CTS sa sleduje cez `WaitCommEvent`, DTR je hore, kým je
+port otvorený. Pri štarte firmvér zapisuje CNTLA1 dvakrát (najprv 7 bitov),
+takže port dostane formát o raz viac — neškodné, odmerané v `tlac`.
+
+Bez hardvéru overené na dvojici com0com COM8 ↔ COM9 (bead má postup):
+`com_test` (bajty, RTS → CTS, odmietnutie portu, nečinné vlákno) a variant
+`com=` v `integration_test kabel` (XMODEM medzi dvoma strojmi, okolo 6 s),
+oba len s `EA4_COM_PAIR`. **Neoverené:** strata portu (vytiahnutý USB adaptér
+— com0com sa bez správcu odpojiť nedá), či ovládač formát naozaj použije
+(com0com bez `EmuBR=yes` posiela bajty, ako prišli) a skutočná tlačiareň či
+Eureka na druhom konci. Skúška dvoch okien rukou zostáva na majiteľovi.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

@@ -26,6 +26,7 @@
 #include "disk_stash.h"
 #include "machine.h"
 #include "settings.h"
+#include "com_link.h"
 #include "serial_socket.h"
 #include "tcp_link.h"
 
@@ -83,6 +84,9 @@ enum : UINT {
   // The serial cable to another emulator was plugged in, lost, or could not
   // be: wParam is the TcpLink::Event.  Posted from the cable's own thread.
   WM_EMU_CABLE = WM_APP + 7,
+  // The same for the cable to a serial port of the host (ea4-7zw.3): wParam
+  // is the ComLink::Event.  Posted from the port's own thread.
+  WM_EMU_COM = WM_APP + 8,
 };
 
 // How a diskette is named in the window title (short) and in About (long).
@@ -311,12 +315,23 @@ class EmulatorThread {
   // calls the SerialLink half, which takes its own lock, and none of these
   // ever waits for the machine or makes it wait -- Close() cancels a lookup
   // instead of sitting it out.
-  bool CableListen(uint16_t port, std::wstring& error) { return cable_.Listen(port, error); }
-  void CableConnect(const std::wstring& host, uint16_t port) { cable_.Connect(host, port); }
-  void CableClose() { cable_.Close(); }
+  //
+  // One cable at a time, and the menu greys the others while one is in; each
+  // of these plugs its own into the socket anyway, so that a stray call can
+  // never leave the machine wired to a cable nobody shows.
+  bool CableListen(uint16_t port, std::wstring& error);
+  void CableConnect(const std::wstring& host, uint16_t port);
+  // A serial port of the host instead (ea4-7zw.3).  Opened here and now, so a
+  // port that is missing or taken is refused at once with the reason.
+  bool CableOpenCom(const std::wstring& name, std::wstring& error);
+  // Unplugs whichever cable is in.
+  void CableClose();
   TcpLink::State cable_state() const { return cable_.state(); }
   uint16_t cable_port() const { return cable_.port(); }
-  // Why the last connection attempt failed, for the WM_EMU_CABLE handler.
+  bool com_open() const { return com_.is_open(); }
+  const std::wstring& com_name() const { return com_.name(); }
+  // Why the last connection attempt failed, for the WM_EMU_CABLE and
+  // WM_EMU_COM handlers.
   std::wstring TakeCableDetail();
 
  private:
@@ -364,6 +379,7 @@ class EmulatorThread {
   std::mutex cableMutex_;
   std::wstring cableDetail_;
   TcpLink cable_;
+  ComLink com_;
   // What the machine is wired to; the cable goes into it (serial_socket.h).
   SerialSocket socket_;
 
