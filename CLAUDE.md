@@ -231,6 +231,15 @@ Sonda a testy: `build-tests.bat`. Zostaví `bin\diag_probe.exe`,
 púšťa ZEXDOC na holom jadre; program je mimo repozitára
 v `C:\b\z80-tests`, preto nie je v `run-tests.bat` (`tests/README.md`,
 HANDOFF 6.33 bod 8). Keď siahneš na `z80.c`, pusti ho — trvá dve minúty.
+Rovnako stojí mimo `run-tests.bat` **`bin\com_test.exe`**, ktorý drží
+sériový kábel na COM port hostiteľa (`src/com_link.*`, `ea4-7zw.3`): potrebuje
+dvojicu portov spojených nulmodemom (com0com, na stroji majiteľa COM8 a COM9)
+v premennej `EA4_COM_PAIR=COM8,COM9`, bez nej povie `preskocene` a skončí s 2.
+Drží bajty v oboch smeroch, RTS → CTS aj nastavené pred otvorením, odmietnutie
+chýbajúceho a obsadeného portu s dôvodom a to, že nečinné vlákno netočí
+procesor. Overené mutáciou: nevynulovaná udalosť zápisu (2031 ms CPU za
+sekundu), chýbajúce `EscapeCommFunction` a RTS nepoužité pri otvorení. Keď
+siahneš na `com_link.cpp`, pusti ho.
 
 **Verzia nie je napísaná v žiadnom zdrojáku** (od 29. 9. 2026, epic
 `ea4-hg9`). Určuje ju značka v gite `v2026.9.1` — rok, mesiac, poradie

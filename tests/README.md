@@ -23,6 +23,22 @@ It serves BDOS functions 2 and 9, stops on a jump to 0000h and prints
 is 5.8 billion instructions, about two minutes. ZEXALL runs too, but it
 also checks the undocumented X and Y flags, which nothing here depends on.
 
+`com_test.cpp` covers the serial cable to a COM port of the host
+(`src/com_link.*`): every byte both ways, RTS arriving as the far end's CTS
+(also one set before the port opened), a missing or taken port refused with a
+reason, and an idle worker that does not spin. It needs two ports joined as a
+null-modem cable -- com0com on the developer's machine -- and is therefore not
+part of `run-tests.bat`; name the pair:
+
+```text
+set EA4_COM_PAIR=COM8,COM9
+com_test
+```
+
+Without the variable it prints that it skipped and ends with 2, so a skip is
+never read as a pass. Losing the port and a format the driver refuses are not
+covered: com0com takes any rate, and pulling a port out needs an administrator.
+
 `settings_test.cpp` covers the settings file: where it goes (a `config` folder
 beside the EXE if there is one, `%APPDATA%\EurekaA4` otherwise), and that a
 hand-edited file cannot cost the user the slots in it. The round trip is

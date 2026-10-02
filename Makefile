@@ -78,7 +78,7 @@ endif
 EMU_NAMES  := main machine md5 virtual_disk cpm_disk disk_stash disk_layout \
               disk_split text_codec audio_player \
               diagnostics host_console emulator_thread main_window dialogs \
-              settings version update updater tcp_link
+              settings version update updater tcp_link com_link
 # Nezavisle na emulatore, da sa vziat do ineho projektu tak ako je.
 WIN_NAMES  := window dialog
 EMU_OBJS   := $(addprefix $(BUILD)/,$(addsuffix .o,$(EMU_NAMES))) \
@@ -96,7 +96,7 @@ SESSION_OBJS := $(BUILD)/test_eureka_session.o
 EMU        := $(BIN)/EurekaA4Emulator.exe
 TEST_EXES  := $(BIN)/codec_test.exe $(BIN)/disk_test.exe \
               $(BIN)/settings_test.exe $(BIN)/update_test.exe \
-              $(BIN)/link_test.exe $(BIN)/zex_test.exe \
+              $(BIN)/link_test.exe $(BIN)/com_test.exe $(BIN)/zex_test.exe \
               $(BIN)/diag_probe.exe $(BIN)/integration_test.exe
 
 .PHONY: all tests check clean
@@ -184,6 +184,12 @@ $(BIN)/update_test.exe: $(BUILD)/test_update_test.o $(BUILD)/version.o \
 # Obycajny main.
 $(BIN)/link_test.exe: $(BUILD)/test_link_test.o $(BUILD)/tcp_link.o | $(BIN)
 	$(CXX) $(STATIC) -o $@ $^ -lws2_32
+
+# Seriovy kabel na COM port hostitela (ea4-7zw.3). Potrebuje dvojicu portov
+# spojenych nulmodemom (com0com) v premennej EA4_COM_PAIR, preto nie je medzi
+# check-*; bez nej povie, ze preskocil, a skonci s 2. Obycajny main.
+$(BIN)/com_test.exe: $(BUILD)/test_com_test.o $(BUILD)/com_link.o | $(BIN)
+	$(CXX) $(STATIC) -o $@ $^
 
 # Hole jadro bez stroja; ZEXDOC nie je v repozitari, preto nie je ani
 # medzi check-* (ea4-z8y). Obycajny main, teda bez -municode.
