@@ -190,6 +190,7 @@ void EurekaMachine::PowerOn() {
   fdcStepDirection_ = 1;
   fdcFormattedCylinder_ = -1;
   fdcFormattedSide_ = -1;
+  fdcMotorUntil_ = 0;
   headCylinder_ = 0;
   driveEvents_.clear();
   lastDiskWrite_ = 0;
@@ -905,7 +906,8 @@ uint8_t EurekaMachine::ReadPortInner(z80* cpu, uint16_t port) {
     case hw::kBkbDots: case hw::kBkbFunction: case hw::kBkbCursor:
       return machine->ReadMembraneKeyboard(low);
     case hw::kFdcStatus: {
-      const uint8_t status = machine->fdcStatus_;
+      uint8_t status = machine->fdcStatus_;
+      if (machine->cycles_ < machine->fdcMotorUntil_) status |= hw::kFdcStatusMotorOn;
       machine->fdcIntrq_ = false;
       return status;
     }
@@ -1186,6 +1188,14 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   fdcIntrq_ = false;
   const uint8_t type = command & hw::kFdcCommandType;
   const uint8_t side = outputLatch_ & hw::kFdcSide;
+  // Every command but Force Interrupt starts the motor, and the WD1772 keeps
+  // it running for nine index pulses after the last one (data sheet), which
+  // status bit 7 reports.  The firmware's power saver at 1D0D4 cuts the
+  // drive's supply only when that bit is clear; without it the drive was
+  // powered down after every read, powered up again with 0.6 s of delays at
+  // 19A9C and 19AAB, and the sector the driver keeps was thrown away each
+  // time -- READ.COM took 19 s of machine time (HANDOFF 6.54, step 4b).
+  if (type != hw::kFdcCmdForceInterrupt) fdcMotorUntil_ = cycles_ + kFdcMotorRun;
   if (type == hw::kFdcCmdRestore) {
     MoveHead(0, command & hw::kFdcStepRate);
     fdcTrack_ = 0;

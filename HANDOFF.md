@@ -4425,6 +4425,37 @@ ukázalo:
   v surovom fyzickom poradí (2, 5, 8, …) — prekladanie v `SectorOffset` je
   presne to, čo na to bude treba.
 
+**Dve vety vyššie už neplatia (3. 10. 2026, krok 4b):** „ovládač číta
+fyzický sektor znova pre každý záznam“ a „19,4 s“. Obe boli chyba modelu,
+nie firmvéru — majiteľ to tušil: firmvér drží posledný sektor v RAM
+a z mechaniky číta, až keď mu záznamy v ňom dôjdu. Viď nižšie.
+
+#### Krok 4b, prvá časť: motor beží 9 otáčok (3. 10. 2026)
+
+Kto čakal: dočasný výpis na vstupe do čakacích rutín `192E4`/`192EC`
+(logicky `E2E4`/`E2EC`, B = počet jednotiek) pri načítaní `READ.COM` cez
+ROM ukázal **23 × 300 jednotiek z `EA9F` a 23 × 300 z `EAAE`** — takmer celých
+19,4 s. Je to **zapnutie mechaniky** (`19A84`, logicky `EA84`): keď je
+`pol_disk` (kópia `C43Ah` bit 0) už zapnutý, vráti sa hneď; inak odpojí
+výber, čaká 300, zapne `pol_disk`, čaká 300 a vyberie mechaniku.
+
+Kto vypína: **šetrič na `1D0D4`** — keď mechanika nepracuje (`C8DFh` = 0)
+a je napájaná, prečíta stav radiča a pri **bite 7 (motor beží)** ju nechá
+(`JP M`), inak vypne `pol_disk` aj výber. WD1772 drží motor 9 indexových
+impulzov (1,8 s) po poslednom príkaze a celý ten čas hlási bit 7 — model
+ho nehlásil nikdy, takže šetrič vypínal mechaniku po každom čítaní,
+každé ďalšie ju 0,6 s zapínalo a posledný sektor v pamäti sa zahodil.
+
+Oprava: každý príkaz okrem Force Interrupt nastaví `fdcMotorUntil_` na
+9 otáčok (`kFdcMotorRun`, 11 059 200 cyklov) a čítanie stavu pridá bit 7,
+kým neuplynie. Výsledok cez ROM: **`READ.COM` za 2,09 s** stroja a **52
+čítaní sektora** (196 záznamov / 4) namiesto 327. Otáčanie diskety ešte
+v čase nie je — to je zvyšok 4b. Kontrola `wp` z kroku 1 rátala udalosti
+čítania (≥ 150 záznamov) a cez ROM ich je 52 sektorov; počíta sa teraz
+v bajtoch (≥ 16 KiB). Sada 24/24 oboma cestami. **Samotný bit motora zatiaľ
+žiadny test nedrží** — jeho vypnutie by sadu iba spomalilo; patrí to ku
+kontrolám časovania vo zvyšku 4b.
+
 #### Otvorené
 
 - **Motor.** `pol_disk` (`A0h` bit 0, `IOPORT.LIB`: „high to power up fdc

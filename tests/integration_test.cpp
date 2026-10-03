@@ -1942,20 +1942,25 @@ bool CheckProtectedDiskStillReads(EurekaMachine& machine) {
               << " citani BIOSu\n";
     return false;
   }
-  // The same load as the drive hears it (HANDOFF 6.54).  Those reads never
-  // reach the controller -- InterceptBios answers them -- so this is the one
-  // check that the drive sound is not deaf to ordinary file I/O.  Measured
-  // with diag_probe: the directory on cylinder 0, then out to the data on 1
-  // and 2, and back.
+  // The same load as the drive hears it (HANDOFF 6.54).  With the bypass
+  // those reads never reach the controller -- InterceptBios answers them --
+  // so this is the one check that the drive sound is not deaf to ordinary
+  // file I/O.  Measured with diag_probe: the directory on cylinder 0, then
+  // out to the data on 1 and 2, and back.
+  //
+  // Counted in bytes, not reads: the bypass reports 196 records of 128, the
+  // ROM's own driver (EA4_BEZ_SKRATKY) 52 sectors of 512, since it keeps the
+  // last sector and takes four records out of it (step 4b).  Either way a
+  // 16K program is at least 16 KiB off the surface.
   using Kind = EurekaMachine::DriveEvent::Kind;
-  unsigned reads = 0;
+  unsigned bytes = 0;
   unsigned outward = 0;
   for (const auto& event : machine.TakeDriveEvents()) {
-    if (event.kind == Kind::kRead) ++reads;
+    if (event.kind == Kind::kRead) bytes += event.bytes;
     if (event.kind == Kind::kSeek && event.from == 0 && event.to > 0) ++outward;
   }
-  if (reads < 150 || outward == 0) {
-    std::cout << "  mechanika pri nacitani programu: citani " << reads
+  if (bytes < 16 * 1024 || outward == 0) {
+    std::cout << "  mechanika pri nacitani programu: precitanych bajtov " << bytes
               << ", presunov z adresara " << outward << "\n";
     return false;
   }

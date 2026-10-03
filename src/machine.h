@@ -648,6 +648,10 @@ class EurekaMachine {
   // Position of the last Write Track, so a verify read of it always succeeds.
   int fdcFormattedCylinder_ = -1;
   int fdcFormattedSide_ = -1;
+  // Until when the WD1772's motor runs: nine index pulses at 300 rpm after
+  // the last command, 1.8 s (StartFdcCommand).
+  uint64_t fdcMotorUntil_ = 0;
+  static constexpr uint64_t kFdcMotorRun = 9ull * kCpuHz / 5;
   // The clocked serial port, which is where the optional IBM PC keyboard
   // hangs.  CNTR bit 7 is EF (a byte has arrived and waits in TRDR), bit 6
   // EIE, bit 5 RE, bit 4 TE.
