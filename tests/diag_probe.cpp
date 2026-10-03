@@ -140,6 +140,11 @@ int wmain(int argc, wchar_t** argv) {
     return 2;
   }
   const std::wstring mode = argv[3];
+  // The ROM's own disk driver instead of the BIOS bypass (HANDOFF 6.54).
+  if (_wgetenv(L"EA4_BEZ_SKRATKY")) {
+    EurekaMachine::SetDefaultBiosDiskBypass(false);
+    std::printf("disk: ovladac z ROM, bez skratky BIOS-u\n");
+  }
   const uint64_t budget = argc > 4 ? _wcstoui64(argv[4], nullptr, 10) : 4'000'000;
 
   auto machine = std::make_unique<EurekaMachine>();

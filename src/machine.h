@@ -346,6 +346,18 @@ class EurekaMachine {
   // line off hook, gets past the wait as well (HANDOFF 6.49).  Neither Reset
   // nor PowerOn touches it: it is the socket, not the machine.
   void SetPhoneLine(bool connected) { phoneLine_ = connected; }
+  // Whether InterceptBios answers the disk calls (BIOS 8, 10 to 14 and 16)
+  // itself, at once and without the controller, or lets the ROM's own driver
+  // run them through the WD1772.  On by default: it is fast and every test
+  // was written against it.  Off is the way to the real drive's pace (HANDOFF
+  // 6.54, step 4), and only safe to switch between disk calls -- a driver
+  // half way through a transfer would lose the track or sector it was told.
+  // Neither Reset nor PowerOn touches it.
+  void SetBiosDiskBypass(bool on) { biosDiskBypass_ = on; }
+  bool bios_disk_bypass() const { return biosDiskBypass_; }
+  // What a new machine starts with, for a test that runs a whole mode
+  // through the ROM's driver without finding every place it makes one.
+  static void SetDefaultBiosDiskBypass(bool on) { defaultBiosDiskBypass_ = on; }
   // Plugs a cable into the RS-232 socket, or pulls it out with nullptr.  The
   // machine does not own it.  Without one CTS stays deasserted, which is the
   // right answer for a machine with nothing attached: "tiskarna neni
@@ -596,6 +608,8 @@ class EurekaMachine {
   bool poweredOff_ = false;
   std::vector<uint8_t> consoleOutput_;
   std::vector<uint8_t> speechInput_;
+  static inline bool defaultBiosDiskBypass_ = true;
+  bool biosDiskBypass_ = defaultBiosDiskBypass_;
   uint16_t biosTrack_ = 0;
   uint16_t biosSector_ = 0;
   uint16_t biosDma_ = 0x80;

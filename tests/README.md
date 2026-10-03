@@ -343,6 +343,17 @@ A genuine `READ.COM` ships with the Technical Manual's development disk, which
 is third-party material and therefore **not in this repository** -- see
 `ROM-NOTICE.txt`.  Point `EUREKATECH` at your copy of that folder (the default
 is `C:\b\eurekatech`) and `run-tests.bat` copies the file in for you.
+`BEEP.BAS` it does not copy, and nothing else does: `bas` then loads nothing
+("soubor nelze najít, chyba 21") and still passes. That predates the drive
+sound work and is noted in HANDOFF 6.54, step 4a.
+
+With `EA4_BEZ_SKRATKY` set (any value) `integration_test` and `diag_probe`
+send every disk call through the ROM's own driver and the controller instead
+of the BIOS bypass (HANDOFF 6.54, step 4a); the whole suite passes that way
+too. The driver is far slower and pauses for over half a second in the middle
+of a load, so `com`, `wp`, `trap` and `bas` wait for what they expect -- the
+prompt, the goodbye, the firmware waiting for a key after LOAD -- rather than
+for the first quiet.
 
 Without it the `com` and `wp` modes are skipped and the suite reports
 twenty-two `PASS` lines instead of twenty-four, saying so as it goes.  Both modes run that

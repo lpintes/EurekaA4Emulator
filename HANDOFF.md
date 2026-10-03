@@ -1143,6 +1143,12 @@ sektory sú číslované **1 až 40**, kým `VirtualDisk::ReadRecord` berie
 ale program, ktorý si volá `bios_setsec` sám, by mal u nás všetko
 posunuté o jeden záznam a sektor 40 by skončil chybou.
 
+**Rozhodnuté 3. 10. 2026 (6.54, krok 4a), `ea4-ary` zavretý.** Vlastný
+ovládač z ROM berie sektory **od nuly**: s vypnutou skratkou BIOS-u dostal
+od BDOS-u `bios_setsec` 0 až 39 a záznam 0 čítal zo začiatku stopy (logický
+512-bajtový sektor 0). „1 až 40“ v `BIOS.9` je len spôsob, akým kapitola
+počíta v texte; model nemá chybu o jeden.
+
 ### 6.13 Časové funkcie — vyriešené
 
 **Uzavreté 26. 8. 2026, celé znenie v `HANDOFF-archiv.md`.** Budík,
@@ -2136,6 +2142,16 @@ ktorá by sa tam dostala, by emulátor zavesila natvrdo. Nepresný stav, z
 ktorého sa firmvér spamätá, je lacnejší než zaseknutý stroj. Rozdiel, ktorý
 používateľ počuje, robí `DiskFailure`. **Verify je iné** a BUSY tam zostáva:
 vydáva sa jediným miestom, a to cez `EA00`, ktorý limit má.
+
+**Odsek vyššie už neplatí (3. 10. 2026, 6.54 krok 4a).** Read Sector aj
+Write Sector bez média teraz zostávajú BUSY ako na 1772. S vypnutou skratkou
+BIOS-u ide každé čítanie cez ovládač z ROM a RNF z neho robilo „vadný disk“
+na všetkých piatich prázdnych mechanikách režimu `hlaseni`; s BUSY ich
+`EA00` vytimeoutuje a firmvér povie „disk není založen“ sám. Čakanie na
+`19EF3` patrí overovaciemu čítaniu formátovania, ku ktorému sa prázdna
+mechanika nedostane — formátovanie ju odmietne skôr. Vysunutie diskety
+uprostred formátovania by hosťa nechalo čakať, ako na hardvéri; okno aj
+reset idú ďalej. `DiskFailure` ostáva pre cestu so skratkou.
 
 **Čo drží zásah.** Nový režim `hlaseni` v `integration_test`: tri prípady,
 každý s vlastným bootom, a v každom sa okrem očakávanej vety kontroluje aj to,
@@ -4335,6 +4351,79 @@ slovo v `settings.cpp`).
   hneď a mechanika potom ešte hrá — to je podľa majiteľa mätúce. Práca
   na zvuku mechaniky žije vo vlastnej vetve `zvuk-mechaniky`; `main`
   zostáva na kóde upstreamu a pull request príde, až bude hotová.
+
+#### Krok 4: skutočné časovanie — rozhodnuté 3. 10. 2026 (`ea4-tvd.4`)
+
+**Prečo ovládač z ROM a nie odhad.** `A4DOS.6` (r. 77 – 86): štandardná
+Eureka drží v pamäti posledný 512-bajtový sektor (ďalšie záznamy z neho sú
+okamžite) a celú stopu prečíta **najmenej za tri otáčky**; „Advanced
+English“ s AUO za jednu. `BIOS 15` (`bios_sectran`) na Eureke nerobí nič
+(`BIOS.9`) — prekladanie teda dáva poradie sektorov, ktoré zapíše
+formátovanie, a to, či ovládač stihne požiadať o ďalší sektor skôr, než
+prejde pod hlavičkou. Model, ktorý tempo spočíta sám, by to všetko musel
+uhádnuť; ovládač z ROM nad časovaným radičom to urobí sám.
+
+Rozhodnutia majiteľa:
+
+- **Cesta:** skutočný ovládač z ROM (bez `InterceptBios` pre disk) nad
+  časovaným WD1772 — otáčka 1 228 800 cyklov, index raz za otáčku, sektory
+  v poradí z formátovania, krok 6 ms, roztočenie 6 otáčok, prenos ~32 µs na
+  bajt.
+- **Jedna voľba, nie dve.** „Buď rýchla Eureka bez zvuku, alebo všetko podľa
+  reálu, so zvukom aj pomalosťou; všetko medzi tým je prinajmenšom divné.“
+  Dnešné políčko „Zvuk disketovej mechaniky“ sa v 4c zmení na voľbu vernej
+  mechaniky, ktorá zapne oboje. Zvuk ako kulisa za rýchlym strojom potom
+  zanikne.
+- **Testy:** bežná sada zostáva rýchla so skratkou; skutočné časovanie
+  dostane vlastné kontroly.
+
+Poradie: **4a** skutočný ovládač bez časovania — vypínateľná skratka a celá
+sada aj bez nej (overí čítanie, zápis, strany, kopírovanie cez ROM);
+**4b** časovaný radič; **4c** zvuk podľa skutočného času a jedna voľba.
+
+#### Krok 4a: ovládač z ROM bez skratky (3. 10. 2026)
+
+`EurekaMachine::SetBiosDiskBypass(false)` pustí všetky diskové volania BIOS-u
+(8, 10 – 14, 16) do ROM naraz; predvolene je skratka zapnutá. Testy a sonda
+ju vypnú premennou **`EA4_BEZ_SKRATKY`** (`SetDefaultBiosDiskBypass` pre
+každý nový stroj). **Celá sada prejde oboma cestami, 24 z 24.** Čo sa cestou
+ukázalo:
+
+- **Ovládač z ROM prekladá sektory sám, po troch.** Logický 512-bajtový
+  sektor *k* (záznamy 4k – 4k+3) leží vo fyzickom **(3k + 1) mod 10 + 1**,
+  teda 0 – 9 na 2, 5, 8, 1, 4, 7, 10, 3, 6, 9. Zmerané dočasným výpisom
+  `bios_settrk`/`bios_setsec` vedľa príkazov radiča; logická stopa *t* je
+  cylinder t/2, strana t mod 2. To je tých „najmenej tri otáčky na stopu“
+  z `A4DOS.6`. Obraz to nepoznal, ovládač čítal všetko z cudzieho miesta
+  a **nenačítal sa ani jeden program** („v programe 0,00 s“ po 291 s).
+  Oprava: `SectorOffset` vo `virtual_disk.cpp` — obraz zostáva v logickom
+  poradí (skratka, import a export sa nemenia), len pohľad radiča ide cez
+  prekladanie. Drží to `disk_test` (adresár je fyzický sektor 2; mutácia na
+  bez prekladania zhodí 22 kontrol).
+- **Sektory číslované od nuly** — `ea4-ary` rozhodnutý, viď 6.12.
+- **Ovládač číta fyzický sektor znova pre každý 128-bajtový záznam** a medzi
+  skupinami čítaní čaká vo vlastnej slučke na `19CD9` (~3,8 M cyklov, 0,6 s).
+  `READ.COM` cez ROM: 196 čítaní BIOS-u ako so skratkou, ale 19,4 s času
+  stroja namiesto ~1 s — a to radič ešte nečasuje.
+- **Pred každým príkazom radiču zapíše firmvér `ADh` do DAC** (`OUT (88h),A`
+  na `19A01`). Pre zvuk mechaniky (4c) to treba vyšetriť — môže to byť
+  zámerné cvaknutie.
+- **Prázdna mechanika:** Read/Write Sector bez média zostávajú BUSY
+  (6.30 dovetok); `hlaseni` prejde oboma cestami.
+- **Testy čakali na ticho.** `com`, `bas`, `wp` a `trap` končili pri prvom
+  tichu konzoly, ktoré ovládač z ROM má uprostred načítania. Teraz čakajú na
+  výsledok („Read which file?“, „ahoj“, a `bas` posiela RUN, až keď firmvér po
+  LOAD znova čaká na kláves — cez `EurekaSession::WaitingForKey`). Stropy
+  inštrukcií sú vyššie, so skratkou bežia rovnako rýchlo ako predtým.
+  `debug_bios_reads` počíta aj čítania cez ROM (na stube, raz).
+- **Mimo zadania, nahlásené:** v režime `bas` na testovacej diskete
+  **chýba `BEEP.BAS`** — `run-tests` kopíruje len `READ.COM`. `LOAD` končí
+  „soubor nelze najít, chyba 21“, RUN „chyba 26“, a test napriek tomu
+  prechádza (oboma cestami rovnako). Majiteľ ho má v
+  `D:\eureka\Diskety\basapl2\beep.bas`.
+- **Do budúcna (majiteľ, mimo tejto vetvy):** načítanie obrazov diskety
+  v surovom fyzickom poradí (2, 5, 8, …) — prekladanie v `SectorOffset` je
+  presne to, čo na to bude treba.
 
 #### Otvorené
 

@@ -326,6 +326,14 @@ veľkosťou písmen skončia v dvoch súboroch vo Windows, nie v jednom. Na týc
 bitoch stojí ochrana EUŠOU a Sokobanu a ich strata je **tichá** — program
 len povie, že disketa nie je originál. Overené mutáciou.
 
+Drží aj **prekladanie sektorov** (HANDOFF 6.54, krok 4a): ovládač z ROM
+ukladá logický 512-bajtový sektor *k* do fyzického (3k + 1) mod 10 + 1 a
+`VirtualDisk::ReadPhysicalSector`/`WritePhysicalSector` idú cez rovnaké
+prekladanie (`SectorOffset`). Adresár je preto **fyzický sektor 2**, nie 1 —
+test to má v `PhysicalSector` a `kDirectorySector`. Bez prekladania sa cez
+ovládač z ROM nenačíta ani jeden program a so skratkou to nie je počuť;
+mutácia na poradie bez prekladania zhodí 22 kontrol.
+
 Drží aj **klasifikáciu typov súborov pri exporte**, a to je jediné, čo ju
 drží. `VirtualDisk::IsTextType` je allowlist a jeho dve chyby stoja rôzne:
 typ zle označený za textový sa oreže na prvom `1Ah` a **stratí dáta
@@ -525,6 +533,16 @@ spraví `DeurekaA4ROM.DMP` a skončí s kódom 0. To druhé stálo 24. 9. 2026
 tri `PASS` a dvanásť zlyhaní, ktoré vyzerali ako chyba emulátora, hoci to
 bola pokazená cesta. Keď na `to_unix` v `run-tests.sh` siahneš, drž sa
 tvaru cesty.
+
+**Sada má prejsť aj bez skratky BIOS-u.** Premenná `EA4_BEZ_SKRATKY`
+(ľubovoľná hodnota; z WSL aj s `WSLENV=EA4_BEZ_SKRATKY/w`) pustí v
+`integration_test` aj v sonde všetko čítanie a zápis diskety cez vlastný
+ovládač z ROM a radič, namiesto `InterceptBios` (HANDOFF 6.54, krok 4a).
+Tak bude bežať verná mechanika, takže keď siahneš na radič, obraz diskety
+alebo test, ktorý z diskety niečo spúšťa, pusti sadu oboma spôsobmi — 24
+`PASS` v oboch. Ovládač z ROM je pomalší a robí uprostred načítania pauzy
+dlhšie než pol sekundy; test, ktorý by bral ticho za koniec, so skratkou
+prejde a bez nej nie.
 
 **Keď manuál nie je po ruke, je `PASS` dvadsaťdva a nie je to regresia.**
 Dávka vynechá cez `SKIP_MODES` režimy `com` **aj `wp`** a napíše, prečo.

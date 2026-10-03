@@ -1218,6 +1218,21 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     fdcStatus_ = TypeOneStatus(command);
   } else if ((command & hw::kFdcCommandGroup) == hw::kFdcCmdReadSector) {
     RecordDrive(DriveEvent::Kind::kRead, side, hw::kSectorBytes);
+    // An empty drive: with no index holes a WD1772 never stops looking for
+    // the sector, so it stays BUSY and the firmware's own timeout in EA00
+    // (19A16) gives up and reports "disk neni zalozen" -- measured in 6.30
+    // and again with the BIOS bypass off (HANDOFF 6.54, step 4a), where
+    // answering Record Not Found instead made every empty-drive message
+    // "vadny disk".  The wait at 19EF3 with no timeout belongs to the format's
+    // verify read, which an empty drive never reaches: the format refuses it
+    // first.  A diskette pulled out half way through a format would leave the
+    // guest waiting there, as it would on the hardware; the window and its
+    // reset still work.
+    if (!disk_.present()) {
+      fdcBuffer_.clear();
+      fdcStatus_ = hw::kFdcStatusBusy;
+      return;
+    }
     fdcBuffer_.resize(hw::kSectorBytes);
     // A read finishes on its own: the controller walks the whole sector and
     // drops BUSY even when nobody services DRQ, merely flagging lost data.
@@ -1236,15 +1251,7 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
     } else {
       // Record Not Found.  The buffer has to go with it: a DMA channel armed
       // for this read would otherwise drain 512 bytes of nothing into RAM.
-      //
-      // An empty drive gets the same answer, and that is a deliberate
-      // departure from the controller: with no index holes a 1770 would never
-      // stop looking, so a real one stays BUSY here.  Measured that way the
-      // firmware's own driver does reach "disk neni zalozen" -- but the wait
-      // it spins in at 19EF3 has no timeout at all, so any path that does get
-      // that far would hang the emulator outright rather than say anything.
-      // A wrong status the firmware recovers from beats a machine that stops.
-      // The distinction the user hears is made in DiskFailure instead.
+      // An empty drive is handled above and never gets here.
       fdcBuffer_.clear();
       fdcStatus_ = hw::kFdcStatusNotFound;
       fdcIntrq_ = true;
@@ -1252,8 +1259,8 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   } else if ((command & hw::kFdcCommandGroup) == hw::kFdcCmdWriteSector) {
     RecordDrive(DriveEvent::Kind::kWrite, side, hw::kSectorBytes);
     if (!disk_.present()) {
-      fdcStatus_ = hw::kFdcStatusNotFound;
-      fdcIntrq_ = true;
+      // As for Read Sector above: no index holes, no end to the search.
+      fdcStatus_ = hw::kFdcStatusBusy;
     } else if (disk_.write_protected()) {
       // A 1770 refuses a write on a protected medium before it touches the
       // surface: it raises bit 6 and drops BUSY at once, with no data request
@@ -1760,6 +1767,18 @@ bool EurekaMachine::InterceptBios() {
     function = (cpu_.pc - targets) / 3;
   }
   const uint16_t bc = (static_cast<uint16_t>(cpu_.b) << 8) | cpu_.c;
+  // Without the bypass every disk call falls through to the ROM's own BIOS,
+  // all of them together: answering only some would hand the driver a
+  // transfer for a track or sector it was never told.
+  constexpr unsigned kDiskCalls[] = {8, 10, 11, 12, 13, 14, 16};
+  if (!biosDiskBypass_) {
+    // Counted all the same, so a check on how much was read holds for both
+    // paths.  At the stub only: a call through the table passes both points,
+    // and every call reaches the stub.
+    if (function == 13 && !viaJumpTable) ++biosReads_;
+    for (unsigned call : kDiskCalls)
+      if (function == call) return true;
+  }
   switch (function) {
     // Console status (2) and console input (3) are deliberately NOT answered
     // here.  The ROM waits for a key by spinning in its own event dispatcher

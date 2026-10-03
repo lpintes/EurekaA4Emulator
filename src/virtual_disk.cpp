@@ -740,6 +740,27 @@ bool VirtualDisk::WriteRecord(unsigned track, unsigned record, const uint8_t* so
   return true;
 }
 
+namespace {
+
+// Where the ROM's own driver keeps a track's data: logical 512-byte sector k
+// -- records 4k to 4k+3 -- is physical sector (3k + 1) mod 10 + 1, so 0 to 9
+// land on 2, 5, 8, 1, 4, 7, 10, 3, 6, 9.  Measured 3. 10. 2026 by logging the
+// BIOS calls next to the controller commands with the bypass off (HANDOFF
+// 6.54, step 4a); it is the interleave of three that A4DOS.6 means by a
+// standard Eureka needing "at least three revolutions to read an entire
+// track", and it is in the driver, not in BIOS 15, which does nothing.
+//
+// The image keeps the logical order -- InterceptBios, the folder import and
+// the export all address it by record -- so only the controller's view goes
+// through this.  Without it the driver read every sector from the wrong place
+// and no program would load.
+std::size_t SectorOffset(unsigned cylinder, unsigned side, unsigned sector) {
+  static constexpr unsigned kLogical[10] = {3, 0, 7, 4, 1, 8, 5, 2, 9, 6};
+  return ((cylinder * 2 + side) * 10 + kLogical[sector - 1]) * 512;
+}
+
+}  // namespace
+
 bool VirtualDisk::ReadPhysicalSector(unsigned cylinder, unsigned side, unsigned sector,
                                      uint8_t* destination) const {
   if (!present() || cylinder >= 80 || side > 1 || sector == 0 || sector > 10)
@@ -748,8 +769,7 @@ bool VirtualDisk::ReadPhysicalSector(unsigned cylinder, unsigned side, unsigned 
   // nothing to match: Record Not Found, which is what machine.cpp turns a
   // false return into.
   if (!TrackFormatted(cylinder, side)) return false;
-  const std::size_t offset = ((cylinder * 2 + side) * 10 + sector - 1) * 512;
-  std::copy_n(image_.data() + offset, 512, destination);
+  std::copy_n(image_.data() + SectorOffset(cylinder, side, sector), 512, destination);
   return true;
 }
 
@@ -764,8 +784,7 @@ bool VirtualDisk::WritePhysicalSector(unsigned cylinder, unsigned side, unsigned
   // nothing to match: Record Not Found, which is what machine.cpp turns a
   // false return into.
   if (!TrackFormatted(cylinder, side)) return false;
-  const std::size_t offset = ((cylinder * 2 + side) * 10 + sector - 1) * 512;
-  std::copy_n(source, 512, image_.data() + offset);
+  std::copy_n(source, 512, image_.data() + SectorOffset(cylinder, side, sector));
   dirty_ = true;
   return true;
 }

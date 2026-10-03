@@ -1908,7 +1908,11 @@ bool CheckProtectedDiskStillReads(EurekaMachine& machine) {
   std::vector<uint8_t> console;
   uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
   unsigned fed = 0;
-  while (machine.instructions() < 60'000'000) {
+  // A ceiling; the loop leaves once the prompt is there.  The ROM's own disk
+  // driver (EA4_BEZ_SKRATKY, HANDOFF 6.54) needs about twenty seconds of
+  // machine time for this load and pauses for over half a second at a time
+  // in the middle of it, so the first quiet is not the end.
+  while (machine.instructions() < 400'000'000) {
     auto chunk = machine.TakeConsoleOutput();
     if (!chunk.empty()) {
       console.insert(console.end(), chunk.begin(), chunk.end());
@@ -1922,7 +1926,9 @@ bool CheckProtectedDiskStillReads(EurekaMachine& machine) {
       ++fed;
     }
     if (!machine.Step() && machine.powered_off()) break;
-    if (fed >= 2 && machine.cycles() > lastOut + 3 * kQuiet) break;
+    if (fed >= 2 && machine.cycles() > lastOut + 3 * kQuiet &&
+        Contains(console, "Read which file?"))
+      break;
   }
   if (!Contains(console, "Read which file?")) {
     std::cout << "  READ.COM sa z chranenej diskety nespustil\n";
@@ -2539,7 +2545,11 @@ bool CheckUndefinedOpcodeTraps(EurekaMachine& machine) {
   uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
   unsigned fed = 0;
   bool typed = true;
-  while (machine.instructions() < 40'000'000) {
+  // A ceiling; the loop leaves once the machine has said goodbye.  Through
+  // the ROM's own disk driver (EA4_BEZ_SKRATKY, HANDOFF 6.54) the load has
+  // pauses longer than a quiet of its own, so silence alone ended it early.
+  const std::string goodbye = "ahoj";
+  while (machine.instructions() < 400'000'000) {
     const auto said = machine.TakeSpeechInput();
     if (!said.empty()) {
       spoken.insert(spoken.end(), said.begin(), said.end());
@@ -2556,7 +2566,10 @@ bool CheckUndefinedOpcodeTraps(EurekaMachine& machine) {
       ++fed;
     }
     if (!machine.Step() && machine.powered_off()) break;
-    if (fed >= 2 && machine.cycles() > lastOut + 3 * kQuiet) break;
+    if (fed >= 2 && machine.cycles() > lastOut + 3 * kQuiet &&
+        std::search(spoken.begin(), spoken.end(), goodbye.begin(), goodbye.end()) !=
+            spoken.end())
+      break;
   }
   fs::remove_all(dir, ec);
   if (!typed) return false;
@@ -2989,6 +3002,10 @@ std::optional<std::pair<std::wstring, std::wstring>> ComPairFromEnvironment() {
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
+  // Every mode through the ROM's own disk driver instead of the BIOS bypass
+  // (HANDOFF 6.54, step 4a).  A variable rather than a mode, because the
+  // question is whether the modes that exist pass that way.
+  if (_wgetenv(L"EA4_BEZ_SKRATKY")) EurekaMachine::SetDefaultBiosDiskBypass(false);
   if (argc != 4 ||
       (std::wstring(argv[3]) != L"com" && std::wstring(argv[3]) != L"bas" &&
        std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power" &&
@@ -3189,19 +3206,32 @@ int wmain(int argc, wchar_t** argv) {
   // Nahradou je ticho: dalsi klaves ide az ked stroj pol sekundy nic nevypisal.
   const uint64_t kQuiet = EurekaMachine::kCpuHz / 2;
   const unsigned kSteps = basic ? 3u : 2u;
+  // Stepped through a session only for WaitingForKey: it is what tells when
+  // LOAD is over.  Console, speech and audio come from the session too, since
+  // its Step takes them out of the machine.
+  eureka::Session session(*machine);
   std::vector<uint8_t> console;
   uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
   unsigned fed = 0;
   bool typed = true;
   uint64_t runStarted = 0;
-  constexpr uint64_t kLimit = 60'000'000;
+  // RUN waits for LOAD to be over -- the firmware waiting for a key again --
+  // not for a pause.  Through the ROM's own disk driver (EA4_BEZ_SKRATKY,
+  // HANDOFF 6.54) a load has pauses of its own, over half a second each, and
+  // BASIC says "hotovo" for the typed line before it has even searched, so
+  // neither silence nor that word marks the end.
+  std::size_t runConsoleAt = 0;
+  // A ceiling for a machine that never gets there; the loop leaves as soon as
+  // it has what it waits for, so the BIOS bypass is no slower for it.
+  constexpr uint64_t kLimit = 400'000'000;
   while (machine->instructions() < kLimit) {
-    auto chunk = machine->TakeConsoleOutput();
+    auto chunk = session.TakeConsole();
     if (!chunk.empty()) {
       console.insert(console.end(), chunk.begin(), chunk.end());
       lastOut = machine->cycles();
     }
-    if (fed < kSteps && machine->cycles() > lastOut + kQuiet) {
+    const bool loaded = fed != 2 || session.WaitingForKey();
+    if (fed < kSteps && machine->cycles() > lastOut + kQuiet && loaded) {
       lastOut = machine->cycles();
       if (fed == 0) machine->QueueKey(basic ? 0xc5 : 0xd6);
       else if (fed == 1)
@@ -3209,6 +3239,7 @@ int wmain(int argc, wchar_t** argv) {
       else {
         typed = Type(*machine, "RUN\r");
         runStarted = machine->instructions();
+        runConsoleAt = console.size();
       }
       if (!typed) break;
       ++fed;
@@ -3216,14 +3247,27 @@ int wmain(int argc, wchar_t** argv) {
     // A machine that has switched itself off never executes again, so the
     // instruction and cycle counters stop moving: without this the loop's own
     // deadlines can never come due and the test hangs instead of failing.
-    if (!machine->Step() && machine->powered_off()) break;
-    if (basic && runStarted && machine->instructions() > runStarted + 5'000'000)
+    if (!session.Step() && machine->powered_off()) break;
+    // Five million after RUN once BASIC has said "hotovo" to it, up to fifty
+    // if it has not: the ROM's own disk driver (EA4_BEZ_SKRATKY) takes
+    // longer.  The search runs only once five million have passed, not on
+    // every instruction.
+    if (basic && runStarted) {
+      const uint64_t after = machine->instructions() - runStarted;
+      if (after > 50'000'000) break;
+      if (after > 5'000'000 &&
+          Contains(std::vector<uint8_t>(console.begin() + runConsoleAt, console.end()), "hotovo"))
+        break;
+    }
+    // Done once the program has asked its question and gone quiet -- not at
+    // the first quiet, which the ROM's own driver has in the middle of a load.
+    if (!basic && fed >= kSteps && machine->cycles() > lastOut + 3 * kQuiet &&
+        Contains(console, "Read which file?"))
       break;
-    if (!basic && fed >= kSteps && machine->cycles() > lastOut + 3 * kQuiet) break;
   }
 
-  const auto speech = machine->TakeSpeechInput();
-  const auto audio = machine->TakeAudio();
+  const auto speech = session.TakeSpeech();
+  const auto audio = session.TakeAudio();
   // The console is checked by content, not by length.  A byte count passed
   // happily while every character was being emitted twice ("hhoottoovvoo").
   const bool passed = typed && (basic
