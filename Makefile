@@ -78,7 +78,7 @@ endif
 EMU_NAMES  := main machine md5 virtual_disk cpm_disk disk_stash disk_layout \
               disk_split text_codec audio_player \
               diagnostics host_console emulator_thread main_window dialogs \
-              settings version update updater tcp_link com_link
+              settings version update updater tcp_link com_link drive_sound
 # Nezavisle na emulatore, da sa vziat do ineho projektu tak ako je.
 WIN_NAMES  := window dialog
 EMU_OBJS   := $(addprefix $(BUILD)/,$(addsuffix .o,$(EMU_NAMES))) \
@@ -96,7 +96,8 @@ SESSION_OBJS := $(BUILD)/test_eureka_session.o
 EMU        := $(BIN)/EurekaA4Emulator.exe
 TEST_EXES  := $(BIN)/codec_test.exe $(BIN)/disk_test.exe \
               $(BIN)/settings_test.exe $(BIN)/update_test.exe \
-              $(BIN)/link_test.exe $(BIN)/com_test.exe $(BIN)/zex_test.exe \
+              $(BIN)/link_test.exe $(BIN)/com_test.exe \
+              $(BIN)/drive_sound_test.exe $(BIN)/zex_test.exe \
               $(BIN)/diag_probe.exe $(BIN)/integration_test.exe
 
 .PHONY: all tests check clean
@@ -136,8 +137,10 @@ $(BUILD)/version.o: CXXFLAGS += -I$(BUILD)
 # bajty ako ANSI a diakritika by sa do zdrojov dostala rozsypana -- a ticho.
 # --include-dir preto, aby "resource.h" aj "eureka.manifest" nasiel vedla .rc.
 # -I $(BUILD) pre ea4_version.h, z ktorej berie VERSIONINFO.
+# Zvuky mechaniky su v .rc ako RCDATA; .d subory ich nesleduju, preto su tu.
 $(BUILD)/eureka_res.o: src/res/eureka.rc src/res/resource.h \
-                       src/res/eureka.manifest $(VERSION_H) Makefile | $(BUILD)
+                       src/res/eureka.manifest $(VERSION_H) Makefile \
+                       $(wildcard src/res/zvuky-mechaniky/*.wav) | $(BUILD)
 	$(RC) --codepage=65001 --include-dir src/res -I src -I $(BUILD) -i $< -o $@
 
 # -mwindows robi z toho program GUI subsystemu, takze sa pri spusteni
@@ -191,6 +194,10 @@ $(BIN)/link_test.exe: $(BUILD)/test_link_test.o $(BUILD)/tcp_link.o | $(BIN)
 $(BIN)/com_test.exe: $(BUILD)/test_com_test.o $(BUILD)/com_link.o | $(BIN)
 	$(CXX) $(STATIC) -o $@ $^
 
+# Zvuk mechaniky bez ROM a bez zvukovej karty (HANDOFF 6.54). Obycajny main.
+$(BIN)/drive_sound_test.exe: $(BUILD)/test_drive_sound_test.o $(BUILD)/drive_sound.o | $(BIN)
+	$(CXX) $(STATIC) -o $@ $^
+
 # Hole jadro bez stroja; ZEXDOC nie je v repozitari, preto nie je ani
 # medzi check-* (ea4-z8y). Obycajny main, teda bez -municode.
 $(BIN)/zex_test.exe: $(BUILD)/test_zex_test.o $(BUILD)/z80.o | $(BIN)
@@ -230,7 +237,7 @@ DISK  ?= $(BUILD)/testdisk
 ALL_MODES := bas com kbd power dc rtc hudba zvuk format wp hlaseni snimka akord budik trap session tlac kabel
 MODES  := $(filter-out $(SKIP_MODES),$(ALL_MODES))
 CHECKS := check-codec check-disk check-settings check-update check-link \
-          $(addprefix check-,$(MODES))
+          check-drive $(addprefix check-,$(MODES))
 
 .PHONY: $(CHECKS)
 
@@ -250,6 +257,9 @@ check-update: $(BIN)/update_test.exe
 
 check-link: $(BIN)/link_test.exe
 	$(BIN)/link_test.exe
+
+check-drive: $(BIN)/drive_sound_test.exe
+	$(BIN)/drive_sound_test.exe
 
 # Rezimy integracneho testu sa generuju ako VYSLOVNE pravidla. Vzorove
 # pravidlo `check-%` tu bolo a bola to ticha pasca: make implicitne ani

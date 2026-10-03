@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -95,6 +96,52 @@ int Fail(const std::wstring& message) {
 void Warn(const std::wstring& message) {
   MessageBoxW(nullptr, message.c_str(), L"Eureka A4", MB_OK | MB_ICONWARNING);
   host::Print(L"Upozornenie: " + message + L"\r\n");
+}
+
+// The drive sound set (HANDOFF 6.54): the user's own folder when there is
+// one, the set built into the EXE otherwise.  A folder that is there and fails
+// is said out loud -- the built-in sounds would play in its place and look
+// exactly like success, and nobody would know why their recordings were not
+// heard.  Said only while the sound is switched on; otherwise it is nothing
+// the user is listening for.
+DriveSound LoadDriveSound(bool on) {
+  DriveSound sound;
+  std::string error;
+  auto wide = [](const std::string& utf8) {
+    std::wstring out(utf8.size(), L'\0');
+    out.resize(MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()),
+                                   out.data(), static_cast<int>(out.size())));
+    return out;
+  };
+  const fs::path own = Settings::DriveSoundsDirectory();
+  std::error_code ec;
+  if (!own.empty() && fs::is_directory(own, ec)) {
+    if (sound.LoadSamples(own, error)) return sound;
+    if (on)
+      Warn(L"Vlastné zvuky disketovej mechaniky z priečinka\r\n\r\n" + own.wstring() +
+           L"\r\n\r\nsa nedali načítať: " + wide(error) + L".\r\n\r\nHrajú sa vstavané.");
+  }
+  // RCDATA named after the file's stem, upper-cased with '_' for '-'
+  // (eureka.rc).
+  const bool builtIn = sound.LoadSamples(
+      [](const std::string& stem, std::vector<uint8_t>& bytes) {
+        std::wstring name;
+        for (char c : stem)
+          name += c == '-' ? L'_' : static_cast<wchar_t>(std::toupper(static_cast<unsigned char>(c)));
+        // 10 is RT_RCDATA, spelt out because the macro follows UNICODE and
+        // this call is the wide one either way.
+        const HRSRC found = FindResourceW(nullptr, name.c_str(), MAKEINTRESOURCEW(10));
+        if (!found) return false;
+        const auto* data = static_cast<const uint8_t*>(LockResource(LoadResource(nullptr, found)));
+        if (!data) return false;
+        bytes.assign(data, data + SizeofResource(nullptr, found));
+        return true;
+      },
+      error);
+  // A broken build, not something the user did; still not to be silent.
+  if (!builtIn && on)
+    Warn(L"Zvuky disketovej mechaniky sa nedali načítať: " + wide(error) + L".");
+  return sound;
 }
 
 // The automatic update check (ea4-hg9.4).  Before the ROM, the diskette and
@@ -568,6 +615,7 @@ int Run() {
   // Started only once the window exists: the worker posts its notifications to
   // that HWND, and one arriving before there is a window to take it would be
   // lost with no sign of it.
+  emulator.SetDriveSound(LoadDriveSound(settings.drive_sound()), settings.drive_sound());
   emulator.Start(std::move(machine), window.handle(), startMode, diagnostics);
   // Every slot the settings mark unsaved gets its diskette back.  The marker
   // survives in nastavenia.txt and the shelf does not, so without this a slot

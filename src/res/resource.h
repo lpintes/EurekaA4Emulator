@@ -98,6 +98,7 @@
 #define IDC_DIAGNOSTICS      1003
 #define IDC_KEEP_RAM         1004
 #define IDC_CHECK_UPDATES    1005
+#define IDC_DRIVE_SOUND      1006
 
 // About dialog controls.
 #define IDC_ABOUT_TEXT       1010

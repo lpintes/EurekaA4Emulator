@@ -17,14 +17,15 @@
 class SettingsDialog : public win::Dialog {
  public:
   SettingsDialog(InputMode mode, bool diagnostics, bool keepRam,
-                 bool checkUpdates)
+                 bool checkUpdates, bool driveSound)
       : mode_(mode), diagnostics_(diagnostics), keepRam_(keepRam),
-        checkUpdates_(checkUpdates) {}
+        checkUpdates_(checkUpdates), driveSound_(driveSound) {}
 
   InputMode mode() const { return mode_; }
   bool diagnostics() const { return diagnostics_; }
   bool keep_ram() const { return keepRam_; }
   bool check_updates() const { return checkUpdates_; }
+  bool drive_sound() const { return driveSound_; }
 
  protected:
   bool OnInit() override;
@@ -35,6 +36,7 @@ class SettingsDialog : public win::Dialog {
   bool diagnostics_;
   bool keepRam_;
   bool checkUpdates_;
+  bool driveSound_;
 };
 
 // The two sliders at once, as positions from sliders.h.  Applied on OK and not

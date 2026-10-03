@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
-#include <cwchar>
 #include <fstream>
 #include <iterator>
 
@@ -188,49 +187,56 @@ void DriveSound::Mix(const std::vector<EurekaMachine::DriveEvent>& events,
                      std::vector<int16_t>& audio, uint64_t endCycle) {
   for (const auto& event : events) Schedule(event);
   const uint64_t end = endCycle / kCyclesPerSample;
-  now_ = end >= audio.size() ? end - audio.size() : 0;
+  // Never backwards: Continue may have carried the drive past a machine that
+  // was switched off, and its clock did not move meanwhile.
+  now_ = std::max(now_, end >= audio.size() ? end - audio.size() : 0);
+  for (int16_t& sample : audio) Tick(sample);
+}
 
-  for (int16_t& sample : audio) {
-    if (std::abs(static_cast<int>(sample)) > kDacAudible) {
-      lastDac_ = now_;
-      heardDac_ = true;
-    }
-    const bool dacQuiet = !heardDac_ || now_ - lastDac_ > kDacHold;
+void DriveSound::Continue(std::vector<int16_t>& audio) {
+  for (int16_t& sample : audio) Tick(sample);
+}
 
-    if (!running_ && !jobs_.empty() && jobs_.front().notBefore <= now_ && dacQuiet) {
-      // The controller has a command: the motor runs, and a spindle that was
-      // off has to come up first.
-      if (!motorOn_) {
-        motorOn_ = true;
-        spunUpAt_ = now_ + kSpinUp;
-      }
-      motorUntil_ = now_ + kMotorHold;
-      if (now_ >= spunUpAt_) {
-        running_ = true;
-        jobLeft_ = jobs_.front().length;
-        if (jobs_.front().kind == Job::Kind::kStep) StartStep(jobs_.front());
-      }
-    }
-    if (running_ && --jobLeft_ == 0) {
-      queued_ -= jobs_.front().length;
-      jobs_.pop_front();
-      running_ = false;
-      motorUntil_ = now_ + kMotorHold;
-    }
-    if (motorOn_ && !running_ && now_ >= motorUntil_) motorOn_ = false;
-    speed_ += motorOn_ ? (1.0f - speed_) * kSpeedUp : -speed_ * kSpeedDown;
-    if (sampled_ && motorOn_ != motorWasOn_) {
-      // A spindle still coasting is caught again without a second spin-up.
-      if (motorOn_) SwitchMotor(motor_ == Motor::kOff ? Motor::kStart : Motor::kLoop);
-      else SwitchMotor(Motor::kStop);
-      motorWasOn_ = motorOn_;
-    }
-
-    const float drive = sampled_ ? RenderSampled() : Render();
-    const float mixed = static_cast<float>(sample) + drive * 32767.0f;
-    sample = static_cast<int16_t>(std::clamp(mixed, -32768.0f, 32767.0f));
-    ++now_;
+void DriveSound::Tick(int16_t& sample) {
+  if (std::abs(static_cast<int>(sample)) > kDacAudible) {
+    lastDac_ = now_;
+    heardDac_ = true;
   }
+  const bool dacQuiet = !heardDac_ || now_ - lastDac_ > kDacHold;
+
+  if (!running_ && !jobs_.empty() && jobs_.front().notBefore <= now_ && dacQuiet) {
+    // The controller has a command: the motor runs, and a spindle that was
+    // off has to come up first.
+    if (!motorOn_) {
+      motorOn_ = true;
+      spunUpAt_ = now_ + kSpinUp;
+    }
+    motorUntil_ = now_ + kMotorHold;
+    if (now_ >= spunUpAt_) {
+      running_ = true;
+      jobLeft_ = jobs_.front().length;
+      if (jobs_.front().kind == Job::Kind::kStep) StartStep(jobs_.front());
+    }
+  }
+  if (running_ && --jobLeft_ == 0) {
+    queued_ -= jobs_.front().length;
+    jobs_.pop_front();
+    running_ = false;
+    motorUntil_ = now_ + kMotorHold;
+  }
+  if (motorOn_ && !running_ && now_ >= motorUntil_) motorOn_ = false;
+  speed_ += motorOn_ ? (1.0f - speed_) * kSpeedUp : -speed_ * kSpeedDown;
+  if (sampled_ && motorOn_ != motorWasOn_) {
+    // A spindle still coasting is caught again without a second spin-up.
+    if (motorOn_) SwitchMotor(motor_ == Motor::kOff ? Motor::kStart : Motor::kLoop);
+    else SwitchMotor(Motor::kStop);
+    motorWasOn_ = motorOn_;
+  }
+
+  const float drive = sampled_ ? RenderSampled() : Render();
+  const float mixed = static_cast<float>(sample) + drive * 32767.0f;
+  sample = static_cast<int16_t>(std::clamp(mixed, -32768.0f, 32767.0f));
+  ++now_;
 }
 
 bool DriveSound::Idle() const {
@@ -334,19 +340,17 @@ namespace {
 // The few WAVs this reads are the ones prepared for it: RIFF, PCM, mono,
 // 16-bit, 48 kHz.  Anything else is refused rather than resampled -- a set at
 // the wrong rate would play at the wrong pitch and nobody would know why.
-bool ReadWav(const std::filesystem::path& path, std::vector<float>& out, std::string& error) {
-  std::ifstream file(path, std::ios::binary);
-  if (!file) {
-    error = "chyba subor " + path.filename().string();
-    return false;
-  }
-  const std::vector<uint8_t> data((std::istreambuf_iterator<char>(file)),
-                                  std::istreambuf_iterator<char>());
+//
+// The messages are for the user: a folder of their own sounds that fails is
+// reported at start-up (main.cpp), in UTF-8.
+bool ParseWav(const std::string& stem, const std::vector<uint8_t>& data, std::vector<float>& out,
+              std::string& error) {
+  const std::string name = stem + ".wav";
   auto u16 = [&](std::size_t at) { return static_cast<uint32_t>(data[at] | data[at + 1] << 8); };
   auto u32 = [&](std::size_t at) { return u16(at) | u16(at + 2) << 16; };
   if (data.size() < 12 || std::memcmp(data.data(), "RIFF", 4) != 0 ||
       std::memcmp(data.data() + 8, "WAVE", 4) != 0) {
-    error = path.filename().string() + " nie je WAV";
+    error = "súbor " + name + " nie je WAV";
     return false;
   }
   bool formatOk = false;
@@ -359,7 +363,7 @@ bool ReadWav(const std::filesystem::path& path, std::vector<float>& out, std::st
                  u16(body + 14) == 16;
     if (std::memcmp(data.data() + at, "data", 4) == 0) {
       if (!formatOk) {
-        error = path.filename().string() + " nie je 48 kHz mono 16 bit";
+        error = "súbor " + name + " nie je 48 kHz, mono, 16 bitov";
         return false;
       }
       out.resize(size / 2);
@@ -369,32 +373,39 @@ bool ReadWav(const std::filesystem::path& path, std::vector<float>& out, std::st
     }
     at = body + size + (size & 1);
   }
-  error = path.filename().string() + " nema data";
+  error = "súbor " + name + " nemá zvukové dáta";
   return false;
 }
 
 }  // namespace
 
-bool DriveSound::LoadSamples(const std::filesystem::path& folder, std::string& error) {
+bool DriveSound::LoadSamples(const Fetch& fetch, std::string& error) {
+  std::vector<uint8_t> bytes;
+  auto load = [&](const std::string& stem, std::vector<float>& out) {
+    bytes.clear();
+    if (!fetch(stem, bytes)) {
+      error = "chýba súbor " + stem + ".wav";
+      return false;
+    }
+    return ParseWav(stem, bytes, out, error);
+  };
   std::vector<float> start, loop, stop, seek;
   std::vector<std::vector<float>> steps;
-  if (!ReadWav(folder / "motor-rozbeh.wav", start, error) ||
-      !ReadWav(folder / "motor-slucka.wav", loop, error) ||
-      !ReadWav(folder / "motor-dobeh.wav", stop, error) ||
-      !ReadWav(folder / "presun.wav", seek, error))
+  if (!load("motor-rozbeh", start) || !load("motor-slucka", loop) ||
+      !load("motor-dobeh", stop) || !load("presun", seek))
     return false;
   // krok-1, krok-2 and on for as long as they go: a few takes of the same
   // step, played in turn so that a walk across the disk does not sound
   // stamped out of one recording.
   for (unsigned i = 1;; ++i) {
-    wchar_t name[16];
-    std::swprintf(name, 16, L"krok-%u.wav", i);
-    if (!std::filesystem::exists(folder / name)) break;
+    const std::string stem = "krok-" + std::to_string(i);
+    bytes.clear();
+    if (!fetch(stem, bytes)) break;
     steps.emplace_back();
-    if (!ReadWav(folder / name, steps.back(), error)) return false;
+    if (!ParseWav(stem, bytes, steps.back(), error)) return false;
   }
   if (steps.empty()) {
-    error = "chyba krok-1.wav";
+    error = "chýba súbor krok-1.wav";
     return false;
   }
   motorStart_ = std::move(start);
@@ -404,4 +415,15 @@ bool DriveSound::LoadSamples(const std::filesystem::path& folder, std::string& e
   steps_ = std::move(steps);
   sampled_ = true;
   return true;
+}
+
+bool DriveSound::LoadSamples(const std::filesystem::path& folder, std::string& error) {
+  return LoadSamples(
+      [&folder](const std::string& stem, std::vector<uint8_t>& bytes) {
+        std::ifstream file(folder / (stem + ".wav"), std::ios::binary);
+        if (!file) return false;
+        bytes.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+        return true;
+      },
+      error);
 }

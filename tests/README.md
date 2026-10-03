@@ -69,6 +69,18 @@ window is the one unplugging; and
 the address typed by the user is parsed the same way the dialog will. No ROM,
 loopback only, every port from `Listen(0)`.
 
+`drive_sound_test.cpp` covers the drive sound (`src/drive_sound.*`, HANDOFF
+6.54) with no ROM and no sound device. It builds its own set of WAVs, each a
+single constant level, so the mixer's output says which recording is playing,
+and compares levels with the motor's loop rather than with numbers. It holds
+that the drive stays silent while the DAC plays, that the motor spins up, the
+step falls only after the 1.2 s spin-up and the motor stops 1.8 s after the
+work, that `Continue` lets the drive finish with no machine behind it, that a
+long seek plays the raking, that the same events give the same sound, and that
+a set at the wrong rate or without a step is refused with a reason naming the
+file. Mutation-checked: no wait for the DAC, a motor that never stops and an
+empty `Continue` each fail their own checks.
+
 `disk_test.cpp` covers the diskette model: capacity, naming, swapping, the
 unformatted state, and what a file looks like on its way back to the host.
 Everything it needs it makes for itself in the system temp folder, because a
@@ -333,7 +345,7 @@ is third-party material and therefore **not in this repository** -- see
 is `C:\b\eurekatech`) and `run-tests.bat` copies the file in for you.
 
 Without it the `com` and `wp` modes are skipped and the suite reports
-twenty `PASS` lines instead of twenty-two, saying so as it goes.  Both modes run that
+twenty-two `PASS` lines instead of twenty-four, saying so as it goes.  Both modes run that
 same `READ.COM`: `com` to start it, `wp` to show a write-protected diskette
 still reads (`CheckProtectedDiskStillReads`).  `wp` also holds that the
 drive events see ordinary file I/O, which never reaches the controller: the

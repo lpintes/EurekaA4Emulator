@@ -29,3 +29,8 @@
 # repozitara (ROM-NOTICE.txt), takze pravidlo nema co chranit. Keby sa sem
 # niekedy vratil, patri mu vlastne pravidlo a musi byt POSLEDNE: pri zhode
 # viacerych vzorov vyhrava ten nizsie, takze len tak prebije `* text=auto`.
+
+# Nahravky zvuku mechaniky v src/res/zvuky-mechaniky (HANDOFF 6.54). Git by
+# ich podla nulovych bajtov uznal za binarne aj sam, ale to je odhad; tu je to
+# napisane. Posledne z toho isteho dovodu ako vyssie.
+*.wav binary

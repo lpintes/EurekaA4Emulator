@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -36,13 +37,27 @@ class DriveSound {
   // he chose is a motor sampled by Shiru (CC-BY), steps cut from a Wikimedia
   // Commons recording and the raking from BigSoundBank (both CC0).  False
   // with a reason if anything is missing; the synthesized sound then stays.
+  // The reason is meant for the user and is UTF-8.
   bool LoadSamples(const std::filesystem::path& folder, std::string& error);
+  // The same set from anywhere: `fetch` is given a sound's stem
+  // ("motor-rozbeh", "krok-2") and fills `bytes` with its WAV file, or
+  // returns false when there is no such sound.  The emulator reads its
+  // built-in set out of the EXE's resources this way, and this class stays
+  // free of the host.
+  using Fetch = std::function<bool(const std::string& stem, std::vector<uint8_t>& bytes)>;
+  bool LoadSamples(const Fetch& fetch, std::string& error);
+  bool sampled() const { return sampled_; }
 
   // Takes what the drive did and mixes the drive into `audio`, the machine's
   // own samples for the stretch that ended at `endCycle`.  Events may lie
   // before the stretch began; they then start at once.
   void Mix(const std::vector<EurekaMachine::DriveEvent>& events, std::vector<int16_t>& audio,
            uint64_t endCycle);
+  // Runs the drive on its own timeline over `audio` with no machine behind
+  // it.  A switched-off machine produces no samples at all, and the drive
+  // has to finish what it was doing -- the motor runs down on the hardware
+  // too -- rather than freeze in the middle of a step.
+  void Continue(std::vector<int16_t>& audio);
   // Nothing queued, nothing playing and the spindle at rest.
   bool Idle() const;
 
@@ -73,6 +88,7 @@ class DriveSound {
   void Schedule(const EurekaMachine::DriveEvent& event);
   void Push(Job::Kind kind, uint64_t notBefore, uint32_t length, uint16_t steps = 0);
   void StartStep(const Job& job);
+  void Tick(int16_t& sample);
   float Noise();
   float Render();
   float RenderSampled();

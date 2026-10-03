@@ -4284,14 +4284,70 @@ Vlastný test 2a nemá; plánovanie by mal pribiť test bez ROM v kroku 2b.
 Vypnutý stroj nevyrába zvuk, takže zvuk mechaniky by s ním zamrzol — rieši
 sa v 2b.
 
+#### Krok 2b: zvuk v emulátore (2. 10. 2026, `ea4-tvd.2`)
+
+Obe vety tesne nad týmto nadpisom už platia len ako história: test je
+(`drive_sound_test`) a vypnutý stroj zvuk mechaniky nezamrazí. Neplatí ani
+„vzorky zatiaľ ležia mimo stromu“ z odseku o nahrávkach — sada verzie 8 je
+v `src/res/zvuky-mechaniky` a v EXE.
+
+Rozhodnuté s majiteľom: **sada ako zdroj EXE, možnosť vlastného priečinka,
+predvolene vypnuté** (keby mal autor upstreamu iný názor, mení sa jedno
+slovo v `settings.cpp`).
+
+- **Kde sú zvuky.** Sedem WAV v `src/res/zvuky-mechaniky` (536 kB, EXE
+  narástlo o pol megabajtu) s `PUVOD.md` — pôvod a licencie, CC BY pre motor
+  z Flopsteru vyžaduje uviesť autora aj zmeny; uvedené aj v README
+  (Licencie). V `eureka.rc` ako pomenované RCDATA (`MOTOR_ROZBEH`… `KROK_3`):
+  meno je kmeň súboru veľkými písmenami s `_` namiesto `-`, takže zoznam mien
+  je pre EXE aj vlastný priečinok jeden. `*.wav binary` v `.gitattributes`.
+  `Makefile` má WAV ako prerekvizity `eureka_res.o`, lebo `.d` súbory ich
+  nesledujú.
+- **Načítanie** (`LoadDriveSound` v `main.cpp`, pred štartom vlákna):
+  vlastný priečinok `zvuky-mechaniky` vedľa `nastavenia.txt`
+  (`Settings::DriveSoundsDirectory`), inak zdroje EXE. `DriveSound` sa učí
+  sadu cez `Fetch` (kmeň → bajty WAV), takže zostáva bez hostiteľa. Priečinok,
+  ktorý existuje a nenačíta sa, ohlási `Warn` s dôvodom a hrajú vstavané —
+  inak by vyzeral presne ako úspech. Hlási sa len so zapnutým zvukom.
+- **Nastavenie** `zvuk-mechaniky=`, len `1` zapína (ako `rozsirena-ram`),
+  v Nastaveniach skupina „Zvuk“ s políčkom „Zvuk disketovej &mechaniky“,
+  ohraničená `WS_GROUP` ako ostatné (6.27). Platí hneď (`PostSetDriveSound`).
+- **Vlákno.** Zvuk mechaniky ide pod vzorky stroja ešte pred `Submit`, takže
+  ladenie latencie vidí jeden prúd. Udalosti sa berú vždy, aj pri vypnutom
+  zvuku. Zapnutie začína od čistej mechaniky (kópia nehranej predlohy), takže
+  po vypnutí nedohráva stará fronta. Pri **vypnutom stroji** stroj nedáva
+  vzorky vôbec; vlákno vtedy dorobí ticho do zásoby zariadenia (22 ms)
+  a `DriveSound::Continue` v ňom mechaniku dohrá. `Mix` potom čas mechaniky
+  nikdy nevráti dozadu.
+- **Overené.** Na hotovom EXE sú všetky reťazce v UTF-16 a všetkých sedem
+  zdrojov; pokusný program mimo repozitára načítal sadu zo zdrojov hotového
+  EXE (`LoadLibraryEx` ako dáta) cez tú istú cestu ako `main.cpp` — 7 súborov,
+  bez chyby — a zahral z nej presun. `settings_test` drží kľúč (mutácia
+  `== L"1"` → `!= L"0"` ho zhodí), `drive_sound_test` správanie (tri mutácie).
+  Klávesové kruhy v dialógu (`IsDialogMessage`) **merané neboli**; skupina
+  má rovnakú stavbu ako tri nad ňou.
+- **Neoverené rukou:** v bežiacom okne zvuk zatiaľ nikto nepočul. Je na
+  majiteľovi.
+
+  *Doplnené 3. 10. 2026:* majiteľ zvuk v okne počul — „hodně dobrý“, ako
+  imitácia mechaniky veľmi vydarený. **Vydávať sa to nemá, kým nebude
+  časovanie (krok 4):** veľký súbor sa načíta okamžite, hlas to oznámi
+  hneď a mechanika potom ešte hrá — to je podľa majiteľa mätúce. Práca
+  na zvuku mechaniky žije vo vlastnej vetve `zvuk-mechaniky`; `main`
+  zostáva na kóde upstreamu a pull request príde, až bude hotová.
+
 #### Otvorené
 
 - **Motor.** `pol_disk` (`A0h` bit 0, `IOPORT.LIB`: „high to power up fdc
   and disk drive“) firmvér pri formátovaní dvakrát zapne a vypne — je to
   kandidát na točenie diskety v kroku 2. WD1772 má vlastný výstup motora
   (stavový bit 7, `kFdcStatusMotorOn`), ktorý model nevedie. Ktorý z nich
-  točí motor na Eureke, nie je zmerané.
-- Krok 2 až 4 podľa poradia vyššie.
+  točí motor na Eureke, nie je zmerané. Krok 2 ho nepoužil: motor sa riadi
+  prácou mechaniky (predpoklad).
+- Krok 3 (ladenie, `ea4-tvd.3`), krok 4 (časovanie, `ea4-tvd.4`)
+  a „poškodená disketa“ (`ea4-tvd.5`).
+- Skutočné nahrávky mechaniky Eureky — majiteľ je v kontakte s niekým, kto
+  ich môže nahrať; sada sa potom len vymení v `src/res/zvuky-mechaniky`.
 
 ## 7. Nástroje
 

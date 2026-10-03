@@ -571,7 +571,8 @@ void MainWindow::RegisterCommands() {
 
   OnCommand(ID_TOOLS_SETTINGS, [this] {
     SettingsDialog dialog(emulator_.mode(), emulator_.diagnostics(),
-                          settings_.keep_ram(), settings_.check_updates());
+                          settings_.keep_ram(), settings_.check_updates(),
+                          settings_.drive_sound());
     if (dialog.ShowModal(hwnd_, IDD_SETTINGS) != IDOK) return;
     // Turning diagnostics on is the request for somewhere to read them: this
     // program has no console until something asks for one.  Done here, on the
@@ -580,6 +581,12 @@ void MainWindow::RegisterCommands() {
     // Posted unconditionally; the worker ignores a mode it is already in.
     emulator_.PostSetMode(dialog.mode());
     emulator_.PostSetDiagnostics(dialog.diagnostics());
+    // At once, and remembered for the next run (HANDOFF 6.54).
+    if (dialog.drive_sound() != settings_.drive_sound()) {
+      settings_.SetDriveSound(dialog.drive_sound());
+      SaveSettings();
+      emulator_.PostSetDriveSound(dialog.drive_sound());
+    }
     // Takes effect at the next start, which is the only place it is asked.
     if (dialog.check_updates() != settings_.check_updates()) {
       settings_.SetCheckUpdates(dialog.check_updates());

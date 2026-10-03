@@ -227,7 +227,7 @@ slučka, `NVDA+Ctrl+F3` ho načíta znovu. Pozor, v scratchpade nefunguje
 
 Sonda a testy: `build-tests.bat`. Zostaví `bin\diag_probe.exe`,
 `bin\integration_test.exe`, `bin\codec_test.exe`, `bin\disk_test.exe`,
-`bin\settings_test.exe`, `bin\update_test.exe` a `bin\link_test.exe`, a linkuje ich proti objektom z `build\`. Zostaví aj `bin\zex_test.exe`, ktorý
+`bin\settings_test.exe`, `bin\update_test.exe`, `bin\link_test.exe` a `bin\drive_sound_test.exe`, a linkuje ich proti objektom z `build\`. Zostaví aj `bin\zex_test.exe`, ktorý
 púšťa ZEXDOC na holom jadre; program je mimo repozitára
 v `C:\b\z80-tests`, preto nie je v `run-tests.bat` (`tests/README.md`,
 HANDOFF 6.33 bod 8). Keď siahneš na `z80.c`, pusti ho — trvá dve minúty.
@@ -428,6 +428,10 @@ Drží aj **aktualizácie** (`aktualizacie=`, `posledna-kontrola=`,
 `preskocena-verzia=`, `ea4-hg9.4`): rovnako ako zachovanie RAM chýbajúci kľúč
 aj iné slovo než `0` znamenajú zapnuté — súbor spred aktualizácií ich nesmie
 ticho vypnúť. Overené mutáciou (`!= L"0"` → `== L"1"`).
+Drží aj **zvuk mechaniky** (`zvuk-mechaniky=`, HANDOFF 6.54) — ako rozšírenú
+RAM: chýbajúci kľúč aj iné slovo než `1` znamenajú vypnuté, lebo je to nový
+zvuk pod hlasom stroja a nikto ho nemá dostať bez toho, aby si ho zapol.
+Overené mutáciou (`== L"1"` → `!= L"0"`).
 Drží aj **posledné odpovede sériového kábla** (`kabel-port=`, `kabel-adresa=`,
 `ea4-7zw.4`, a `kabel-com=`, `ea4-7zw.3`): že adresa s dvojbodkami, zátvorkami aj diakritikou príde späť
 tak, ako bola napísaná, a že zrušená zo súboru zmizne. Sú to texty, nie čísla —
@@ -463,15 +467,30 @@ dostane RTS aj formát, ktoré stroj nastavil pred ním** — stroj ich hlási l
 pri zmene, takže kábel zastrčený neskôr by ich inak nepočul nikdy a druhá
 strana by ticho neposielala. Overené mutáciou: vynechané RTS pri `Plug`.
 
+`drive_sound_test` drží **zvuk disketovej mechaniky** (`src/drive_sound.*`,
+HANDOFF 6.54) bez ROM a bez zvukovej karty. Nahrávky nepoužíva: postaví si
+vlastnú sadu WAV, kde je každý súbor jedna stála úroveň, takže z výstupu
+mixu je počuť, čo práve hrá, a úrovne porovnáva so slučkou motora, nie
+s číslami — zisk sa ešte bude ladiť. Drží to, čo by inak nikto nespozoroval:
+že mechanika **mlčí, kým hrá DAC** (inak by hovorila Eureke do reči), že
+motor sa rozbehne, krok padne až po 1,2 s roztočenia a motor **zastane** 1,8 s
+po práci (inak by vrčal pod každou výzvou), že `Continue` nechá mechaniku
+dobehnúť aj bez stroja, že presun cez veľa cylindrov hrá hrabanie, že tie isté
+udalosti dajú ten istý zvuk, a že sada so zlou vzorkovacou frekvenciou alebo
+bez kroku sa odmietne s dôvodom, ktorý menuje súbor. Overené mutáciou:
+mechanika bez čakania na DAC, motor, ktorý nezastane, a prázdne `Continue`
+zhodia každé svoje kontroly. Zapnutie a vypnutie zvuku žije vo vlákne
+emulátora a toto ho nedrží.
+
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých dvadsaťtri naraz — päť
-samostatné testy a osemnásť režimov `integration_test`. Sú to nezávislé
+`run-tests.bat` zostaví testy a pustí všetkých dvadsaťštyri naraz — šesť
+samostatných testov a osemnásť režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `TECHMAN1\READ.COM` z manuálu, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`; manuál z `%EUREKATECH%`, inak `C:\b\eurekatech`. Po
-úspechu všetkých dvadsiatich troch zapíše `build\otestovany-strom`, na ktorý
+úspechu všetkých dvadsiatich štyroch zapíše `build\otestovany-strom`, na ktorý
 sa pýta `./release` (viď `### Vydanie navrhni`); bez manuálu ho nezapíše.
 
 Vo WSL robí to isté `run-tests.sh` a líši sa v troch veciach, všetky
@@ -507,7 +526,7 @@ tri `PASS` a dvanásť zlyhaní, ktoré vyzerali ako chyba emulátora, hoci to
 bola pokazená cesta. Keď na `to_unix` v `run-tests.sh` siahneš, drž sa
 tvaru cesty.
 
-**Keď manuál nie je po ruke, je `PASS` dvadsaťjeden a nie je to regresia.**
+**Keď manuál nie je po ruke, je `PASS` dvadsaťdva a nie je to regresia.**
 Dávka vynechá cez `SKIP_MODES` režimy `com` **aj `wp`** a napíše, prečo.
 Že sú to dva a nie jeden, ukázalo až meranie 20. 9. 2026: `wp` spúšťa ten
 istý `READ.COM` a overuje ním, že z chránenej diskety sa dá čítať
@@ -524,7 +543,7 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť dvadsaťtri, alebo dvadsaťjeden bez manuálu — a raz to skús s nezmyselnou ROM
+byť dvadsaťštyri, alebo dvadsaťdva bez manuálu — a raz to skús s nezmyselnou ROM
 aj s nezmyselným `EUREKATECH`, či poistky naozaj zvonia.
 
 ## Diagnostická sonda
@@ -1045,7 +1064,7 @@ toto je jedno z miest, ktoré by ho zaseklo.
 Kým toto neplatí, nehlás hotovo — a nehlás ani „malo by to fungovať“:
 
 1. `build.bat` prejde bez jediného varovania.
-2. `run-tests.bat` dá **dvadsaťtri** riadkov `PASS` — alebo dvadsaťjeden, keď na
+2. `run-tests.bat` dá **dvadsaťštyri** riadkov `PASS` — alebo dvadsaťdva, keď na
    stroji nie je Technical Manual a dávka to ohlási. Že sa to preložilo, nie je
    výsledok merania.
 3. Dokumentácia dobehla **v tom istom kroku**, nie „potom“. README, keď sa
@@ -1094,7 +1113,7 @@ prípony, preto má v `.gitattributes` vlastné pravidlo LF): pushne, spustí
 Artefakt z pushu sa použiť nedá — EXE v ňom nesie vývojovú verziu, nie číslo
 vydania. Testy s ROM nepúšťa ani CI, ani skript; stoja na „Čo znamená hotovo“
 pred commitom. Skript sa preto pred pushom pozrie do `build\otestovany-strom`:
-`run-tests` doň po úspešnom behu všetkých dvadsiatich troch zapíše hash
+`run-tests` doň po úspešnom behu všetkých dvadsiatich štyroch zapíše hash
 stromu, ktorý testoval, a `./release` ho porovná so stromom `HEAD`. Keď
 nesedí alebo chýba, spýta sa, či vydať aj tak. Je to hash **obsahu**, nie
 commitu, lebo testuje sa pred commitom; počíta sa cez dočasný index

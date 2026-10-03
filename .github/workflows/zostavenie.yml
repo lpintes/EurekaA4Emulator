@@ -7,7 +7,7 @@
 # predinštalovaný v C:\msys64, takže predvolené cesty v dávkach platia.
 #
 # ROM sem nepatrí ani ako tajný súbor -- je to firmvér (ROM-NOTICE.txt). Bežia
-# preto len päť testov, ktoré ju nepotrebujú; osemnásť režimov
+# preto len šesť testov, ktoré ju nepotrebujú; osemnásť režimov
 # integration_test zostáva na run-tests.bat.
 
 name: Zostavenie
@@ -98,7 +98,7 @@ jobs:
         shell: cmd
         run: |
           set "PATH=C:\msys64\mingw64\bin;%PATH%"
-          mingw32-make MINGW64=C:/msys64/mingw64 --output-sync=target -k check-codec check-disk check-settings check-update check-link
+          mingw32-make MINGW64=C:/msys64/mingw64 --output-sync=target -k check-codec check-disk check-settings check-update check-link check-drive
 
       # build-addon.bat bez msgfmt len varuje a zabalí doplnok bez prekladu;
       # tu to má byť chyba, nie tichý anglický doplnok.

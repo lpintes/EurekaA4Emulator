@@ -256,6 +256,50 @@ void ExtraRamSwitchRoundTrips() {
   }
 }
 
+void DriveSoundSwitchRoundTrips() {
+  // Like rozsirena-ram: absent means off and only "1" turns it on (HANDOFF
+  // 6.54).  The drive is a new noise under the machine's voice, so a file
+  // from before the key existed -- or a typo -- must not switch it on.
+  {
+    Settings settings(FileNamed("neexistuje.txt"));
+    settings.Load();
+    Check(!settings.drive_sound(), "chybajuci subor: zvuk mechaniky je vypnuty");
+  }
+  const fs::path file = FileNamed("zvuk-mechaniky.txt");
+  std::wstring error;
+  {
+    Settings settings(file);
+    settings.SetDriveSound(true);
+    Check(settings.Save(error), "ulozenie so zvukom mechaniky prejde", Narrow(error));
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(loaded.drive_sound(), "zvuk mechaniky prezije zapis aj citanie");
+  }
+  Check(ReadRaw(file).find("zvuk-mechaniky=1") != std::string::npos,
+        "zapnutie je v subore ako zvuk-mechaniky=1");
+  {
+    Settings settings(file);
+    settings.Load();
+    settings.SetDriveSound(false);
+    settings.Save(error);
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(!loaded.drive_sound(), "zvuk mechaniky sa da vypnut");
+  }
+  Check(ReadRaw(file).find("zvuk-mechaniky=0") != std::string::npos,
+        "vypnutie je v subore ako zvuk-mechaniky=0");
+  WriteRaw(file, "zvuk-mechaniky=ano\r\n");
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(!loaded.drive_sound(), "ine slovo nez 1 zvuk mechaniky nezapne");
+  }
+}
+
 void KeyboardModeRoundTrips() {
   // Absent means the PC keyboard, which is where this program has always
   // started: a file from a version that never knew the key must not move the
@@ -678,6 +722,7 @@ int main() {
   MissingFileIsDefaults();
   KeepRamSwitchRoundTrips();
   ExtraRamSwitchRoundTrips();
+  DriveSoundSwitchRoundTrips();
   UpdateKeysRoundTrip();
   CableAnswersRoundTrip();
   KeyboardModeRoundTrips();
