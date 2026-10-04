@@ -1237,6 +1237,100 @@ bool CheckPhoneLine(EurekaMachine& machine) {
 // RAM4B tells the two apart.  With it both answer as one bank, by CPU and by
 // DMA, and neither lands in the standard RAM at 7xxxxh.  Removing the module
 // has to take its contents with it.  Leaves the machine without it.
+// The WD1772's timing with the BIOS bypass off (HANDOFF 6.54, step 4b): the
+// controller driven directly through its ports while the CPU sits on DI;
+// JR $, so no firmware touches it in between.  What it holds is what nothing
+// else would notice -- with the timing broken the suite only runs faster:
+// a stopped motor spins up for six revolutions, the motor bit stays on for
+// nine after the last command, the index comes round once a revolution, and
+// a sector read ends when that sector has passed under the head.
+bool CheckDriveTiming(EurekaMachine& machine) {
+  constexpr uint16_t kScratch = 0x8000;
+  constexpr uint64_t kRev = EurekaMachine::kCpuHz / 5;
+  // One pass of the waiting loop is a few dozen cycles; the margins are wider
+  // than that and far narrower than anything they tell apart.
+  constexpr uint64_t kSlack = 2000;
+  machine.SetBiosDiskBypass(false);
+  machine.debug_poke(kScratch, 0xf3);      // di
+  machine.debug_poke(kScratch + 1, 0x18);  // jr $
+  machine.debug_poke(kScratch + 2, 0xfe);
+  machine.debug_set_pc(kScratch);
+  auto status = [&machine] { return machine.debug_in(hw::kFdcStatus); };
+  auto run = [&machine](uint64_t cycles) {
+    const uint64_t end = machine.cycles() + cycles;
+    while (machine.cycles() < end) machine.Step();
+  };
+  // Cycles until BUSY drops, or ~0 after `limit`.
+  auto untilReady = [&](uint64_t limit) {
+    const uint64_t start = machine.cycles();
+    while (machine.cycles() - start < limit) {
+      if ((status() & hw::kFdcStatusBusy) == 0) return machine.cycles() - start;
+      machine.Step();
+    }
+    return ~0ull;
+  };
+  bool ok = true;
+  auto fail = [&ok](const std::string& what) {
+    std::cout << "  casovanie mechaniky: " << what << "\n";
+    ok = false;
+  };
+
+  // Let any motor still running from the boot stop, then home the head.
+  run(3 * EurekaMachine::kCpuHz);
+  machine.debug_out(hw::kFdcData, 0);
+  machine.debug_out(hw::kFdcCommand, hw::kFdcCmdSeek);
+  const uint64_t spinUp = untilReady(10 * kRev);
+  if (spinUp < 6 * kRev || spinUp > 6 * kRev + kSlack)
+    fail("roztocenie trvalo " + std::to_string(spinUp) + " cyklov namiesto 6 otacok");
+
+  // The motor bit: on 1.7 s after the command, off by 1.9 s.
+  if ((status() & hw::kFdcStatusMotorOn) == 0) fail("po prikaze motor nebezi");
+  run(EurekaMachine::kCpuHz * 17 / 10);
+  if ((status() & hw::kFdcStatusMotorOn) == 0) fail("motor zastal pred 9 otackami");
+  machine.debug_out(hw::kFdcCommand, hw::kFdcCmdSeek);  // keep it going
+  untilReady(kRev);
+
+  // The index: two rising edges, one revolution apart.
+  auto nextIndex = [&](uint64_t limit) {
+    const uint64_t start = machine.cycles();
+    bool was = (status() & hw::kFdcStatusIndex) != 0;
+    while (machine.cycles() - start < limit) {
+      machine.Step();
+      const bool now = (status() & hw::kFdcStatusIndex) != 0;
+      if (now && !was) return machine.cycles();
+      was = now;
+    }
+    return 0ull;
+  };
+  const uint64_t first = nextIndex(2 * kRev);
+  const uint64_t second = first ? nextIndex(2 * kRev) : 0;
+  if (!first || !second) {
+    fail("indexovy impulz neprisiel");
+  } else if (second - first < kRev - kSlack || second - first > kRev + kSlack) {
+    fail("index raz za " + std::to_string(second - first) + " cyklov namiesto " +
+         std::to_string(kRev));
+  }
+
+  // Sector 5 read right at the index: done when its ID (byte 151 + 4 * 607)
+  // and its data (558 bytes more) have gone by, in bytes of 6250 a turn.
+  if (second) {
+    machine.debug_out(hw::kFdcSector, 5);
+    machine.debug_out(hw::kFdcCommand, hw::kFdcCmdReadSector);
+    const uint64_t read = untilReady(2 * kRev);
+    const uint64_t want = (151 + 4 * 607 + 558) * kRev / 6250;
+    if (read == ~0ull || read + kSlack < want || read > want + kSlack)
+      fail("sektor 5 od indexu za " + std::to_string(read) + " cyklov namiesto " +
+           std::to_string(want));
+  }
+
+  // And the motor stops nine revolutions after the last command.
+  run(EurekaMachine::kCpuHz * 19 / 10);
+  if ((status() & hw::kFdcStatusMotorOn) != 0) fail("motor bezi aj 1,9 s po prikaze");
+
+  machine.SetBiosDiskBypass(true);
+  return ok;
+}
+
 bool CheckExtraRam(EurekaMachine& machine) {
   constexpr uint32_t kRomByte = 0x1d3a0;  // first SYSJUMPS entry, C3h
   constexpr uint32_t kBank4 = 0x42000;
@@ -3142,9 +3236,10 @@ int wmain(int argc, wchar_t** argv) {
     const bool mirror = CheckRamMirror(*machine);
     const bool line = CheckPhoneLine(*machine);
     const bool extra = CheckExtraRam(*machine);
+    const bool drive = CheckDriveTiming(*machine);
     const bool passed = settles && aliases && internal && highByte &&
                         blockFlags && waits && refresh && sampling && mirror &&
-                        line && extra;
+                        line && extra && drive;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=DC"
               << " ticho=" << (settles ? "ok" : "chyba")
               << " porty=" << (aliases ? "ok" : "chyba")
@@ -3156,7 +3251,8 @@ int wmain(int argc, wchar_t** argv) {
               << " vzorkovanie=" << (sampling ? "ok" : "chyba")
               << " zrkadlo=" << (mirror ? "ok" : "chyba")
               << " linka=" << (line ? "ok" : "chyba")
-              << " banka4=" << (extra ? "ok" : "chyba") << "\n";
+              << " banka4=" << (extra ? "ok" : "chyba")
+              << " mechanika=" << (drive ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 

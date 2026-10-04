@@ -4456,6 +4456,46 @@ v bajtoch (≥ 16 KiB). Sada 24/24 oboma cestami. **Samotný bit motora zatiaľ
 žiadny test nedrží** — jeho vypnutie by sadu iba spomalilo; patrí to ku
 kontrolám časovania vo zvyšku 4b.
 
+*Doplnené 4. 10. 2026:* bit motora už drží režim `dc` (nižšie).
+
+#### Krok 4b: disketa sa otáča (4. 10. 2026)
+
+**Rozloženie stopy, zmerané** dočasným výpisom identifikačných polí
+z dát, ktoré formátovanie posiela do Write Track (značka `F5 F5 F5 FE`, za ňou
+C H R N): na každej stope sú sektory **1 až 10 za sebou, bez prekladania**,
+identifikačné pole sektora *n* na bajte **151 + 607 (n − 1)** zo 6250. Prekladanie
+po troch je teda len v ovládači (krok 4a).
+
+**Model** (`machine.cpp`): s vypnutou skratkou (`FdcTimed`) príkaz v
+`StartFdcCommand` len nastaví BUSY a spočíta okamih, keď by WD1772 skončil
+(`FdcCommandTime`); `Step` ho potom vykoná doterajším kódom
+(`ExecuteFdcCommand`) aj s DMA, INTRQ a udalosťami mechaniky — tie tak majú
+skutočný čas. Čo sa počíta:
+
+- otáčka 1 228 800 cyklov (300 ot/min), poloha disku = `cycles_` mod otáčka;
+- **roztočenie 6 otáčok**, keď motor stál a príznak h je nula
+  (`kFdcFlagNoSpinUp`; firmvér ho nenastavuje nikdy);
+- kroky 6 / 12 / 2 / 3 ms podľa r1r0, overenie (verify) 15 ms usadenie
+  a najbližšie identifikačné pole; pri type II bit 2 (E) 15 ms;
+- čítanie a zápis sektora: čakanie, kým jeho identifikačné pole príde pod
+  hlavičku, a 558 bajtov ID, medzery a dát;
+- Read Address najbližšie ID; Read/Write Track od indexu jednu otáčku;
+- **index raz za otáčku** (~125 bajtov) v stave po type I; predtým svietil
+  stále. `fdc_ctl_disk_in` (19834) naň čaká ~240 ms, o niečo viac než otáčku,
+  takže firmvér počíta presne s týmto;
+- Force Interrupt a prázdna mechanika sú hneď ako predtým.
+
+**Výsledky cez ovládač z ROM:** `READ.COM` za **6,33 s** stroja (bez otáčania
+2,09 s), formátovanie celej diskety **52,8 s**. Sada 24/24 oboma cestami.
+Drží to nová kontrola v režime **`dc`** (`CheckDriveTiming`): roztočenie
+6 otáčok, bit motora 1,7 s áno a 1,9 s nie, index raz za otáčku, sektor 5 od
+indexu po prechode pod hlavičkou. Overené mutáciou — bez roztočenia, motor
+20 otáčok, index stále a sektor bez polohy zhodia každý svoj riadok.
+
+**Nepresnosť, vedome:** zápis sektora sa dokončí, keď DMA naplní buffer,
+hneď po príchode sektora — samotný prechod 512 bajtov pod hlavičkou (~16 ms)
+sa po ňom nepočíta.
+
 #### Otvorené
 
 - **Motor.** `pol_disk` (`A0h` bit 0, `IOPORT.LIB`: „high to power up fdc

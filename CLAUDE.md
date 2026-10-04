@@ -364,6 +364,16 @@ naň aj prvá stránka sprievodcu, aby ho používateľ počul pred plánom, nie
 Overené mutáciou: vypnutá kontrola prázdneho cieľa zhodí dve kontroly.
 
 
+Režim `dc` drží medzi kontrolami hardvéru aj **časovanie radiča WD1772**
+(HANDOFF 6.54, krok 4b), a je jediné, čo ho drží: s pokazeným časovaním by
+sada len bežala rýchlejšie. Radič ovláda priamo cez porty, procesor stojí na
+`DI; JR $`, takže firmvér do toho nesiahne: zastavený motor sa roztáča
+6 otáčok, bit motora svieti 1,7 s po príkaze a o 1,9 s nie, index príde raz
+za otáčku a sektor 5 čítaný od indexu skončí, keď prejde pod hlavičkou.
+Časovanie platí len **bez skratky BIOS-u** (`FdcTimed`); so skratkou sú
+príkazy okamžité ako predtým. Overené mutáciou: každá zo štyroch vecí zhodí
+svoj riadok.
+
 Režim `zvuk` (`integration_test ROM DISK zvuk`) drží **rekonštrukciu DAC**,
 a je jediné, čo ju drží. Firmvér v ňom nebeží vôbec: cez `debug_feed_dac`
 dostane DAC 440 Hz sínus v takte melódie (540 cyklov na krok) a Goertzel

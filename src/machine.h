@@ -477,6 +477,20 @@ class EurekaMachine {
   void MaybeRunDma1();
 
   void StartFdcCommand(uint8_t command);
+  // What the command does, carried out at once.  StartFdcCommand calls it
+  // straight away, or -- with the drive's timing on -- leaves the controller
+  // BUSY and Step calls it when the WD1772 would have finished (HANDOFF 6.54,
+  // step 4b).
+  void ExecuteFdcCommand(uint8_t command);
+  // How long the WD1772 takes over `command` from now: spin-up, steps, the
+  // wait for the sector to come round and the bytes that pass under the head.
+  uint64_t FdcCommandTime(uint8_t command) const;
+  // Cycles from `at` until byte `position` of the raw track (index = 0) is
+  // under the head.
+  static uint64_t CyclesUntilTrackByte(uint64_t at, unsigned position);
+  // Whether the index hole is passing the sensor at this moment.
+  bool IndexPulse() const;
+  bool FdcTimed() const { return !biosDiskBypass_; }
   void ForgetFormattedTrack();
   uint8_t TypeOneStatus(uint8_t command) const;
   uint8_t ReadFdcData();
@@ -651,7 +665,12 @@ class EurekaMachine {
   // Until when the WD1772's motor runs: nine index pulses at 300 rpm after
   // the last command, 1.8 s (StartFdcCommand).
   uint64_t fdcMotorUntil_ = 0;
-  static constexpr uint64_t kFdcMotorRun = 9ull * kCpuHz / 5;
+  // One revolution at 300 rpm, and the motor's run-on of nine of them.
+  static constexpr uint64_t kFdcRevolution = kCpuHz / 5;
+  static constexpr uint64_t kFdcMotorRun = 9 * kFdcRevolution;
+  // A command waiting for the moment the WD1772 would finish it.
+  bool fdcPending_ = false;
+  uint64_t fdcDoneAt_ = 0;
   // The clocked serial port, which is where the optional IBM PC keyboard
   // hangs.  CNTR bit 7 is EF (a byte has arrived and waits in TRDR), bit 6
   // EIE, bit 5 RE, bit 4 TE.

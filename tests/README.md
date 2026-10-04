@@ -239,7 +239,12 @@ them on the same diskette.
   silently letting every mismatched snapshot load.  Needs no files on the
   disk;
 - `dc` checks the output settles to silence after speech, whatever the DAC is
-  left holding;
+  left holding; among its hardware checks it also drives the WD1772 through
+  its ports with the drive's timing on (HANDOFF 6.54, step 4b): a stopped
+  motor spins up for six revolutions, the motor bit stays on 1.7 s and is
+  off by 1.9 s, the index comes once a revolution, and sector 5 read at the
+  index ends when it has passed under the head. Mutation-checked, each of
+  the four fails its own line;
 - `rtc` first checks that F2 announces the time: the hours, then the minutes
   once the hours have been said.  Both are spoken from the conversion buffer
   by `.spconv`, not by `.speak`, so a speech capture that loses that entry

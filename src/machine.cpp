@@ -191,6 +191,8 @@ void EurekaMachine::PowerOn() {
   fdcFormattedCylinder_ = -1;
   fdcFormattedSide_ = -1;
   fdcMotorUntil_ = 0;
+  fdcPending_ = false;
+  fdcDoneAt_ = 0;
   headCylinder_ = 0;
   driveEvents_.clear();
   lastDiskWrite_ = 0;
@@ -907,6 +909,16 @@ uint8_t EurekaMachine::ReadPortInner(z80* cpu, uint16_t port) {
       return machine->ReadMembraneKeyboard(low);
     case hw::kFdcStatus: {
       uint8_t status = machine->fdcStatus_;
+      // With the drive's timing on, a finished Type I command reports the
+      // index hole as it passes, once a revolution, instead of holding it --
+      // fdc_ctl_disk_in (19834) polls for it for some 240 ms, a little more
+      // than one turn, so the ROM was written for exactly this.
+      if (machine->FdcTimed() && !machine->fdcPending_ &&
+          (machine->fdcCommand_ & hw::kFdcTypeTwoOrThree) == 0 &&
+          (status & hw::kFdcStatusBusy) == 0) {
+        status = static_cast<uint8_t>(status & ~hw::kFdcStatusIndex);
+        if (machine->IndexPulse()) status |= hw::kFdcStatusIndex;
+      }
       if (machine->cycles_ < machine->fdcMotorUntil_) status |= hw::kFdcStatusMotorOn;
       machine->fdcIntrq_ = false;
       return status;
@@ -1180,7 +1192,117 @@ uint8_t EurekaMachine::TypeOneStatus(uint8_t command) const {
   return status;
 }
 
+// Where things are on a track the ROM formatted, in raw bytes from the index
+// (one revolution is hw::kRawTrackBytes).  Measured off the Write Track data
+// the format routine streams in: the ID mark of sector n is at byte
+// 151 + 607 (n - 1), sectors 1 to 10 in order with no interleave on the disk
+// -- the interleave of three is the driver's (SectorOffset in
+// virtual_disk.cpp).  After the ID field come the gap, the data mark, the
+// 512 bytes and the CRC, which is where a sector read ends.
+namespace {
+constexpr unsigned kFirstIdByte = 151;
+constexpr unsigned kSectorSpacing = 607;
+constexpr unsigned kIdToDataEnd = 6 + 22 + 12 + 4 + 512 + 2;
+// The index pulse lasts a few milliseconds of every revolution.
+constexpr unsigned kIndexPulseBytes = 125;
+// r1r0 on the WD1772: 6, 12, 2 and 3 ms a step.
+constexpr uint64_t kStepCycles[4] = {
+    6ull * EurekaMachine::kCpuHz / 1000, 12ull * EurekaMachine::kCpuHz / 1000,
+    2ull * EurekaMachine::kCpuHz / 1000, 3ull * EurekaMachine::kCpuHz / 1000};
+constexpr uint64_t kSettleCycles = 15ull * EurekaMachine::kCpuHz / 1000;
+}  // namespace
+
+uint64_t EurekaMachine::CyclesUntilTrackByte(uint64_t at, unsigned position) {
+  const uint64_t target = static_cast<uint64_t>(position) * kFdcRevolution / hw::kRawTrackBytes;
+  const uint64_t now = at % kFdcRevolution;
+  return (target + kFdcRevolution - now) % kFdcRevolution;
+}
+
+bool EurekaMachine::IndexPulse() const {
+  return disk_.present() && cycles_ < fdcMotorUntil_ &&
+         cycles_ % kFdcRevolution <
+             static_cast<uint64_t>(kIndexPulseBytes) * kFdcRevolution / hw::kRawTrackBytes;
+}
+
+uint64_t EurekaMachine::FdcCommandTime(uint8_t command) const {
+  const uint8_t type = command & hw::kFdcCommandType;
+  uint64_t time = 0;
+  // With h clear -- every command the ROM issues (SYSEQU.LIB) -- a stopped
+  // motor is given six index pulses to come up to speed first.
+  if (cycles_ >= fdcMotorUntil_ && (command & hw::kFdcFlagNoSpinUp) == 0)
+    time += 6 * kFdcRevolution;
+  if ((command & hw::kFdcTypeTwoOrThree) == 0) {
+    int target = headCylinder_;
+    if (type == hw::kFdcCmdRestore) {
+      target = 0;
+    } else if (type == hw::kFdcCmdSeek) {
+      target = io_[hw::kFdcData];
+    } else {
+      const uint8_t group = command & hw::kFdcCommandGroup;
+      const int direction = group == hw::kFdcCmdStepIn    ? 1
+                            : group == hw::kFdcCmdStepOut ? -1
+                                                          : fdcStepDirection_;
+      target = std::max(0, static_cast<int>(headCylinder_) + direction);
+    }
+    const uint64_t steps = static_cast<uint64_t>(std::abs(target - static_cast<int>(headCylinder_)));
+    time += steps * kStepCycles[command & hw::kFdcStepRate];
+    // A verify settles the head and reads the next ID field it meets.
+    if ((command & hw::kFdcVerify) != 0) {
+      time += kSettleCycles;
+      uint64_t wait = kFdcRevolution;
+      for (unsigned sector = 0; sector < hw::kSectorsPerTrack; ++sector)
+        wait = std::min(wait, CyclesUntilTrackByte(cycles_ + time,
+                                                   kFirstIdByte + sector * kSectorSpacing));
+      time += wait + hw::kIdFieldBytes * kFdcRevolution / hw::kRawTrackBytes;
+    }
+    return time;
+  }
+  if ((command & hw::kFdcVerify) != 0) time += kSettleCycles;  // E: 15 ms settle
+  const uint8_t group = command & hw::kFdcCommandGroup;
+  if (group == hw::kFdcCmdReadSector || group == hw::kFdcCmdWriteSector) {
+    const unsigned sector = std::clamp<unsigned>(fdcSector_, 1, hw::kSectorsPerTrack);
+    time += CyclesUntilTrackByte(cycles_ + time, kFirstIdByte + (sector - 1) * kSectorSpacing);
+    return time + kIdToDataEnd * kFdcRevolution / hw::kRawTrackBytes;
+  }
+  if (type == hw::kFdcCmdReadAddress) {
+    uint64_t wait = kFdcRevolution;
+    for (unsigned sector = 0; sector < hw::kSectorsPerTrack; ++sector)
+      wait = std::min(wait, CyclesUntilTrackByte(cycles_ + time,
+                                                 kFirstIdByte + sector * kSectorSpacing));
+    return time + wait + hw::kIdFieldBytes * kFdcRevolution / hw::kRawTrackBytes;
+  }
+  // Read Track and Write Track: from the index hole round once.
+  return time + CyclesUntilTrackByte(cycles_ + time, 0) + kFdcRevolution;
+}
+
 void EurekaMachine::StartFdcCommand(uint8_t command) {
+  // Without the drive's timing (the BIOS bypass on, the default) every
+  // command is done the moment it is written, as it always was.  With it, a
+  // command leaves the controller BUSY until the moment the WD1772 would be
+  // through, and Step carries it out then -- with its DMA, its INTRQ and its
+  // drive events, so the drive sound hears it when it happens.  Force
+  // Interrupt is at once either way and cancels a command still running; an
+  // empty drive is too, since its commands never finish (ExecuteFdcCommand).
+  const uint8_t type = command & hw::kFdcCommandType;
+  if (!FdcTimed() || type == hw::kFdcCmdForceInterrupt || !disk_.present()) {
+    fdcPending_ = false;
+    ExecuteFdcCommand(command);
+    return;
+  }
+  fdcCommand_ = command;
+  fdcBuffer_.clear();
+  fdcPosition_ = 0;
+  fdcWriting_ = false;
+  fdcIntrq_ = false;
+  fdcStatus_ = hw::kFdcStatusBusy;
+  fdcDoneAt_ = cycles_ + FdcCommandTime(command);
+  fdcPending_ = true;
+  // The motor is on from now; ExecuteFdcCommand keeps it running for nine
+  // revolutions after the end.
+  fdcMotorUntil_ = std::max(fdcMotorUntil_, fdcDoneAt_ + kFdcMotorRun);
+}
+
+void EurekaMachine::ExecuteFdcCommand(uint8_t command) {
   fdcCommand_ = command;
   fdcBuffer_.clear();
   fdcPosition_ = 0;
@@ -1925,6 +2047,12 @@ bool EurekaMachine::Step() {
   }
   cpu_.cyc += RefreshCycles(static_cast<uint32_t>(cpu_.cyc - before));
   Advance(static_cast<uint32_t>(cpu_.cyc - before));
+  // A controller command that has been turning the disk: done now, between
+  // instructions, as the chip would finish it (StartFdcCommand).
+  if (fdcPending_ && cycles_ >= fdcDoneAt_) {
+    fdcPending_ = false;
+    ExecuteFdcCommand(fdcCommand_);
+  }
   ScheduleInterrupt();
   before = cpu_.cyc;
   z80_process_interrupts(&cpu_);

@@ -379,6 +379,11 @@ constexpr uint8_t kFdcVerify = 0x04;  // fdc_verify
 // U14), where 00 is 6 ms, and the ROM never sets anything else -- fdc_home,
 // fdc_seek and fdc_stepin in SYSEQU.LIB all leave it 00.
 constexpr uint8_t kFdcStepRate = 0x03;
+// Flag h, in every command but Force Interrupt: set, the WD1772 does not wait
+// six index pulses for a stopped motor to spin up.  The ROM leaves it clear
+// (SYSEQU.LIB), so it always waits (HANDOFF 6.54, step 4b).  On Type II and
+// III commands bit 2 is E, a 15 ms head settle; its value is kFdcVerify's.
+constexpr uint8_t kFdcFlagNoSpinUp = 0x08;
 // Type I commands leave bit 7 clear, and they finish inside the controller.
 constexpr uint8_t kFdcTypeTwoOrThree = 0x80;
 
