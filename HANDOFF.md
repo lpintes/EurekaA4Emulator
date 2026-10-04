@@ -4555,6 +4555,14 @@ zostáva nesprávne. `READ.COM` 6,33 s platí — meralo ho `@`, nie súčet.
 nahrávkami (`nacitanie-9`, `formatovanie-krok-30`) a uchom majiteľa.
 Vyskúšať v okne naživo.
 
+*Doplnené 4. 10. 2026:* oboje je hotové. Majiteľ vyskúšal v okne
+prepínanie, načítanie, adresár aj ďalšie operácie, vrátane reči, ktorú
+umlčí do 1,8 s a mechanika nadviaže na bežiaci motor; v správaní nepozná
+rozdiel, len zvuk. Skutočný čas drží `drive_sound_test`
+(`PlaysInRealTime`), viď CLAUDE.md. Otvorené zostáva len ladenie (krok 3:
+krátky presun, prípadne skutočné nahrávky Eureky) a 2 → 0 → 2 na konci
+načítania.
+
 #### Otvorené
 
 - **Motor.** `pol_disk` (`A0h` bit 0, `IOPORT.LIB`: „high to power up fdc

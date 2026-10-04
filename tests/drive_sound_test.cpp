@@ -171,6 +171,32 @@ void WaitsForTheDac() {
 
 // A seek over many cylinders is heard as the raking, for as long as its
 // steps take: 40 steps at 6 ms.
+// The faithful drive (HANDOFF 6.54, step 4c): the events come from a timed
+// controller, so they are played when they happened.  What tells it from the
+// backdrop above is what the backdrop adds of its own: no 1.2 s spin-up in
+// front of the first step (the controller has already waited it out) and no
+// waiting for the DAC (the firmware does not touch the disk while it talks,
+// so a step heard under speech is the machine's).  The motor still runs down
+// 1.8 s after the last thing it did.
+void PlaysInRealTime() {
+  DriveSound drive;
+  std::string error;
+  drive.LoadSamples(TestSet(), error);
+  drive.SetRealTime(true);
+  std::vector<int16_t> speech(At(1.0), 10000);
+  const auto out = Run(drive, {Seek(0, 1, 0.3)}, 3.0, speech);
+  // The motor starts with the seek, so its loop is measured once the speech
+  // is over; at the seek it is still in its spin-up, at twice the loop.
+  const double loop = out[At(2.0)];
+  Check(loop > 0, "motor bezi este po 1,7 s", std::to_string(loop));
+  Check(out[At(0.2)] == 10000, "pred prvou udalostou mechanika mlci",
+        std::to_string(out[At(0.2)]));
+  const double spinUpAndStep = 2 * loop + (kLoopAndStep - 1) * loop;
+  Check(Near(out[At(0.32)] - 10000, spinUpAndStep), "krok hned a aj pod recou",
+        Show(out[At(0.32)] - 10000, spinUpAndStep));
+  Check(out[At(2.4)] == 0, "a po 1,8 s a dobehu stoji", std::to_string(out[At(2.4)]));
+}
+
 void RakesAcrossCylinders() {
   DriveSound drive;
   std::string error;
@@ -213,6 +239,7 @@ int main() {
   LoadsAndRefuses();
   SpinsUpStepsAndStops();
   WaitsForTheDac();
+  PlaysInRealTime();
   RakesAcrossCylinders();
   FinishesWithoutTheMachine();
   SameEventsSameSound();

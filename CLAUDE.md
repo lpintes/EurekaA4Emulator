@@ -512,8 +512,11 @@ mechanika bez čakania na DAC, motor, ktorý nezastane, a prázdne `Continue`
 zhodia každé svoje kontroly. Zapnutie a vypnutie zvuku žije vo vlákne
 emulátora a toto ho nedrží. Drží aj **hlasitosť jedného kroku** voči slučke
 (`kStepGain` = 0,3, výber majiteľa, HANDOFF 6.54 krok 4c); 0,5 zhodí dve
-kontroly. **Skutočný čas** (`SetRealTime`, verná mechanika) zatiaľ nedrží —
-všetko vyššie je zvuk so skratkou, ktorý čaká na DAC a hrá za strojom.
+kontroly. Drží aj **skutočný čas** (`SetRealTime`, verná mechanika,
+`PlaysInRealTime`): mechanika mlčí do prvej udalosti, krok zaznie hneď —
+bez vlastného roztáčania a aj pod rečou, lebo to už odčakal radič a firmvér
+— a motor zastane 1,8 s po poslednej udalosti. Overené mutáciou: čakanie na
+DAC aj vlastné roztáčanie v skutočnom čase zhodia po dve kontroly.
 
 ## Spustenie testov
 
