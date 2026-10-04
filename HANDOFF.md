@@ -4085,6 +4085,56 @@ oba len s `EA4_COM_PAIR`. **Neoverené:** strata portu (vytiahnutý USB adaptér
 (com0com bez `EmuBR=yes` posiela bajty, ako prišli) a skutočná tlačiareň či
 Eureka na druhom konci. Skúška dvoch okien rukou zostáva na majiteľovi.
 
+### 6.54 Dump ROM z anglickej Eureky — program, ktorý rozozná stroj
+
+4. 10. 2026. Majiteľ dostane na chvíľu anglickú Eureku a chce z nej ROM.
+Mal na to `dumprom.pas` (disketa `C:\b\englishrom`), ktorý na našom stroji
+dáva presnú kópiu (MD5 `9aa101ab…`). Na anglickom stroji by v pôvodnej
+podobe nestačil, a na jednom variante by bol škodlivý. Mapy variantov sú
+v `hardware-map.md`, sekcia „Iné varianty stroja podľa manuálu“.
+
+**Tri chyby pôvodného programu:**
+
+- Cieľ DMA mal napevno banku 5. Na Advanced English je TPA na 40000h a na
+  ~5AF48h (banka 5 + logická adresa bufferu) leží telefónny zoznam — dump by
+  ho prepísal a do súboru by išiel obsah bufferu, nie ROM.
+- Čítal len banky 0–3. Standard English s 27C256 má ROM aj na
+  40000h–4FFFFh, a tam je operačný systém.
+- Inline `$22/$0003/$0000` sa prekladá ako `22 03 00`, teda
+  `LD (0003h),HL` — overené v `DUMPROM.COM`. Pri každom volaní prepísal
+  IOBYTE a bajt jednotky a používateľa. U nás bez následkov; vypustené.
+
+**Nový program** je na diskete `C:\b\englishrom` ako `DUMPROM.PAS`
+a `DUMPROM.COM` (preložený cez TPS); nič iné na nej nie je, pôvodný
+program aj testovací dump boli kópie a sú zmazané.
+Model rozozná testom z `a4_check` (CBAR = F0h a BBR = 40h → Advanced)
+a povie ho. Fyzickú adresu bufferu počíta z CBAR, BBR a CBR. Ako prvé
+zapíše `A4INFO.TXT`: registre MMU, adresu bufferu a slová na 0001h,
+0006h, 000Dh — ešte pred kontrolou mapy, lebo keď adresa nevyjde do RAM
+(banka pod 4), sú to práve údaje, ktoré treba; dump vtedy nerobí a dôvod
+dopíše do súboru. Inak dumpuje banky 0–4 (320 KiB) a o každej povie aj
+zapíše `data`, `empty` (FFh), `zeros` alebo `same as bank N` (rovnaký
+súčet), v súbore so súčtom. Čo program povie, je teda celé v súbore a
+pamätať si to netreba. Hlásenia sú anglicky, lebo ich bude čítať anglická
+syntéza.
+
+**Zmerané v emulátore:** „Standard Eureka“, CBAR D0h, BBR 70h, CBR FDh,
+buffer AF78h → fyzicky 7AF78h, banky 0–3 `data`, banka 4 `zeros`; prvých
+256 KiB dumpu má MD5 `9aa101ab69fc367e114e1a84b08feea1`. Vetva nečakanej
+mapy overená mutáciou (podmienka `dest_bank < 8`): povie „unexpected memory
+map, nothing dumped“, `A4ROM.DMP` nevznikne a `A4INFO.TXT` má registre aj
+dôvod. Pozor pri skúšaní: s krátkym čakaním po konci programu bol súbor na
+diskete ešte prázdny — zápis dobieha až po ohlásení.
+
+**Neoverené:** vetva Advanced (emulátor ju nemodeluje; ručne prepočítané:
+buffer na 4AF78h, v TPA), čo skutočný stroj vráti z nevyužitého priestoru
+(emulátor nuly; preto program o banke 4 nerozhoduje, len hlási) a čas
+behu na skutočnom stroji. Či `TPS.COM` naozaj rieši rozdiel TPA medzi
+modelmi, je odvodené z jedinej zmenenej inštrukcie, nie zmerané.
+
+**Otvorené:** spustiť na anglickom stroji a priniesť `A4ROM.DMP`
+a `A4INFO.TXT`.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

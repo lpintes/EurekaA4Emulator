@@ -115,6 +115,35 @@ a horných 12 KB sa preň mapuje prestavením MMU. Vzor toho prestavenia je
 v ROM častý — napr. 19332 si `IN0` odloží CBR aj CBAR, prepne ich a skočí
 (`.go_overlay`).
 
+### Iné varianty stroja podľa manuálu
+
+Všetko vyššie platí pre náš stroj. Príloha D (`MEMMAP.E`) a kapitola 5
+(`MEMORY.5`) opisujú ďalšie rozloženia, ktoré sa od neho líšia práve tým,
+na čo sa programy z diskety najčastejšie spoliehajú. Nič z toho nie je
+modelované ani zmerané na skutočnom stroji (HANDOFF 6.54).
+
+- **Standard English s EPROM 27C256** — ROM na 00000h–1FFFFh **a ešte na
+  40000h–4FFFFh** (`ROM 4`: BIOS, BDOS, FILEIO, aplikácie; `ROM 5`:
+  aplikácie). RAM na 50000h. Dump len do 3FFFFh by z neho vynechal
+  operačný systém.
+- **Standard English s 27C512** (a švédska, japonská) — ROM na
+  00000h–3FFFFh, RAM na 50000h, teda ako náš stroj.
+- **Advanced English Eureka** (Advanced User Option) — ROM 256 KB na
+  00000h–3FFFFh, RAM 128 KB: na 40000h page 0 a TPA do EFFFh, na 50000h
+  Braillove tabuľky, buffery diskety, Poznámky (56400h), Diár (58400h),
+  **telefónny zoznam (5A400h–5DFFFh)** a SYSRAM (5E000h banková, 5F000h
+  viditeľná). Pri behu programu z diskety je CBAR = F0h a BBR = 40h; presne
+  podľa toho ho rozoznáva `a4_check` v `A4.INC`.
+
+Z toho plynie, že program, ktorý si fyzickú adresu svojho bufferu
+**predpokladá** (cieľ DMA v banke 5, ako `MEM.COM`), na Advanced zapisuje do
+dát majiteľa. Adresa sa musí počítať z CBAR, BBR a CBR.
+
+`TPS.COM` sa od `TP.COM` líši jedinou inštrukciou kompilátora (offset
+`1FE9h`): namiesto `LD HL,(0006h)` má `LD HL,C000h`, horný okraj pamäte
+je teda napevno ten, ktorý platí na oboch modeloch. Odvodené z kódu,
+nemerané na Advanced.
+
 ### Textový procesor a záznamník sú jeden program
 
 Na 133E6 a 133FB sú **dva vstupy do tej istej rutiny**; obe vetvy
