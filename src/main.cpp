@@ -615,7 +615,7 @@ int Run() {
   // Started only once the window exists: the worker posts its notifications to
   // that HWND, and one arriving before there is a window to take it would be
   // lost with no sign of it.
-  emulator.SetDriveSound(LoadDriveSound(settings.drive_sound()), settings.drive_sound());
+  emulator.SetDriveSound(LoadDriveSound(settings.faithful_drive()), settings.faithful_drive());
   emulator.Start(std::move(machine), window.handle(), startMode, diagnostics);
   // Every slot the settings mark unsaved gets its diskette back.  The marker
   // survives in nastavenia.txt and the shelf does not, so without this a slot

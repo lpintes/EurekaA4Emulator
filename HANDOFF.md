@@ -4408,6 +4408,12 @@ ukázalo:
 - **Pred každým príkazom radiču zapíše firmvér `ADh` do DAC** (`OUT (88h),A`
   na `19A01`). Pre zvuk mechaniky (4c) to treba vyšetriť — môže to byť
   zámerné cvaknutie.
+  *Doplnené 4. 10. 2026: neplatí, cvaknutie to nie je.* Vysvetlenie stálo
+  celý čas v `hardware-map.md` (Poznámky pre emulátor): `ADh` je prah
+  komparátora na stráženie batérie počas diskovej operácie. Kód to potvrdzuje
+  — čakacia slučka na `19A13` číta `A8h` bit 1 (`vm2_mask`). Výstup stroja
+  počas načítania cez ovládač z ROM je nula (`wav:`), takže ani v emulátore to
+  počuť nie je.
 - **Prázdna mechanika:** Read/Write Sector bez média zostávajú BUSY
   (6.30 dovetok); `hlaseni` prejde oboma cestami.
 - **Testy čakali na ticho.** `com`, `bas`, `wp` a `trap` končili pri prvom
@@ -4495,6 +4501,59 @@ indexu po prechode pod hlavičkou. Overené mutáciou — bez roztočenia, motor
 **Nepresnosť, vedome:** zápis sektora sa dokončí, keď DMA naplní buffer,
 hneď po príchode sektora — samotný prechod 512 bajtov pod hlavičkou (~16 ms)
 sa po ňom nepočíta.
+
+*Doplnené 4. 10. 2026: formátovanie netrvá 52,8 s, ale **82,5 s**.* Tých
+52,8 s bol súčet odstupov z výpisu `mechanika`, ktorý zlučuje rovnaké
+udalosti do riadku „x10“ a čas vnútri behu nevypisuje — súčet ho teda
+vynechal. Výpis má teraz na konci riadok `spolu` od prvej po poslednú
+udalosť; 82,5 s súhlasí s nahrávkou (koniec „ano“ 5,9 s, „formátování
+skončeno“ 88,5 s). Rovnaké číslo stojí aj v správe commitu `d273d1e` a tam
+zostáva nesprávne. `READ.COM` 6,33 s platí — meralo ho `@`, nie súčet.
+
+#### Krok 4c: zvuk v skutočnom čase (rozpracované)
+
+- Nová udalosť **`kSpinUp`**: stroj ju zaznamená na začiatku príkazu, keď
+  motor stál. Presun hlavičky nesie čas, keď hlavička **začala** krokovať
+  (`fdcStepsAt_` → `seekEventAt_`), nie keď príkaz skončil.
+- `DriveSound::SetRealTime`: udalosti sa hrajú v okamihu, keď sa stali —
+  bez čakania na ticho DAC (firmvér počas reči na disk nesiaha sám) a bez
+  vlastného roztočenia (to už odčakal radič). Bez neho hrá kulisa z kroku 2
+  ako predtým. Sonda ho zapína s `EA4_BEZ_SKRATKY`.
+- **Krok je tichší než zvyšok sady: `kStepGain` = 0,3.** Pri formátovaní
+  v skutočnom čase majiteľ počul, že krok na chvíľu prekryje otáčanie a
+  znie „nahrane“ — nahrávky kroku sú očistené od mechaniky, na ktorej
+  vznikli, a v pomere sady stál krok vyše 20 dB nad slučkou motora. Z
+  variantov 1; 0,5 a 0,3 (špička kroku 2700, 1500 a 1000 pri slučke ~440)
+  vybral 0,3; pri 0,5 už motor prekrýval. Hrabanie (`presun`) zostáva na
+  úrovni sady, majiteľovi znie dobre. `drive_sound_test` hlasitosť drží
+  (`kLoopAndStep`); hodnota 0,5 zhodí dve kontroly.
+- **Krátky presun zatiaľ nikto nepočul.** Presun o 2 cylindre pri 6 ms za
+  krok hrá hrabanie len 12 ms a 15 ms doznievania. Pri `READ.COM` sú dva
+  také (2 → 0 → 2, jeden sektor na cylindri 0, dôvod zatiaľ nevyšetrený).
+  Patrí to k ladeniu v kroku 3.
+- **Jedna voľba v okne** (rozhodnutie majiteľa): políčko „Verná disketová
+  &mechanika (zvuk aj rýchlosť)“ v skupine „Disketa“ (skupina bola „Zvuk“),
+  kľúč `verna-mechanika=` (bol `zvuk-mechaniky=`, nikdy nevydaný). Zapnutá
+  hrá zvuk a vypne skratku BIOS-u; vlákno hrá zvuk v skutočnom čase, len čo
+  stroj skratku naozaj opustil (`!bios_disk_bypass()`).
+- **Prepnutie za behu: `RequestBiosDiskBypass`.** Stroj ho prevezme až na
+  kontrole klávesu `18675h` (tá beží len pri čakaní na kláves, nie pri reči,
+  formátovaní ani štarte — `tests/eureka_session.cpp`), bez rozbehnutého
+  príkazu radiča a bez zápisu; vypnutý stroj hneď. Dôvod je v komentári pri
+  `SetBiosDiskBypass`: prepnutie medzi volaniami „nastav stopu“ a „čítaj“ by
+  ovládaču z ROM podstrčilo prenos bez stopy. **Že ovládač medzi operáciami
+  nič nedrží, je zmerané:** po výmene diskety za prázdnu povie „soubor nelze
+  najít“ a adresár číta znovu, a dve načítania `READ.COM` po sebe majú tých
+  istých 52 sektorov vrátane posledného na cylindri 2, ktorý ovládač
+  v pamäti mal. Prepnutie v pokoji je teda bezpečné rovnako ako výmena
+  diskety. Drží to režim `com` (`CheckFaithfulSwitch`); mutácia bez čakania
+  ho zhodí v oboch smeroch („prepol uprostred nacitania“).
+- **`ADh` do DAC nie je cvaknutie** (oprava pod krokom 4a): prah komparátora
+  batérie, výstup stroja počas načítania je nula.
+
+**Zostáva v 4c:** skutočný čas nedrží `drive_sound_test`; overené len
+nahrávkami (`nacitanie-9`, `formatovanie-krok-30`) a uchom majiteľa.
+Vyskúšať v okne naživo.
 
 #### Otvorené
 

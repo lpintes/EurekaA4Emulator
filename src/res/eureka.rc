@@ -306,9 +306,9 @@ BEGIN
                     IDC_CHECK_UPDATES, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
                     16, 157, 200, 12
 
-    GROUPBOX        "Zvuk", IDC_STATIC, 7, 179, 218, 28, BS_GROUPBOX | WS_GROUP
-    CONTROL         "Zvuk disketovej &mechaniky",
-                    IDC_DRIVE_SOUND, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
+    GROUPBOX        "Disketa", IDC_STATIC, 7, 179, 218, 28, BS_GROUPBOX | WS_GROUP
+    CONTROL         "Verná disketová &mechanika (zvuk aj rýchlosť)",
+                    IDC_FAITHFUL_DRIVE, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
                     16, 191, 200, 12
 
     DEFPUSHBUTTON   "OK", IDOK, 118, 213, 50, 14, WS_GROUP

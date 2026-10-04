@@ -374,6 +374,16 @@ za otáčku a sektor 5 čítaný od indexu skončí, keď prejde pod hlavičkou.
 príkazy okamžité ako predtým. Overené mutáciou: každá zo štyroch vecí zhodí
 svoj riadok.
 
+Režim `com` drží aj **prepnutie vernej mechaniky za behu**
+(`RequestBiosDiskBypass`, HANDOFF 6.54, krok 4c) — tak, ako ho robí okno.
+Pri otázke `READ.COM` sa musí prepnúť hneď; pri druhom spustení, požiadané
+uprostred načítania, až po poslednom prístupe na disketu, a program sa musí
+načítať. Stroj prepína len na kontrole klávesu `18675h`, ktorá uprostred
+diskovej operácie nebeží — prepnutie medzi „nastav stopu“ a „čítaj“ by
+ovládaču podstrčilo prenos bez stopy. Sada beží oboma spôsobmi
+(`EA4_BEZ_SKRATKY`), takže každý smer drží jeden z behov. Overené mutáciou:
+prepnutie bez čakania zhodí `prepnutie=` v oboch behoch.
+
 Režim `zvuk` (`integration_test ROM DISK zvuk`) drží **rekonštrukciu DAC**,
 a je jediné, čo ju drží. Firmvér v ňom nebeží vôbec: cez `debug_feed_dac`
 dostane DAC 440 Hz sínus v takte melódie (540 cyklov na krok) a Goertzel
@@ -446,9 +456,11 @@ Drží aj **aktualizácie** (`aktualizacie=`, `posledna-kontrola=`,
 `preskocena-verzia=`, `ea4-hg9.4`): rovnako ako zachovanie RAM chýbajúci kľúč
 aj iné slovo než `0` znamenajú zapnuté — súbor spred aktualizácií ich nesmie
 ticho vypnúť. Overené mutáciou (`!= L"0"` → `== L"1"`).
-Drží aj **zvuk mechaniky** (`zvuk-mechaniky=`, HANDOFF 6.54) — ako rozšírenú
-RAM: chýbajúci kľúč aj iné slovo než `1` znamenajú vypnuté, lebo je to nový
-zvuk pod hlasom stroja a nikto ho nemá dostať bez toho, aby si ho zapol.
+Drží aj **vernú mechaniku** (`verna-mechanika=`, HANDOFF 6.54, krok 4c; do
+4. 10. 2026 `zvuk-mechaniky=`, nikdy nevydané) — ako rozšírenú RAM:
+chýbajúci kľúč aj iné slovo než `1` znamenajú vypnuté, lebo je to nový zvuk
+pod hlasom stroja aj pomalšia disketa a nikto ich nemá dostať bez toho, aby
+si ich zapol.
 Overené mutáciou (`== L"1"` → `!= L"0"`).
 Drží aj **posledné odpovede sériového kábla** (`kabel-port=`, `kabel-adresa=`,
 `ea4-7zw.4`, a `kabel-com=`, `ea4-7zw.3`): že adresa s dvojbodkami, zátvorkami aj diakritikou príde späť
@@ -498,7 +510,10 @@ udalosti dajú ten istý zvuk, a že sada so zlou vzorkovacou frekvenciou alebo
 bez kroku sa odmietne s dôvodom, ktorý menuje súbor. Overené mutáciou:
 mechanika bez čakania na DAC, motor, ktorý nezastane, a prázdne `Continue`
 zhodia každé svoje kontroly. Zapnutie a vypnutie zvuku žije vo vlákne
-emulátora a toto ho nedrží.
+emulátora a toto ho nedrží. Drží aj **hlasitosť jedného kroku** voči slučke
+(`kStepGain` = 0,3, výber majiteľa, HANDOFF 6.54 krok 4c); 0,5 zhodí dve
+kontroly. **Skutočný čas** (`SetRealTime`, verná mechanika) zatiaľ nedrží —
+všetko vyššie je zvuk so skratkou, ktorý čaká na DAC a hrá za strojom.
 
 ## Spustenie testov
 

@@ -256,47 +256,48 @@ void ExtraRamSwitchRoundTrips() {
   }
 }
 
-void DriveSoundSwitchRoundTrips() {
+void FaithfulDriveSwitchRoundTrips() {
   // Like rozsirena-ram: absent means off and only "1" turns it on (HANDOFF
-  // 6.54).  The drive is a new noise under the machine's voice, so a file
-  // from before the key existed -- or a typo -- must not switch it on.
+  // 6.54).  The faithful drive is a new noise under the machine's voice and
+  // a slower disk, so a file from before the key existed -- or a typo -- must
+  // not switch it on.
   {
     Settings settings(FileNamed("neexistuje.txt"));
     settings.Load();
-    Check(!settings.drive_sound(), "chybajuci subor: zvuk mechaniky je vypnuty");
+    Check(!settings.faithful_drive(), "chybajuci subor: verna mechanika je vypnuta");
   }
-  const fs::path file = FileNamed("zvuk-mechaniky.txt");
+  const fs::path file = FileNamed("verna-mechanika.txt");
   std::wstring error;
   {
     Settings settings(file);
-    settings.SetDriveSound(true);
-    Check(settings.Save(error), "ulozenie so zvukom mechaniky prejde", Narrow(error));
+    settings.SetFaithfulDrive(true);
+    Check(settings.Save(error), "ulozenie s vernou mechanikou prejde", Narrow(error));
   }
   {
     Settings loaded(file);
     loaded.Load();
-    Check(loaded.drive_sound(), "zvuk mechaniky prezije zapis aj citanie");
+    Check(loaded.faithful_drive(), "verna mechanika prezije zapis aj citanie");
   }
-  Check(ReadRaw(file).find("zvuk-mechaniky=1") != std::string::npos,
-        "zapnutie je v subore ako zvuk-mechaniky=1");
+  Check(ReadRaw(file).find("verna-mechanika=1") != std::string::npos,
+        "zapnutie je v subore ako verna-mechanika=1");
   {
     Settings settings(file);
     settings.Load();
-    settings.SetDriveSound(false);
+    settings.SetFaithfulDrive(false);
     settings.Save(error);
   }
   {
     Settings loaded(file);
     loaded.Load();
-    Check(!loaded.drive_sound(), "zvuk mechaniky sa da vypnut");
+    Check(!loaded.faithful_drive(), "verna mechanika sa da vypnut");
   }
-  Check(ReadRaw(file).find("zvuk-mechaniky=0") != std::string::npos,
-        "vypnutie je v subore ako zvuk-mechaniky=0");
-  WriteRaw(file, "zvuk-mechaniky=ano\r\n");
+  Check(ReadRaw(file).find("verna-mechanika=0") != std::string::npos,
+        "vypnutie je v subore ako verna-mechanika=0");
+  WriteRaw(file, "verna-mechanika=ano\r\n");
   {
     Settings loaded(file);
     loaded.Load();
-    Check(!loaded.drive_sound(), "ine slovo nez 1 zvuk mechaniky nezapne");
+    Check(!loaded.faithful_drive(), "ine slovo nez 1 vernu mechaniku nezapne");
   }
 }
 
@@ -722,7 +723,7 @@ int main() {
   MissingFileIsDefaults();
   KeepRamSwitchRoundTrips();
   ExtraRamSwitchRoundTrips();
-  DriveSoundSwitchRoundTrips();
+  FaithfulDriveSwitchRoundTrips();
   UpdateKeysRoundTrip();
   CableAnswersRoundTrip();
   KeyboardModeRoundTrips();

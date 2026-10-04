@@ -37,6 +37,10 @@ void Check(bool passed, const std::string& name, const std::string& detail = "")
 
 constexpr uint32_t kRate = EurekaMachine::kAudioHz;
 constexpr uint64_t kCyclesPerSample = EurekaMachine::kCpuHz / EurekaMachine::kAudioHz;
+// The test step is five times the loop, and a single step plays at 0.3 of
+// the set's level (kStepGain in drive_sound.cpp), so loop and step together
+// stand at 2.5 loops.
+constexpr double kLoopAndStep = 1 + 5 * 0.3;
 
 std::size_t At(double seconds) { return static_cast<std::size_t>(seconds * kRate); }
 
@@ -142,7 +146,7 @@ void SpinsUpStepsAndStops() {
   Check(loop > 0, "slucka motora hra", std::to_string(loop));
   Check(Near(out[At(0.05)], 2 * loop), "najprv hra rozbeh", Show(out[At(0.05)], 2 * loop));
   Check(Near(out[At(1.15)], loop), "pred roztocenim krok nepadne", Show(out[At(1.15)], loop));
-  Check(Near(out[At(1.22)], 6 * loop), "po 1,2 s krok na slucke", Show(out[At(1.22)], 6 * loop));
+  Check(Near(out[At(1.22)], kLoopAndStep * loop), "po 1,2 s krok na slucke", Show(out[At(1.22)], kLoopAndStep * loop));
   Check(Near(out[At(2.9)], loop), "motor bezi este 1,8 s po kroku", Show(out[At(2.9)], loop));
   Check(Near(out[At(3.08)], 3 * loop), "potom dobeh", Show(out[At(3.08)], 3 * loop));
   Check(out[At(3.4)] == 0 && drive.Idle(), "a ticho, mechanika stoji");
@@ -162,7 +166,7 @@ void WaitsForTheDac() {
   const double loop = out[At(2.6)];
   Check(loop > 0, "po reci sa motor rozbehne");
   Check(Near(out[At(2.1)], 2 * loop), "od rozbehu", Show(out[At(2.1)], 2 * loop));
-  Check(Near(out[At(3.27)], 6 * loop), "a krok az po roztoceni", Show(out[At(3.27)], 6 * loop));
+  Check(Near(out[At(3.27)], kLoopAndStep * loop), "a krok az po roztoceni", Show(out[At(3.27)], kLoopAndStep * loop));
 }
 
 // A seek over many cylinders is heard as the raking, for as long as its

@@ -572,7 +572,7 @@ void MainWindow::RegisterCommands() {
   OnCommand(ID_TOOLS_SETTINGS, [this] {
     SettingsDialog dialog(emulator_.mode(), emulator_.diagnostics(),
                           settings_.keep_ram(), settings_.check_updates(),
-                          settings_.drive_sound());
+                          settings_.faithful_drive());
     if (dialog.ShowModal(hwnd_, IDD_SETTINGS) != IDOK) return;
     // Turning diagnostics on is the request for somewhere to read them: this
     // program has no console until something asks for one.  Done here, on the
@@ -581,11 +581,12 @@ void MainWindow::RegisterCommands() {
     // Posted unconditionally; the worker ignores a mode it is already in.
     emulator_.PostSetMode(dialog.mode());
     emulator_.PostSetDiagnostics(dialog.diagnostics());
-    // At once, and remembered for the next run (HANDOFF 6.54).
-    if (dialog.drive_sound() != settings_.drive_sound()) {
-      settings_.SetDriveSound(dialog.drive_sound());
+    // At once, and remembered for the next run (HANDOFF 6.54).  The sound
+    // changes at once; the disk's pace once the machine next waits for a key.
+    if (dialog.faithful_drive() != settings_.faithful_drive()) {
+      settings_.SetFaithfulDrive(dialog.faithful_drive());
       SaveSettings();
-      emulator_.PostSetDriveSound(dialog.drive_sound());
+      emulator_.PostSetFaithfulDrive(dialog.faithful_drive());
     }
     // Takes effect at the next start, which is the only place it is asked.
     if (dialog.check_updates() != settings_.check_updates()) {

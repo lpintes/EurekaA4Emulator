@@ -160,6 +160,9 @@ int wmain(int argc, wchar_t** argv) {
   machine->diagnostics().set_enabled(true);
   eureka::Session session(*machine);
   DriveSound drive;
+  // A timed controller reports the moments the drive acts, so the sound
+  // follows them as they happen (HANDOFF 6.54, step 4c).
+  drive.SetRealTime(_wgetenv(L"EA4_BEZ_SKRATKY") != nullptr);
   // The recorded drive sounds are not in the tree; a folder of them is named
   // here, and without one wavm: plays the synthesized drive (HANDOFF 6.54).
   if (const wchar_t* folder = _wgetenv(L"EA4_ZVUKY_MECHANIKY")) {
@@ -496,6 +499,8 @@ int wmain(int argc, wchar_t** argv) {
           if (event.kind == Kind::kSeek) {
             std::printf("  +%llu presun %u -> %u, rychlost %u\n", gap, event.from, event.to,
                         event.stepRate);
+          } else if (event.kind == Kind::kSpinUp) {
+            std::printf("  +%llu roztocenie motora\n", gap);
           } else {
             std::printf("  +%llu %s cylinder %u strana %u x%zu\n", gap,
                         event.kind == Kind::kRead    ? "citanie"
@@ -505,6 +510,13 @@ int wmain(int argc, wchar_t** argv) {
           }
           previous = events[i + run - 1].cycle;
           i += run;
+        }
+        // The gaps above leave out the time inside a folded run, so they do
+        // not add up to how long the drive worked; this does.
+        if (events.size() > 1) {
+          const uint64_t span = events.back().cycle - events.front().cycle;
+          std::printf("  spolu %llu cyklov = %.2f s\n", static_cast<unsigned long long>(span),
+                      static_cast<double>(span) / EurekaMachine::kCpuHz);
         }
         continue;
       }

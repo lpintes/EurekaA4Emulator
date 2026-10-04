@@ -302,18 +302,25 @@ Disketa je nepovinná:
   ukončení nejaké súbory sú, emulátor sa spýta sám; ak odmietnete alebo
   výber zrušíte, obsah zanikne.
 
-## Zvuk disketovej mechaniky
+## Verná disketová mechanika
 
-Emulátor vie hrať zvuk disketovej mechaniky: vrčanie motora, kroky hlavičky
-po stopách a hrabanie pri presune cez veľa stôp. Predvolene je **vypnutý**;
-zapína sa v **Nastaveniach** (`F11`, `Ctrl+N`), v skupine „Zvuk“, políčkom
-**Zvuk disketovej mechaniky**. Zmena platí hneď a emulátor si ju pamätá.
+Predvolene emulátor číta a zapisuje disketu **okamžite a potichu**: program
+sa načíta, len čo ho pomenujete. Skutočná Eureka je pomalšia a počuť ju —
+motor sa roztočí, hlavička krokuje po stopách a pri presune cez veľa stôp
+hrabe. Ak chcete stroj taký, aký bol, zapnite v **Nastaveniach** (`F11`,
+`Ctrl+N`), v skupine „Disketa“, políčko **Verná disketová mechanika (zvuk aj
+rýchlosť)**. Zapne obe veci naraz: polovica bez druhej by bola zvláštna.
 
-Ako na skutočnej Eureke, mechanika **nepracuje, kým stroj hovorí** — motor
-len dobieha, a keď reč skončí včas, disketa sa rozbehne bez nového
-roztáčania. Disketa sa v emulátore prečíta okamžite, takže mechanika svoju
-prácu dohráva za strojom: pri formátovaní ju počuť ešte vyše minúty po vete
-„formátování skončeno“.
+S vernou mechanikou disketu obsluhuje vlastný ovládač Eureky, tak ako na
+skutočnom stroji, a disketa sa otáča skutočnou rýchlosťou. Program ako
+`READ.COM` (16 KB) sa načíta asi za šesť sekúnd namiesto okamihu,
+formátovanie celej diskety trvá asi minútu a pol. Zvuk ide presne s tým, čo
+mechanika robí. A ako na skutočnej Eureke, mechanika **nepracuje, kým stroj
+hovorí**; motor medzitým len dobieha.
+
+Zvuk sa zmení hneď a emulátor si voľbu pamätá. Rýchlosť diskety sa prepne vo
+chvíli, keď stroj najbližšie čaká na kláves, teda nikdy uprostred čítania
+alebo zápisu.
 
 Zvuky sú nahrávky skutočných 3,5" mechaník, nie mechaniky Eureky; tú zatiaľ
 nikto nenahral. Ak máte vlastné nahrávky, dajte ich do priečinka
@@ -322,8 +329,8 @@ pamätá](#čo-si-emulátor-pamätá)) a emulátor ich pri ďalšom štarte pou�
 namiesto vstavaných. Musia sa volať ako vstavané — `motor-rozbeh.wav`,
 `motor-slucka.wav` (opakuje sa dookola), `motor-dobeh.wav`, `presun.wav`
 a `krok-1.wav`, `krok-2.wav`… (kroky sa striedajú, stačí jeden) — a byť vo
-formáte WAV, 48 kHz, mono, 16 bitov. Keď sa ich nepodarí načítať a zvuk je
-zapnutý, emulátor povie prečo a hrá vstavané. Vstavané zvuky aj s pôvodom
+formáte WAV, 48 kHz, mono, 16 bitov. Keď sa ich nepodarí načítať a verná
+mechanika je zapnutá, emulátor povie prečo a hrá vstavané. Vstavané zvuky aj s pôvodom
 nájdete v zdrojákoch v `src\res\zvuky-mechaniky`.
 
 ## Telefónna linka

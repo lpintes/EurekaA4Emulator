@@ -79,6 +79,13 @@ const float kSpeedDown = static_cast<float>(1.0 - std::exp(-1.0 / (0.40 * kRate)
 // proportions they were made in; a quarter puts the motor's loop near where
 // the last synthesized growl stood.  To be tuned by ear (ea4-tvd.3).
 constexpr float kSampleGain = 0.25f;
+// A single step on its own, against the motor.  The step recordings were
+// cleaned of the drive they were made on, so at the set's own proportions a
+// step stood some 20 dB over the loop and the spindle dropped out from under
+// it for a moment -- the owner heard it as a recording cut in (4. 10. 2026).
+// Of 1, 0.5 and 0.3 he chose 0.3: the step still stands out, and at 0.5 it
+// already seemed to cover the motor.  The raking keeps the set's level.
+constexpr float kStepGain = 0.3f;
 constexpr uint32_t kCrossfade = Ms(10);
 constexpr uint32_t kSeekRelease = Ms(15);
 
@@ -133,6 +140,22 @@ void DriveSound::Schedule(const EurekaMachine::DriveEvent& event) {
   if (queued_ > kMaxBacklog) return;
   using Kind = EurekaMachine::DriveEvent::Kind;
   const uint64_t at = event.cycle / kCyclesPerSample;
+  // In real time every event already sits where the drive does it: the
+  // steps of a seek go one after another from its start, and a spin-up or a
+  // transfer only keeps the motor running from that moment.
+  if (realTime_) {
+    if (event.kind == Kind::kSeek) {
+      const int steps = std::abs(static_cast<int>(event.to) - static_cast<int>(event.from));
+      for (int i = 0; i < steps; ++i)
+        Push(Job::Kind::kStep, at, Ms(kStepMs[event.stepRate & 3]),
+             i == 0 ? static_cast<uint16_t>(steps) : 0);
+    } else {
+      Push(Job::Kind::kTurn, at, 1);
+    }
+    return;
+  }
+  // Only a timed controller reports it, and the backdrop has its own.
+  if (event.kind == Kind::kSpinUp) return;
   if (event.kind == Kind::kSeek) {
     const int steps = std::abs(static_cast<int>(event.to) - static_cast<int>(event.from));
     for (int i = 0; i < steps; ++i)
@@ -202,14 +225,18 @@ void DriveSound::Tick(int16_t& sample) {
     lastDac_ = now_;
     heardDac_ = true;
   }
-  const bool dacQuiet = !heardDac_ || now_ - lastDac_ > kDacHold;
+  // In real time the machine itself does not touch the disk while it talks,
+  // so the rule is the firmware's, not this class's.
+  const bool dacQuiet = realTime_ || !heardDac_ || now_ - lastDac_ > kDacHold;
 
   if (!running_ && !jobs_.empty() && jobs_.front().notBefore <= now_ && dacQuiet) {
     // The controller has a command: the motor runs, and a spindle that was
     // off has to come up first.
     if (!motorOn_) {
       motorOn_ = true;
-      spunUpAt_ = now_ + kSpinUp;
+      // In real time the controller has done the waiting already: the
+      // spin-up event came six revolutions before the first step.
+      spunUpAt_ = now_ + (realTime_ ? 0 : kSpinUp);
     }
     motorUntil_ = now_ + kMotorHold;
     if (now_ >= spunUpAt_) {
@@ -254,7 +281,9 @@ void DriveSound::StartStep(const Job& job) {
   // A seek is heard as one sound, so the steps after its first are silent.
   if (job.steps == 0) return;
   if (job.steps == 1) {
-    heads_.push_back(Voice{&steps_[stepTake_++ % steps_.size()]});
+    Voice step{&steps_[stepTake_++ % steps_.size()]};
+    step.gain = kStepGain;
+    heads_.push_back(step);
     return;
   }
   // The raking runs for as long as the steps take and then dies away; the
@@ -320,7 +349,7 @@ float DriveSound::RenderSampled() {
       head.sound = nullptr;
       continue;
     }
-    float gain = 1.0f;
+    float gain = head.gain;
     if (head.stopAt != SIZE_MAX) {
       if (head.stopAt > 0) --head.stopAt;
       if (head.stopAt == 0) {

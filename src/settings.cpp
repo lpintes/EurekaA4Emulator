@@ -28,7 +28,7 @@ constexpr wchar_t kKeyboardPc[] = L"externa";
 constexpr char kSpeechRateKey[] = "rychlost-reci";
 constexpr char kVolumeKey[] = "hlasitost";
 constexpr char kCheckUpdatesKey[] = "aktualizacie";
-constexpr char kDriveSoundKey[] = "zvuk-mechaniky";
+constexpr char kFaithfulDriveKey[] = "verna-mechanika";
 constexpr char kLastUpdateCheckKey[] = "posledna-kontrola";
 constexpr char kSkippedVersionKey[] = "preskocena-verzia";
 constexpr char kCablePortKey[] = "kabel-port";
@@ -194,9 +194,9 @@ void Settings::Load() {
       checkUpdates_ = value != L"0";
       continue;
     }
-    if (key == kDriveSoundKey) {
+    if (key == kFaithfulDriveKey) {
       // Same rule as rozsirena-ram: only "1" turns it on.
-      driveSound_ = value == L"1";
+      faithfulDrive_ = value == L"1";
       continue;
     }
     if (key == kLastUpdateCheckKey) {
@@ -290,7 +290,7 @@ bool Settings::Save(std::wstring& error) const {
   // Written at its default, like zachovat-ram, so the switch can be found.
   text += std::wstring(L"aktualizacie=") + (checkUpdates_ ? L"1" : L"0") + L"\r\n";
   // At its default too, so someone editing the file finds the switch.
-  text += std::wstring(L"zvuk-mechaniky=") + (driveSound_ ? L"1" : L"0") + L"\r\n";
+  text += std::wstring(L"verna-mechanika=") + (faithfulDrive_ ? L"1" : L"0") + L"\r\n";
   if (!lastUpdateCheck_.empty())
     text += L"posledna-kontrola=" + lastUpdateCheck_ + L"\r\n";
   if (!skippedVersion_.empty())

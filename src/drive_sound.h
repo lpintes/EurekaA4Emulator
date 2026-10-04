@@ -48,6 +48,13 @@ class DriveSound {
   bool LoadSamples(const Fetch& fetch, std::string& error);
   bool sampled() const { return sampled_; }
 
+  // Real time: the events come from a timed controller (the BIOS bypass off,
+  // HANDOFF 6.54 step 4) and carry the moments the drive acts.  The drive is
+  // then played as it happens -- no backlog behind the machine, no waiting
+  // for the DAC to fall quiet and no spin-up of its own, since the machine
+  // does all three itself.  Off, the backdrop of step 2 plays as before.
+  void SetRealTime(bool on) { realTime_ = on; }
+
   // Takes what the drive did and mixes the drive into `audio`, the machine's
   // own samples for the stretch that ended at `endCycle`.  Events may lie
   // before the stretch began; they then start at once.
@@ -82,6 +89,7 @@ class DriveSound {
     std::size_t stopAt = SIZE_MAX;
     std::size_t fading = 0;
     bool loop = false;
+    float gain = 1.0f;
   };
   enum class Motor : uint8_t { kOff, kStart, kLoop, kStop };
 
@@ -97,6 +105,7 @@ class DriveSound {
   std::deque<Job> jobs_;
   uint64_t queued_ = 0;  // samples of work in jobs_, to bound the backlog
   bool afterSeek_ = true;
+  bool realTime_ = false;
   bool running_ = false;
   uint32_t jobLeft_ = 0;
 

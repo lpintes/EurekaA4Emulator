@@ -289,6 +289,9 @@ class EurekaMachine {
       kRead,    // a transfer off the surface at `to`, `side`
       kWrite,   // a transfer onto it
       kFormat,  // Write Track: one whole revolution laid down
+      // A stopped motor starting to spin up, with the drive's timing on: the
+      // controller waits six revolutions before it does anything else.
+      kSpinUp,
     };
     Kind kind;
     uint64_t cycle;
@@ -355,6 +358,16 @@ class EurekaMachine {
   // Neither Reset nor PowerOn touches it.
   void SetBiosDiskBypass(bool on) { biosDiskBypass_ = on; }
   bool bios_disk_bypass() const { return biosDiskBypass_; }
+  // The same switch for a running machine, which is the window's way (the
+  // faithful drive in Settings, HANDOFF 6.54 step 4c): the change waits for
+  // the firmware's key check at 18675h, which runs only while the machine
+  // waits for a key -- never inside a disk operation, so never between the
+  // track or sector a driver was told and the transfer -- and for no
+  // controller command to be under way.  The ROM's driver keeps nothing over
+  // from one operation to the next (it rereads the directory after a disk
+  // swap, measured 4. 10. 2026), so that is as safe as swapping the diskette.
+  // A machine that is switched off takes it at once.
+  void RequestBiosDiskBypass(bool on);
   // What a new machine starts with, for a test that runs a whole mode
   // through the ROM's driver without finding every place it makes one.
   static void SetDefaultBiosDiskBypass(bool on) { defaultBiosDiskBypass_ = on; }
@@ -671,6 +684,13 @@ class EurekaMachine {
   // A command waiting for the moment the WD1772 would finish it.
   bool fdcPending_ = false;
   uint64_t fdcDoneAt_ = 0;
+  // RequestBiosDiskBypass, until the machine is somewhere safe to take it.
+  std::optional<bool> requestedBypass_;
+  // When the head starts stepping for the pending command, after any
+  // spin-up.  The seek is recorded with this time rather than the moment the
+  // command ends, so the drive sound steps while the head does.
+  uint64_t fdcStepsAt_ = 0;
+  uint64_t seekEventAt_ = 0;
   // The clocked serial port, which is where the optional IBM PC keyboard
   // hangs.  CNTR bit 7 is EF (a byte has arrived and waits in TRDR), bit 6
   // EIE, bit 5 RE, bit 4 TE.

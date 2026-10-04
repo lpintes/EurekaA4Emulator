@@ -1295,6 +1295,10 @@ void EurekaMachine::StartFdcCommand(uint8_t command) {
   fdcWriting_ = false;
   fdcIntrq_ = false;
   fdcStatus_ = hw::kFdcStatusBusy;
+  // A stopped motor is heard spinning up from now; the head moves after it.
+  const bool spinUp = cycles_ >= fdcMotorUntil_ && (command & hw::kFdcFlagNoSpinUp) == 0;
+  if (spinUp) RecordDrive(DriveEvent::Kind::kSpinUp, outputLatch_ & hw::kFdcSide, 0);
+  fdcStepsAt_ = cycles_ + (spinUp ? 6 * kFdcRevolution : 0);
   fdcDoneAt_ = cycles_ + FdcCommandTime(command);
   fdcPending_ = true;
   // The motor is on from now; ExecuteFdcCommand keeps it running for nine
@@ -1984,6 +1988,8 @@ bool EurekaMachine::InterceptBios() {
 void EurekaMachine::PowerDown() {
   if (poweredOff_) return;
   poweredOff_ = true;
+  // A machine that is off is between disk operations by definition.
+  if (requestedBypass_) RequestBiosDiskBypass(*requestedBypass_);
   // The DAC holds whatever the last sample was, and with the CPU stopped
   // nothing will ever move it again.  Parking it at mid-scale keeps the tail
   // of the announcement from ending on a step to a DC offset.
@@ -1998,8 +2004,25 @@ void EurekaMachine::PowerDown() {
   holdUntil_ = 0;
 }
 
+void EurekaMachine::RequestBiosDiskBypass(bool on) {
+  if (poweredOff_) {
+    biosDiskBypass_ = on;
+    requestedBypass_.reset();
+    return;
+  }
+  requestedBypass_ = on;
+}
+
 bool EurekaMachine::Step() {
   if (poweredOff_) return false;
+  // The key check of the firmware's idle loop (RequestBiosDiskBypass).  It
+  // does not run while the machine speaks, formats or boots; measured by
+  // sending keys (tests/eureka_session.cpp, kKeyCheck).
+  constexpr uint32_t kIdleKeyCheck = 0x18675;
+  if (requestedBypass_ && !fdcPending_ && !fdcWriting_ && physical_pc() == kIdleKeyCheck) {
+    biosDiskBypass_ = *requestedBypass_;
+    requestedBypass_.reset();
+  }
   if (!InterceptBios()) return false;
   // The speech module's own jump table at 0100h, which the SYSJUMPS stubs
   // enter as 0100h + L (1D2CF).  Both the logical and the physical address
@@ -2051,7 +2074,9 @@ bool EurekaMachine::Step() {
   // instructions, as the chip would finish it (StartFdcCommand).
   if (fdcPending_ && cycles_ >= fdcDoneAt_) {
     fdcPending_ = false;
+    seekEventAt_ = fdcStepsAt_;
     ExecuteFdcCommand(fdcCommand_);
+    seekEventAt_ = 0;
   }
   ScheduleInterrupt();
   before = cpu_.cyc;
@@ -2267,7 +2292,11 @@ void EurekaMachine::MoveHead(int cylinder, uint8_t stepRate) {
   const uint8_t target = static_cast<uint8_t>(std::clamp(cylinder, 0, 255));
   if (target == headCylinder_) return;
   if (driveEvents_.size() >= kMaxDriveEvents) driveEvents_.pop_front();
-  driveEvents_.push_back(DriveEvent{DriveEvent::Kind::kSeek, cycles_, headCylinder_, target,
+  // A timed command finishes after its steps; the seek is stamped with when
+  // they began (seekEventAt_, set in Step), which is after any spin-up and
+  // never after now.
+  const uint64_t at = seekEventAt_ != 0 ? seekEventAt_ : cycles_;
+  driveEvents_.push_back(DriveEvent{DriveEvent::Kind::kSeek, at, headCylinder_, target,
                                     static_cast<uint8_t>(outputLatch_ & hw::kFdcSide),
                                     stepRate, 0});
   headCylinder_ = target;

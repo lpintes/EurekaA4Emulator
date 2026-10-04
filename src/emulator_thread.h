@@ -194,11 +194,13 @@ class EmulatorThread {
   void PostSetMode(InputMode mode);
   void PostToggleMode();
   void PostSetDiagnostics(bool on);
-  // The drive sound (HANDOFF 6.54).  The set is handed over before Start and
-  // the worker owns it from then on; switching it on starts a fresh drive,
-  // switching it off silences it at once.
+  // The faithful drive (HANDOFF 6.54, step 4c).  The sound set is handed over
+  // before Start and the worker owns it from then on.  Switching on starts a
+  // fresh drive and asks the machine to leave the BIOS bypass for the ROM's
+  // driver, which it does once it is idle; switching off silences the drive
+  // at once and asks for the bypass back.
   void SetDriveSound(DriveSound sound, bool on);
-  void PostSetDriveSound(bool on);
+  void PostSetFaithfulDrive(bool on);
   // Moves one of the two sliders to a position from sliders.h.  Through the
   // queue like everything else: the machine is the worker's, and the rate pot
   // is an input the firmware reads in the middle of a sentence.
@@ -347,7 +349,7 @@ class EmulatorThread {
       kDumpDiagnostics, kPowerOff, kPowerOn, kFocusLost, kSaveDiskAs,
       kMountDisk, kEjectDisk, kCreateEmptyDisk, kInsertSlot, kAssignSlot,
       kSetWriteProtect, kSetSlotWriteProtect, kEnsureSlotDisk, kSetSpeechRate,
-      kSetVolume, kSetPhoneLine, kSetDriveSound, kQuit,
+      kSetVolume, kSetPhoneLine, kSetFaithfulDrive, kQuit,
     } type = Type::kQuit;
     HostKeyEvent key{};
     InputMode mode = InputMode::kPc;

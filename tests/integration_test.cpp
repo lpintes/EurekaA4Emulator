@@ -3098,6 +3098,69 @@ std::optional<std::pair<std::wstring, std::wstring>> ComPairFromEnvironment() {
   return std::make_pair(text.substr(0, comma), text.substr(comma + 1));
 }
 
+// The faithful drive switched on a running machine (HANDOFF 6.54, step 4c),
+// as the window does it: RequestBiosDiskBypass.  Run after the com mode has
+// brought READ.COM to its prompt, so the machine is waiting for a key and the
+// switch has to go through at once.  Then READ again, asked back half way
+// through the load: the switch must wait until the last disk access is over
+// -- taken in the middle, a driver would be handed a transfer for a track it
+// was never told -- and the program must still load.  The suite runs both
+// ways (EA4_BEZ_SKRATKY), so each direction is covered by one of the runs.
+bool CheckFaithfulSwitch(EurekaMachine& machine, eureka::Session& session) {
+  using eureka::Budget;
+  const bool before = machine.bios_disk_bypass();
+  bool ok = true;
+  auto fail = [&ok](const std::string& what) {
+    std::cout << "  prepnutie mechaniky: " << what << "\n";
+    ok = false;
+  };
+
+  machine.RequestBiosDiskBypass(!before);
+  if (!session.TryWaitUntil([&] { return machine.bios_disk_bypass() != before; },
+                            Budget::Instructions(5'000'000)))
+    fail("pri cakani na klaves sa neprepol");
+
+  session.Pc(eureka::pc::Esc);
+  if (!session.TryWaitIdle(Budget::Instructions(100'000'000))) fail("READ sa neukoncil");
+  machine.QueueKey(0xd6);
+  if (!session.TryWaitIdle(Budget::Instructions(100'000'000))) fail("nepytal sa na program");
+  if (!ok) return false;
+  machine.TakeDriveEvents();
+  session.TakeConsole();
+  if (!Type(machine, "READ\r")) return false;
+
+  std::vector<EurekaMachine::DriveEvent> events;
+  auto collect = [&] {
+    for (const auto& event : machine.TakeDriveEvents()) events.push_back(event);
+  };
+  if (!session.TryWaitUntil([&] { collect(); return !events.empty(); },
+                            Budget::Instructions(100'000'000))) {
+    fail("nacitanie nesiahlo na disketu");
+    return false;
+  }
+  machine.RequestBiosDiskBypass(before);
+  uint64_t switchedAt = 0;
+  std::vector<uint8_t> console;
+  const bool prompted = session.TryWaitUntil(
+      [&] {
+        collect();
+        if (!switchedAt && machine.bios_disk_bypass() == before) switchedAt = machine.cycles();
+        auto chunk = session.TakeConsole();
+        console.insert(console.end(), chunk.begin(), chunk.end());
+        return switchedAt && Contains(console, "Read which file?") && session.WaitingForKey();
+      },
+      Budget::Instructions(400'000'000));
+  unsigned bytes = 0;
+  for (const auto& event : events)
+    if (event.kind == EurekaMachine::DriveEvent::Kind::kRead) bytes += event.bytes;
+  if (!prompted) fail("READ sa po druhom spusteni neozval alebo sa neprepol");
+  if (bytes < 16 * 1024) fail("precitanych len " + std::to_string(bytes) + " bajtov");
+  if (switchedAt && switchedAt < events.back().cycle)
+    fail("prepol uprostred nacitania, " + std::to_string(events.back().cycle - switchedAt) +
+         " cyklov pred poslednym pristupom na disketu");
+  return ok;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
@@ -3378,12 +3441,14 @@ int wmain(int argc, wchar_t** argv) {
       : fed >= 2 && machine->debug_bios_reads() >= 150 &&
             Contains(speech, "Read which file?") &&
             Contains(console, "Read which file?"));
-  std::cout << (passed ? "PASS" : "FAIL")
+  const bool switched = basic || (passed && CheckFaithfulSwitch(*machine, session));
+  std::cout << (passed && switched ? "PASS" : "FAIL")
             << " mode=" << (basic ? "BAS" : "COM")
+            << (basic ? "" : switched ? " prepnutie=ok" : " prepnutie=chyba")
             << " instructions=" << machine->instructions()
             << " bios_reads=" << machine->debug_bios_reads()
             << " console=" << console.size()
             << " speech=" << speech.size()
             << " audio=" << audio.size() << "\n";
-  return passed ? 0 : 1;
+  return passed && switched ? 0 : 1;
 }

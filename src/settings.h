@@ -112,12 +112,15 @@ class Settings {
   bool check_updates() const { return checkUpdates_; }
   void SetCheckUpdates(bool check) { checkUpdates_ = check; }
 
-  // The drive sound (HANDOFF 6.54).  Default off, and only an explicit "1"
-  // turns it on: it is a new noise under the machine's voice, which is the
-  // whole of its user interface, so nobody gets it without asking.  The
-  // switch is in Nastavenia.
-  bool drive_sound() const { return driveSound_; }
-  void SetDriveSound(bool on) { driveSound_ = on; }
+  // The faithful drive (HANDOFF 6.54, step 4c): the drive heard, and the
+  // disk at its real pace through the ROM's own driver -- one switch, because
+  // the owner found either half without the other strange.  Default off, and
+  // only an explicit "1" turns it on: it is a new noise under the machine's
+  // voice, which is the whole of its user interface, and it makes every disk
+  // operation slower, so nobody gets it without asking.  The switch is in
+  // Nastavenia.
+  bool faithful_drive() const { return faithfulDrive_; }
+  void SetFaithfulDrive(bool on) { faithfulDrive_ = on; }
   // A folder of the user's own drive sounds, by the same portable/roaming
   // rule as FindFile, used instead of the set built into the EXE when it
   // exists.  Empty when there is nowhere to look.
@@ -182,7 +185,7 @@ class Settings {
   int speechRate_ = sliders::kRateDefault;
   int volume_ = sliders::kVolumeDefault;
   bool checkUpdates_ = true;
-  bool driveSound_ = false;
+  bool faithfulDrive_ = false;
   std::wstring lastUpdateCheck_;
   std::wstring skippedVersion_;
   std::wstring cablePort_;
