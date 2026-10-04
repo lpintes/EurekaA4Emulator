@@ -4530,7 +4530,8 @@ zostáva nesprávne. `READ.COM` 6,33 s platí — meralo ho `@`, nie súčet.
 - **Krátky presun zatiaľ nikto nepočul.** Presun o 2 cylindre pri 6 ms za
   krok hrá hrabanie len 12 ms a 15 ms doznievania. Pri `READ.COM` sú dva
   také (2 → 0 → 2, jeden sektor na cylindri 0, dôvod zatiaľ nevyšetrený).
-  Patrí to k ladeniu v kroku 3.
+  Patrí to k ladeniu v kroku 3. *Dôvod je vyšetrený, viď doplnok na konci
+  4c: druhý extent súboru.*
 - **Jedna voľba v okne** (rozhodnutie majiteľa): políčko „Verná disketová
   &mechanika (zvuk aj rýchlosť)“ v skupine „Disketa“ (skupina bola „Zvuk“),
   kľúč `verna-mechanika=` (bol `zvuk-mechaniky=`, nikdy nevydaný). Zapnutá
@@ -4562,6 +4563,18 @@ rozdiel, len zvuk. Skutočný čas drží `drive_sound_test`
 (`PlaysInRealTime`), viď CLAUDE.md. Otvorené zostáva len ladenie (krok 3:
 krátky presun, prípadne skutočné nahrávky Eureky) a 2 → 0 → 2 na konci
 načítania.
+
+*Doplnené 4. 10. 2026: 2 → 0 → 2 je vysvetlené, je to CP/M, nie mechanika.*
+`READ.COM` nemá 16 KB, ale **16 512 B = 129 záznamov**, teda dva extenty
+(128 + 1). Po 128. zázname BDOS otvára druhý extent: číta záznam 0 adresára
+(stopa 0) a potom posledný záznam súboru (stopa 4, záznam 32). Zmerané
+dočasným programom v scratchpade, ktorý pri skratke vypisoval
+`debug_bios_track()`/`debug_bios_sector()` pri každom čítaní (198 čítaní):
+celý adresár (stopa 0 a 24 záznamov stopy 1 = 64 záznamov, prihlásenie
+diskety pri každom spustení programu — preto stroj vymenenú disketu hneď
+spozná), dvakrát záznam 0 adresára (vyhľadanie a otvorenie súboru), dáta na
+stopách 1 až 4, a druhý extent. Skratka aj ovládač z ROM robia to isté,
+takže skutočná Eureka tiež. Otvorené z 4c zostáva len ladenie v kroku 3.
 
 #### Otvorené
 
