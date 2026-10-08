@@ -105,6 +105,10 @@ jobs:
           New-Item -ItemType Directory -Force $stage | Out-Null
           Copy-Item vydanie\EurekaA4Emulator.exe, vydanie\eurekaA4Emulator.nvda-addon, `
                     Spustit-Eureku.bat, README.md, LICENSE.txt, ROM-NOTICE.txt $stage
+          # The drive sounds built into the EXE, as a pattern for one's own
+          # (NAVOD.md) -- and PUVOD.md has to travel with the EXE anyway: the
+          # motor is CC BY, which asks for its author wherever it goes.
+          Copy-Item -Recurse src\res\zvuky-mechaniky $stage
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path balik).Path,
               "$PWD\vydanie\$name.zip")

@@ -4576,6 +4576,23 @@ spozná), dvakrát záznam 0 adresára (vyhľadanie a otvorenie súboru), dáta 
 stopách 1 až 4, a druhý extent. Skratka aj ovládač z ROM robia to isté,
 takže skutočná Eureka tiež. Otvorené z 4c zostáva len ladenie v kroku 3.
 
+#### Sada zvukov v balíku vydania (8. 10. 2026)
+
+Priečinok `src/res/zvuky-mechaniky` ide celý do ZIP-u vydania
+(`vydanie.yml`, krok „Balík“), aby ľudia, ktorí chcú vlastné zvuky, mali
+vzor na počúvanie. Pribudol v ňom `NAVOD.md` pre tvorcov: kam priečinok dať,
+formát, čo ktorý súbor robí a kedy sa hrá (roztočenie 1,2 s, slučka
+dookola, motor 1,8 s po práci, krok len pri presune o jednu stopu, hrabanie
+toľko, koľko presun trvá) a hlasitosti (sada × 0,25, krok × 0,3). Čísla sú
+z `drive_sound.cpp`; **keď sa tam zmenia, patrí to aj do `NAVOD.md`.**
+
+Druhý dôvod je licencia: motor je CC BY a EXE ho nesie zabudovaný, ale
+`PUVOD.md` v ZIP-e doteraz nebol a README naň odkazovalo cestou v
+zdrojákoch. Rozbaľovanie sady z emulátora sa zvážilo a zamietlo — nová
+položka ponuky a kód na to, čo urobí priečinok v balíku. Zmena workflowu
+**nie je vyskúšaná** — overí ju až najbližšie vydanie (v ZIP-e má byť
+priečinok `zvuky-mechaniky` s deviatimi súbormi).
+
 #### Otvorené
 
 - **Motor.** `pol_disk` (`A0h` bit 0, `IOPORT.LIB`: „high to power up fdc

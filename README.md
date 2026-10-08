@@ -323,15 +323,14 @@ chvíli, keď stroj najbližšie čaká na kláves, teda nikdy uprostred čítan
 alebo zápisu.
 
 Zvuky sú nahrávky skutočných 3,5" mechaník, nie mechaniky Eureky; tú zatiaľ
-nikto nenahral. Ak máte vlastné nahrávky, dajte ich do priečinka
-**`zvuky-mechaniky`** vedľa súboru s nastaveniami (viď [Čo si emulátor
-pamätá](#čo-si-emulátor-pamätá)) a emulátor ich pri ďalšom štarte použije
-namiesto vstavaných. Musia sa volať ako vstavané — `motor-rozbeh.wav`,
-`motor-slucka.wav` (opakuje sa dookola), `motor-dobeh.wav`, `presun.wav`
-a `krok-1.wav`, `krok-2.wav`… (kroky sa striedajú, stačí jeden) — a byť vo
-formáte WAV, 48 kHz, mono, 16 bitov. Keď sa ich nepodarí načítať a verná
-mechanika je zapnutá, emulátor povie prečo a hrá vstavané. Vstavané zvuky aj s pôvodom
-nájdete v zdrojákoch v `src\res\zvuky-mechaniky`.
+nikto nenahral. Vstavané zvuky sú v balíku emulátora aj ako súbory, v
+priečinku **`zvuky-mechaniky`**, spolu s návodom `NAVOD.md` (čo ktorý
+zvuk robí, aký musí mať formát a hlasitosť) a s pôvodom a licenciami
+v `PUVOD.md`. Ak máte vlastné nahrávky, nahraďte nimi súbory v tom
+priečinku a celý ho dajte vedľa súboru s nastaveniami (viď [Čo si emulátor
+pamätá](#čo-si-emulátor-pamätá)); emulátor ich pri ďalšom štarte použije
+namiesto vstavaných. Keď sa ich nepodarí načítať a verná mechanika je
+zapnutá, emulátor povie prečo a hrá vstavané.
 
 ## Telefónna linka
 
@@ -1059,7 +1058,7 @@ Emulátor je pod licenciou MIT; pozrite `LICENSE.txt`. Štyri veci k tomu:
 - Použité jadro Z80 má vlastné MIT oznámenie
   v `src\LICENSE.superzazu-z80.txt`.
 - **Zvuky disketovej mechaniky** majú licencie svojich autorov; pozrite
-  `src\res\zvuky-mechaniky\PUVOD.md`. Motor je zo vzoriek
+  `zvuky-mechaniky\PUVOD.md` v balíku. Motor je zo vzoriek
   [Flopster](https://github.com/linuxmao-org/shiru-plugins) od autora
   **Shiru** pod licenciou [CC BY](https://creativecommons.org/licenses/by/4.0/),
   upravený (stlmené výšky a klapanie). Kroky sú z nahrávky
