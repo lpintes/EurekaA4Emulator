@@ -119,13 +119,17 @@ jobs:
 
       # Poistka proti firmvéru v čomkoľvek, čo ide von: podľa mena aj podľa
       # veľkosti (ROM má 262144 bajtov), aj vnútri ZIP-u a doplnku.
+      # WAV je zakázaný, lebo tie v audio/ sú prevedený obsah ROM. Výnimka je
+      # len zvuky-mechaniky/ -- nahrávky mechaniky, nie z ROM (PUVOD.md tam);
+      # kontrola veľkosti a mien .dmp, .rom, a4rom platí aj pre ne.
       - name: Kontrola, že vo vydaní nie je ROM
         shell: pwsh
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $bad = @()
           function Test-Entry($name, $size) {
-            if ($name -match '(?i)\.(dmp|wav|rom)$|a4rom' -or $size -eq 262144) { $script:bad += $name }
+            $wav = $name -match '(?i)\.wav$' -and $name -notmatch '(?i)/zvuky-mechaniky/[^/]+\.wav$'
+            if ($wav -or $name -match '(?i)\.(dmp|rom)$|a4rom' -or $size -eq 262144) { $script:bad += $name }
           }
           foreach ($file in Get-ChildItem vydanie -File) {
             Test-Entry $file.Name $file.Length

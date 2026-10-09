@@ -4593,6 +4593,16 @@ položka ponuky a kód na to, čo urobí priečinok v balíku. Zmena workflowu
 **nie je vyskúšaná** — overí ju až najbližšie vydanie (v ZIP-e má byť
 priečinok `zvuky-mechaniky` s deviatimi súbormi).
 
+Najbližšie vydanie (9. 10. 2026, beh 37903805526, `v2026.10.3`) ju naozaj
+nepustilo: krok „Balík“ prešiel, ale **poistka proti ROM** v tom istom
+workflowe zakazovala každý `.wav`, lebo jediné WAV v projekte boli dovtedy
+v `audio/`, prevedené z ROM. Zastavilo ju všetkých sedem nahrávok v oboch
+ZIP-och; značka ani vydanie nevznikli. Poistka teraz WAV púšťa len priamo
+v `zvuky-mechaniky/` — podpriečinok tam neprejde — a kontrola veľkosti
+262144 a mien `.dmp`, `.rom`, `a4rom` platí aj pre ne. Podmienka overená
+na menách z toho behu aj na šiestich, ktoré musia ďalej zlyhať; celý
+workflow overí až ďalšie vydanie.
+
 #### Otvorené
 
 - **Motor.** `pol_disk` (`A0h` bit 0, `IOPORT.LIB`: „high to power up fdc
