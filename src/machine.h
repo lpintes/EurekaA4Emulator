@@ -278,6 +278,40 @@ class EurekaMachine {
   std::vector<uint8_t> TakeSpeechInput();
   std::vector<int16_t> TakeAudio();
 
+  // What the drive's mechanics did, for a drive sound to be built on
+  // (HANDOFF 6.54).  It is the drive, not the controller: ordinary file I/O
+  // never reaches the WD1772 because InterceptBios answers BIOS 13 and 14
+  // itself, so both paths report here in one vocabulary, and a consumer never
+  // has to reconcile two sources.  Recording changes nothing the guest sees.
+  struct DriveEvent {
+    enum class Kind : uint8_t {
+      kSeek,    // the head moved from `from` to `to`
+      kRead,    // a transfer off the surface at `to`, `side`
+      kWrite,   // a transfer onto it
+      kFormat,  // Write Track: one whole revolution laid down
+      // A stopped motor starting to spin up, with the drive's timing on: the
+      // controller waits six revolutions before it does anything else.
+      kSpinUp,
+    };
+    Kind kind;
+    uint64_t cycle;
+    uint8_t from;
+    uint8_t to;
+    uint8_t side;
+    // r1r0 of the Type I command that moved the head, kSeek only.  Kept raw
+    // rather than in milliseconds: on the WD1772-02 (SERVICE.3, U14) 00 is
+    // 6 ms per step, but the meaning is the chip's, and a consumer should
+    // translate it in one place.
+    uint8_t stepRate;
+    // Bytes that pass under the head, for a transfer: what turns the event
+    // into rotation time.  The two paths move very different amounts -- a
+    // BIOS record is 128, a controller sector 512, a verify only the six of
+    // an ID field and Write Track the whole raw track -- so one fixed time
+    // per event would be wrong by a factor of four on one of them.
+    uint16_t bytes;
+  };
+  std::vector<DriveEvent> TakeDriveEvents();
+
   uint64_t cycles() const { return cycles_; }
   uint64_t instructions() const { return instructions_; }
   uint16_t pc() const { return cpu_.pc; }
@@ -315,6 +349,28 @@ class EurekaMachine {
   // line off hook, gets past the wait as well (HANDOFF 6.49).  Neither Reset
   // nor PowerOn touches it: it is the socket, not the machine.
   void SetPhoneLine(bool connected) { phoneLine_ = connected; }
+  // Whether InterceptBios answers the disk calls (BIOS 8, 10 to 14 and 16)
+  // itself, at once and without the controller, or lets the ROM's own driver
+  // run them through the WD1772.  On by default: it is fast and every test
+  // was written against it.  Off is the way to the real drive's pace (HANDOFF
+  // 6.54, step 4), and only safe to switch between disk calls -- a driver
+  // half way through a transfer would lose the track or sector it was told.
+  // Neither Reset nor PowerOn touches it.
+  void SetBiosDiskBypass(bool on) { biosDiskBypass_ = on; }
+  bool bios_disk_bypass() const { return biosDiskBypass_; }
+  // The same switch for a running machine, which is the window's way (the
+  // faithful drive in Settings, HANDOFF 6.54 step 4c): the change waits for
+  // the firmware's key check at 18675h, which runs only while the machine
+  // waits for a key -- never inside a disk operation, so never between the
+  // track or sector a driver was told and the transfer -- and for no
+  // controller command to be under way.  The ROM's driver keeps nothing over
+  // from one operation to the next (it rereads the directory after a disk
+  // swap, measured 4. 10. 2026), so that is as safe as swapping the diskette.
+  // A machine that is switched off takes it at once.
+  void RequestBiosDiskBypass(bool on);
+  // What a new machine starts with, for a test that runs a whole mode
+  // through the ROM's driver without finding every place it makes one.
+  static void SetDefaultBiosDiskBypass(bool on) { defaultBiosDiskBypass_ = on; }
   // Plugs a cable into the RS-232 socket, or pulls it out with nullptr.  The
   // machine does not own it.  Without one CTS stays deasserted, which is the
   // right answer for a machine with nothing attached: "tiskarna neni
@@ -434,6 +490,20 @@ class EurekaMachine {
   void MaybeRunDma1();
 
   void StartFdcCommand(uint8_t command);
+  // What the command does, carried out at once.  StartFdcCommand calls it
+  // straight away, or -- with the drive's timing on -- leaves the controller
+  // BUSY and Step calls it when the WD1772 would have finished (HANDOFF 6.54,
+  // step 4b).
+  void ExecuteFdcCommand(uint8_t command);
+  // How long the WD1772 takes over `command` from now: spin-up, steps, the
+  // wait for the sector to come round and the bytes that pass under the head.
+  uint64_t FdcCommandTime(uint8_t command) const;
+  // Cycles from `at` until byte `position` of the raw track (index = 0) is
+  // under the head.
+  static uint64_t CyclesUntilTrackByte(uint64_t at, unsigned position);
+  // Whether the index hole is passing the sensor at this moment.
+  bool IndexPulse() const;
+  bool FdcTimed() const { return !biosDiskBypass_; }
   void ForgetFormattedTrack();
   uint8_t TypeOneStatus(uint8_t command) const;
   uint8_t ReadFdcData();
@@ -565,6 +635,8 @@ class EurekaMachine {
   bool poweredOff_ = false;
   std::vector<uint8_t> consoleOutput_;
   std::vector<uint8_t> speechInput_;
+  static inline bool defaultBiosDiskBypass_ = true;
+  bool biosDiskBypass_ = defaultBiosDiskBypass_;
   uint16_t biosTrack_ = 0;
   uint16_t biosSector_ = 0;
   uint16_t biosDma_ = 0x80;
@@ -588,9 +660,37 @@ class EurekaMachine {
   bool dma1Armed_ = false;
   // Last direction a Type I step moved the head; a bare Step repeats it.
   int fdcStepDirection_ = 1;
+  // Where the head physically is, which is not fdcTrack_.  That register is
+  // the controller's belief and goes stale behind InterceptBios, which moves
+  // nothing through it; the head is what the drive sound has to follow.
+  // Nothing the guest can read depends on it.
+  uint8_t headCylinder_ = 0;
+  // Bounded: tests and the probe run for hundreds of millions of cycles
+  // without ever draining it.  A format is about 400 events, so the cap only
+  // ever drops what nobody was listening to.
+  static constexpr std::size_t kMaxDriveEvents = 4096;
+  std::deque<DriveEvent> driveEvents_;
+  void RecordDrive(DriveEvent::Kind kind, uint8_t side, uint16_t bytes);
+  void MoveHead(int cylinder, uint8_t stepRate);
   // Position of the last Write Track, so a verify read of it always succeeds.
   int fdcFormattedCylinder_ = -1;
   int fdcFormattedSide_ = -1;
+  // Until when the WD1772's motor runs: nine index pulses at 300 rpm after
+  // the last command, 1.8 s (StartFdcCommand).
+  uint64_t fdcMotorUntil_ = 0;
+  // One revolution at 300 rpm, and the motor's run-on of nine of them.
+  static constexpr uint64_t kFdcRevolution = kCpuHz / 5;
+  static constexpr uint64_t kFdcMotorRun = 9 * kFdcRevolution;
+  // A command waiting for the moment the WD1772 would finish it.
+  bool fdcPending_ = false;
+  uint64_t fdcDoneAt_ = 0;
+  // RequestBiosDiskBypass, until the machine is somewhere safe to take it.
+  std::optional<bool> requestedBypass_;
+  // When the head starts stepping for the pending command, after any
+  // spin-up.  The seek is recorded with this time rather than the moment the
+  // command ends, so the drive sound steps while the head does.
+  uint64_t fdcStepsAt_ = 0;
+  uint64_t seekEventAt_ = 0;
   // The clocked serial port, which is where the optional IBM PC keyboard
   // hangs.  CNTR bit 7 is EF (a byte has arrived and waits in TRDR), bit 6
   // EIE, bit 5 RE, bit 4 TE.

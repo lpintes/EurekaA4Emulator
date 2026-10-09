@@ -15,6 +15,18 @@
 // The manifest asks for Common Controls 6 and system DPI awareness.
 1 RT_MANIFEST "eureka.manifest"
 
+// The drive sound set (HANDOFF 6.54, origin and licences in
+// zvuky-mechaniky/PUVOD.md).  Named rather than numbered: main.cpp asks for
+// them by the file's own stem, upper-cased with '_' for '-', so the names
+// here and in a user's own folder of sounds are the same list.
+MOTOR_ROZBEH RCDATA "zvuky-mechaniky/motor-rozbeh.wav"
+MOTOR_SLUCKA RCDATA "zvuky-mechaniky/motor-slucka.wav"
+MOTOR_DOBEH  RCDATA "zvuky-mechaniky/motor-dobeh.wav"
+PRESUN       RCDATA "zvuky-mechaniky/presun.wav"
+KROK_1       RCDATA "zvuky-mechaniky/krok-1.wav"
+KROK_2       RCDATA "zvuky-mechaniky/krok-2.wav"
+KROK_3       RCDATA "zvuky-mechaniky/krok-3.wav"
+
 /////////////////////////////////////////////////////////////////////////////
 // Version
 //
@@ -254,7 +266,7 @@ END
 // runs, is the same question as keeping the RAM across runs and is decided
 // with it (HANDOFF 6.15, 6.18).
 
-IDD_SETTINGS DIALOGEX 0, 0, 232, 200
+IDD_SETTINGS DIALOGEX 0, 0, 232, 234
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Nastavenia"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
@@ -294,8 +306,13 @@ BEGIN
                     IDC_CHECK_UPDATES, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
                     16, 157, 200, 12
 
-    DEFPUSHBUTTON   "OK", IDOK, 118, 179, 50, 14, WS_GROUP
-    PUSHBUTTON      "Zrušiť", IDCANCEL, 175, 179, 50, 14
+    GROUPBOX        "Disketa", IDC_STATIC, 7, 179, 218, 28, BS_GROUPBOX | WS_GROUP
+    CONTROL         "Verná disketová &mechanika (zvuk aj rýchlosť)",
+                    IDC_FAITHFUL_DRIVE, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP,
+                    16, 191, 200, 12
+
+    DEFPUSHBUTTON   "OK", IDOK, 118, 213, 50, 14, WS_GROUP
+    PUSHBUTTON      "Zrušiť", IDCANCEL, 175, 213, 50, 14
 END
 
 /////////////////////////////////////////////////////////////////////////////

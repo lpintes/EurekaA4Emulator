@@ -375,6 +375,15 @@ constexpr uint8_t kFdcFlagUpdateTrack = 0x10;
 // fdc_ctl_disk_test -- and that one command is how the machine tells an empty
 // drive from an unformatted diskette from a good one.
 constexpr uint8_t kFdcVerify = 0x04;  // fdc_verify
+// Type I field r1r0: time per step.  The chip is a WD1772-02 (SERVICE.3,
+// U14), where 00 is 6 ms, and the ROM never sets anything else -- fdc_home,
+// fdc_seek and fdc_stepin in SYSEQU.LIB all leave it 00.
+constexpr uint8_t kFdcStepRate = 0x03;
+// Flag h, in every command but Force Interrupt: set, the WD1772 does not wait
+// six index pulses for a stopped motor to spin up.  The ROM leaves it clear
+// (SYSEQU.LIB), so it always waits (HANDOFF 6.54, step 4b).  On Type II and
+// III commands bit 2 is E, a 15 ms head settle; its value is kFdcVerify's.
+constexpr uint8_t kFdcFlagNoSpinUp = 0x08;
 // Type I commands leave bit 7 clear, and they finish inside the controller.
 constexpr uint8_t kFdcTypeTwoOrThree = 0x80;
 
@@ -410,6 +419,13 @@ constexpr unsigned kSectorsPerTrack = 10;
 constexpr uint8_t kSectorSizeCode = 2;
 // What a freshly formatted surface reads back as.
 constexpr uint8_t kFormatFill = 0xe5;
+// One double-density revolution, raw: 250 kbit/s for 200 ms at 300 rpm,
+// gaps and address marks included (WD1772 data sheet).  It is the size of a
+// Write Track, and the unit a transfer's rotation time is measured in.
+constexpr unsigned kRawTrackBytes = 6250;
+// An ID field as Read Address returns it: track, side, sector, size code and
+// two CRC bytes.
+constexpr unsigned kIdFieldBytes = 6;
 
 // ---------------------------------------------------------------------------
 // Power latch (IOPORT.LIB).  Write only; SYSRAM keeps power_copy.

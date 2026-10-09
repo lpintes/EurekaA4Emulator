@@ -39,6 +39,13 @@ namespace {
 int checks = 0;
 int failures = 0;
 
+// The physical sector that holds a track's logical 512-byte sector, as the
+// ROM's own driver lays a track out: an interleave of three (HANDOFF 6.54,
+// step 4a, and SectorOffset in virtual_disk.cpp).  The checks below go through
+// the controller's view of the image, so "the directory" is not sector 1.
+constexpr unsigned PhysicalSector(unsigned logical) { return (3 * logical + 1) % 10 + 1; }
+constexpr unsigned kDirectorySector = PhysicalSector(0);
+
 std::string Narrow(const std::wstring& text) {
   std::string result;
   for (wchar_t ch : text) result += ch < 128 ? static_cast<char>(ch) : '?';
@@ -302,7 +309,7 @@ void SwapReplacesTheWholeImage() {
         "prva_disketa_ma_dva_subory", Narrow(error));
 
   uint8_t before[512]{};
-  Check(disk.ReadPhysicalSector(0, 0, 1, before), "prva_disketa_sa_cita");
+  Check(disk.ReadPhysicalSector(0, 0, kDirectorySector,before), "prva_disketa_sa_cita");
 
   Check(disk.Mount(second, error), "vymena_za_druhu_prejde", Narrow(error));
   Check(disk.StoredFiles() == 1, "po_vymene_je_v_adresari_len_novy_subor",
@@ -311,8 +318,8 @@ void SwapReplacesTheWholeImage() {
         "po_vymene_ukazuje_disk_na_novy_priecinok");
 
   uint8_t after[512]{};
-  Check(disk.ReadPhysicalSector(0, 0, 1, after), "druha_disketa_sa_cita");
-  // The directory is the first four blocks, so sector 1 holds entries.  Two
+  Check(disk.ReadPhysicalSector(0, 0, kDirectorySector,after), "druha_disketa_sa_cita");
+  // The directory is the first four blocks, so its first sector holds entries.  Two
   // different file sets cannot leave it identical.
   Check(std::memcmp(before, after, sizeof(before)) != 0,
         "adresar_po_vymene_nie_je_ten_isty");
@@ -345,9 +352,9 @@ void EjectLeavesAnEmptyDrive() {
   uint8_t sector[512]{};
   // What the firmware sees: no medium means Record Not Found on every read,
   // which is how it reaches its own "vadny disk" (6.6).
-  Check(!disk.ReadPhysicalSector(0, 0, 1, sector),
+  Check(!disk.ReadPhysicalSector(0, 0, kDirectorySector,sector),
         "z_prazdnej_mechaniky_sa_neda_citat");
-  Check(!disk.WritePhysicalSector(0, 0, 1, sector),
+  Check(!disk.WritePhysicalSector(0, 0, kDirectorySector,sector),
         "do_prazdnej_mechaniky_sa_neda_pisat");
 
   // And the drive takes a diskette again afterwards.
@@ -365,9 +372,9 @@ void UnformattedDisketteAnswersNothing() {
   Check(disk.present(), "nenaformatovana_disketa_je_vlozena");
 
   uint8_t sector[512]{};
-  Check(!disk.ReadPhysicalSector(0, 0, 1, sector),
+  Check(!disk.ReadPhysicalSector(0, 0, kDirectorySector,sector),
         "nenaformatovana_stopa_sa_neda_citat");
-  Check(!disk.WritePhysicalSector(0, 0, 1, sector),
+  Check(!disk.WritePhysicalSector(0, 0, kDirectorySector,sector),
         "na_nenaformatovanu_stopu_sa_neda_pisat");
   // The BIOS stub bypasses the controller entirely, so it has to refuse too:
   // a diskette that says no to the FDC and yes to the BIOS is a machine that
@@ -381,7 +388,7 @@ void UnformattedDisketteAnswersNothing() {
   // One track laid down, and only that one works.
   disk.FormatTrack(0, 0);
   Check(disk.TrackFormatted(0, 0), "naformatovana_stopa_je_naformatovana");
-  Check(disk.ReadPhysicalSector(0, 0, 1, sector),
+  Check(disk.ReadPhysicalSector(0, 0, kDirectorySector,sector),
         "po_naformatovani_sa_stopa_cita");
   Check(sector[0] == 0xe5, "naformatovana_stopa_je_prazdna");
   Check(!disk.TrackFormatted(0, 1), "susedna_strana_zostala_nenaformatovana");
@@ -402,7 +409,7 @@ void FormattedRamDiskAndReformatting() {
   VirtualDisk disk;
   disk.CreateEmpty();
   uint8_t sector[512]{};
-  Check(disk.ReadPhysicalSector(0, 0, 1, sector),
+  Check(disk.ReadPhysicalSector(0, 0, kDirectorySector,sector),
         "naformatovana_ram_disketa_sa_cita_hned");
 
   std::fill_n(sector, sizeof(sector), 0x42);
@@ -428,11 +435,11 @@ void FormattingAFolderDiskChangesNothing() {
         Narrow(error));
 
   uint8_t before[512]{};
-  Check(disk.ReadPhysicalSector(0, 0, 1, before),
+  Check(disk.ReadPhysicalSector(0, 0, kDirectorySector,before),
         "priecinkova_disketa_sa_cita");
   disk.FormatTrack(0, 0);
   uint8_t after[512]{};
-  Check(disk.ReadPhysicalSector(0, 0, 1, after),
+  Check(disk.ReadPhysicalSector(0, 0, kDirectorySector,after),
         "po_formatovani_sa_stale_cita");
   Check(std::memcmp(before, after, sizeof(before)) == 0,
         "formatovanie_priecinkovej_diskety_adresar_nezmeni");
@@ -550,9 +557,9 @@ void StashKeepsEverySlotApart() {
   second->CreateEmpty();
   uint8_t sector[512];
   std::fill_n(sector, sizeof(sector), 0x11);
-  first->WritePhysicalSector(0, 0, 1, sector);
+  first->WritePhysicalSector(0, 0, kDirectorySector,sector);
   std::fill_n(sector, sizeof(sector), 0x22);
-  second->WritePhysicalSector(0, 0, 1, sector);
+  second->WritePhysicalSector(0, 0, kDirectorySector,sector);
 
   Check(stash.Put(1, *first), "prva disketa ide do slotu 1");
   Check(stash.Put(5, *second), "druha ide do slotu 5");
@@ -561,9 +568,9 @@ void StashKeepsEverySlotApart() {
   auto back1 = stash.Take(1);
   auto back5 = stash.Take(5);
   uint8_t read[512]{};
-  Check(back1 && back1->ReadPhysicalSector(0, 0, 1, read) && read[0] == 0x11,
+  Check(back1 && back1->ReadPhysicalSector(0, 0, kDirectorySector,read) && read[0] == 0x11,
         "slot 1 vratil svoju disketu");
-  Check(back5 && back5->ReadPhysicalSector(0, 0, 1, read) && read[0] == 0x22,
+  Check(back5 && back5->ReadPhysicalSector(0, 0, kDirectorySector,read) && read[0] == 0x22,
         "slot 5 vratil svoju disketu");
   Check(stash.empty(), "po vybrati je zasobnik prazdny");
 
@@ -698,7 +705,7 @@ void SavingAdoptsTheFolder() {
   // and let the write-back run.  It has to reach the new home, and it has to
   // take the host file with it.
   uint8_t entry[512]{};
-  Check(disk.ReadPhysicalSector(0, 0, 1, entry), "adresar sa cita");
+  Check(disk.ReadPhysicalSector(0, 0, kDirectorySector,entry), "adresar sa cita");
   bool erased = false;
   for (unsigned index = 0; index < 512 / 32; ++index) {
     const std::string name(reinterpret_cast<char*>(entry + index * 32 + 1), 8);
@@ -708,7 +715,7 @@ void SavingAdoptsTheFolder() {
     break;
   }
   Check(erased, "polozka PRVY.BIN sa nasla");
-  Check(disk.WritePhysicalSector(0, 0, 1, entry), "adresar sa zapise");
+  Check(disk.WritePhysicalSector(0, 0, kDirectorySector,entry), "adresar sa zapise");
   Check(disk.Flush(error), "zapis do noveho domova prejde", Narrow(error));
   Check(!fs::exists(target / "PRVY.BIN"),
         "zmazany subor odisiel aj z hostitelskeho priecinka");
@@ -723,7 +730,7 @@ void SavingAdoptsTheFolder() {
 bool SetDirectoryName(VirtualDisk& disk, const std::string& match,
                       const std::string& exact) {
   uint8_t sector[512]{};
-  if (!disk.ReadPhysicalSector(0, 0, 1, sector)) return false;
+  if (!disk.ReadPhysicalSector(0, 0, kDirectorySector,sector)) return false;
   for (unsigned index = 0; index < 16; ++index) {
     uint8_t* entry = sector + index * 32;
     if (match.empty()) {
@@ -737,14 +744,14 @@ bool SetDirectoryName(VirtualDisk& disk, const std::string& match,
       if (!same) continue;
     }
     std::memcpy(entry + 1, exact.data(), 11);
-    return disk.WritePhysicalSector(0, 0, 1, sector);
+    return disk.WritePhysicalSector(0, 0, kDirectorySector,sector);
   }
   return false;
 }
 
 bool HasDirectoryName(VirtualDisk& disk, const std::string& exact) {
   uint8_t sector[512]{};
-  if (!disk.ReadPhysicalSector(0, 0, 1, sector)) return false;
+  if (!disk.ReadPhysicalSector(0, 0, kDirectorySector,sector)) return false;
   for (unsigned index = 0; index < 16; ++index) {
     const uint8_t* entry = sector + index * 32;
     if (entry[0] <= 0x1f && std::memcmp(entry + 1, exact.data(), 11) == 0) return true;
@@ -754,12 +761,12 @@ bool HasDirectoryName(VirtualDisk& disk, const std::string& exact) {
 
 bool EraseDirectoryName(VirtualDisk& disk, const std::string& exact) {
   uint8_t sector[512]{};
-  if (!disk.ReadPhysicalSector(0, 0, 1, sector)) return false;
+  if (!disk.ReadPhysicalSector(0, 0, kDirectorySector,sector)) return false;
   for (unsigned index = 0; index < 16; ++index) {
     uint8_t* entry = sector + index * 32;
     if (entry[0] > 0x1f || std::memcmp(entry + 1, exact.data(), 11) != 0) continue;
     entry[0] = 0xe5;
-    return disk.WritePhysicalSector(0, 0, 1, sector);
+    return disk.WritePhysicalSector(0, 0, kDirectorySector,sector);
   }
   return false;
 }
@@ -795,8 +802,8 @@ void ExactNamesSurviveTheFolder() {
     Check(disk.Mount(folder, error), "presne_mena_pripojenie", Narrow(error));
     // Rewriting the directory unchanged still leaves something owed.
     uint8_t sector[512]{};
-    Check(disk.ReadPhysicalSector(0, 0, 1, sector) &&
-          disk.WritePhysicalSector(0, 0, 1, sector) && disk.Flush(error),
+    Check(disk.ReadPhysicalSector(0, 0, kDirectorySector,sector) &&
+          disk.WritePhysicalSector(0, 0, kDirectorySector,sector) && disk.Flush(error),
           "bezna_disketa_sa_zapise", Narrow(error));
     Check(!fs::exists(folder / L".eureka"), "bezna_disketa_nema_subor_eureka");
 
@@ -887,7 +894,7 @@ bool PutImageBytes(VirtualDisk& disk, std::size_t offset,
     const std::size_t index = (offset + done) / 512;
     const unsigned track = static_cast<unsigned>(index / 10);
     if (!disk.WritePhysicalSector(track / 2, track % 2,
-                                  static_cast<unsigned>(index % 10) + 1,
+                                  PhysicalSector(static_cast<unsigned>(index % 10)),
                                   data.data() + done)) {
       return false;
     }

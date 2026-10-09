@@ -473,6 +473,18 @@ void EmulatorThread::PostSetDiagnostics(bool on) {
   Post(std::move(command));
 }
 
+void EmulatorThread::SetDriveSound(DriveSound sound, bool on) {
+  driveTemplate_ = std::move(sound);
+  driveOnAtStart_ = on;
+}
+
+void EmulatorThread::PostSetFaithfulDrive(bool on) {
+  Command command;
+  command.type = Command::Type::kSetFaithfulDrive;
+  command.flag = on;
+  Post(std::move(command));
+}
+
 void EmulatorThread::PostSetSpeechRate(int position) {
   Command command;
   command.type = Command::Type::kSetSpeechRate;
@@ -656,6 +668,14 @@ void EmulatorThread::Run() {
   HostKeyboard host;
   host.mode = mode_.load(std::memory_order_relaxed);
   const HWND notify = notify_;
+
+  DriveSound drive = driveTemplate_;
+  bool driveOn = driveOnAtStart_;
+  // The faithful drive is one switch for two things: the drive heard, and
+  // the disk at its real pace through the ROM's own driver.  Requested
+  // rather than set -- a snapshot can bring the machine back mid-way through
+  // something (RequestBiosDiskBypass).
+  machine.RequestBiosDiskBypass(!driveOn);
 
   AudioPlayer audio;
   // Told to the window rather than printed: there is no console unless the
@@ -1033,6 +1053,15 @@ void EmulatorThread::Run() {
       case Command::Type::kSetPhoneLine:
         machine.SetPhoneLine(command.flag);
         break;
+      case Command::Type::kSetFaithfulDrive:
+        if (command.flag != driveOn) {
+          driveOn = command.flag;
+          drive = driveTemplate_;
+          machine.RequestBiosDiskBypass(!driveOn);
+          // What the drive did while nobody listened is not owed to anyone.
+          machine.TakeDriveEvents();
+        }
+        break;
       case Command::Type::kDumpDiagnostics:
         host::Print(std::wstring(L"\r\n[Režim písania: ") +
                     ModeName(host.mode) + L"]\r\n");
@@ -1270,7 +1299,30 @@ void EmulatorThread::Run() {
     auto output = machine.TakeConsoleOutput();
     if (!output.empty() && diagnostics_.load(std::memory_order_relaxed))
       host::Print(DecodeKamenicky(output.data(), output.size()));
-    audio.Submit(machine.TakeAudio());
+    // The drive goes under the machine's own samples, so the rate steering
+    // above sees one stream and nothing about its latency changes.  Its
+    // events are always taken, like the console, so they cannot pile up
+    // while the sound is off.
+    std::vector<int16_t> samples = machine.TakeAudio();
+    const auto driveEvents = machine.TakeDriveEvents();
+    if (driveOn) {
+      // Real time once the machine has actually taken the switch, which
+      // waits for it to be idle; until then the events are still instant
+      // ones and the backdrop of step 2 plays them.
+      drive.SetRealTime(!machine.bios_disk_bypass());
+      if (!samples.empty()) {
+        drive.Mix(driveEvents, samples, machine.cycles());
+      } else if (machine.powered_off() && !drive.Idle() && audio.Ready()) {
+        // Switched off, the machine gives no samples at all, but the drive
+        // finishes: just enough to keep the device at its usual latency.
+        const double missing = kTargetLatencyMs - audio.QueuedMs();
+        if (missing > 0) {
+          samples.assign(static_cast<std::size_t>(missing * EurekaMachine::kAudioHz / 1000.0), 0);
+          drive.Continue(samples);
+        }
+      }
+    }
+    audio.Submit(std::move(samples));
 
     // The machine switched itself off: the four cursor keys from the Main
     // Menu, or five minutes of nobody touching it.  It says "konec" first, and

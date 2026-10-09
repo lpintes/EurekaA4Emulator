@@ -28,6 +28,7 @@ constexpr wchar_t kKeyboardPc[] = L"externa";
 constexpr char kSpeechRateKey[] = "rychlost-reci";
 constexpr char kVolumeKey[] = "hlasitost";
 constexpr char kCheckUpdatesKey[] = "aktualizacie";
+constexpr char kFaithfulDriveKey[] = "verna-mechanika";
 constexpr char kLastUpdateCheckKey[] = "posledna-kontrola";
 constexpr char kSkippedVersionKey[] = "preskocena-verzia";
 constexpr char kCablePortKey[] = "kabel-port";
@@ -146,6 +147,11 @@ fs::path Settings::ExtraRamSnapshotFile() {
   return dir.empty() ? fs::path{} : dir / L"pamat-banka4.bin";
 }
 
+fs::path Settings::DriveSoundsDirectory() {
+  const fs::path dir = ConfigDirectory();
+  return dir.empty() ? fs::path{} : dir / L"zvuky-mechaniky";
+}
+
 void Settings::Load() {
   std::ifstream input(file_, std::ios::binary);
   if (!input) return;
@@ -186,6 +192,11 @@ void Settings::Load() {
     if (key == kCheckUpdatesKey) {
       // Same rule as keep_ram: only "0" turns it off.
       checkUpdates_ = value != L"0";
+      continue;
+    }
+    if (key == kFaithfulDriveKey) {
+      // Same rule as rozsirena-ram: only "1" turns it on.
+      faithfulDrive_ = value == L"1";
       continue;
     }
     if (key == kLastUpdateCheckKey) {
@@ -278,6 +289,8 @@ bool Settings::Save(std::wstring& error) const {
   text += L"hlasitost=" + std::to_wstring(volume_) + L"\r\n";
   // Written at its default, like zachovat-ram, so the switch can be found.
   text += std::wstring(L"aktualizacie=") + (checkUpdates_ ? L"1" : L"0") + L"\r\n";
+  // At its default too, so someone editing the file finds the switch.
+  text += std::wstring(L"verna-mechanika=") + (faithfulDrive_ ? L"1" : L"0") + L"\r\n";
   if (!lastUpdateCheck_.empty())
     text += L"posledna-kontrola=" + lastUpdateCheck_ + L"\r\n";
   if (!skippedVersion_.empty())

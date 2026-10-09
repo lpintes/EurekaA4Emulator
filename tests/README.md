@@ -69,6 +69,18 @@ window is the one unplugging; and
 the address typed by the user is parsed the same way the dialog will. No ROM,
 loopback only, every port from `Listen(0)`.
 
+`drive_sound_test.cpp` covers the drive sound (`src/drive_sound.*`, HANDOFF
+6.54) with no ROM and no sound device. It builds its own set of WAVs, each a
+single constant level, so the mixer's output says which recording is playing,
+and compares levels with the motor's loop rather than with numbers. It holds
+that the drive stays silent while the DAC plays, that the motor spins up, the
+step falls only after the 1.2 s spin-up and the motor stops 1.8 s after the
+work, that `Continue` lets the drive finish with no machine behind it, that a
+long seek plays the raking, that the same events give the same sound, and that
+a set at the wrong rate or without a step is refused with a reason naming the
+file. Mutation-checked: no wait for the DAC, a motor that never stops and an
+empty `Continue` each fail their own checks.
+
 `disk_test.cpp` covers the diskette model: capacity, naming, swapping, the
 unformatted state, and what a file looks like on its way back to the host.
 Everything it needs it makes for itself in the system temp folder, because a
@@ -146,7 +158,10 @@ them on the same diskette.
   first and skips it when the medium has no format at all -- what made it look
   unconditional was the model answering that test with "formatted" whatever was
   in the drive (6.30). Measured: on an unformatted diskette the format now runs
-  straight through on one `y`;
+  straight through on one `y`. It also holds what the drive's mechanics
+  reported for the drive sound (`CheckFormatMovedTheHead`, HANDOFF 6.54): a
+  format on every track and the head walking in one cylinder at a time.
+  Mutation-checked: a Step that does not move the head fails it;
 
 - `hlaseni` asks the machine about drives it cannot read, entry point by
   entry point, and checks it says what the real machine said when the owner
@@ -224,7 +239,12 @@ them on the same diskette.
   silently letting every mismatched snapshot load.  Needs no files on the
   disk;
 - `dc` checks the output settles to silence after speech, whatever the DAC is
-  left holding;
+  left holding; among its hardware checks it also drives the WD1772 through
+  its ports with the drive's timing on (HANDOFF 6.54, step 4b): a stopped
+  motor spins up for six revolutions, the motor bit stays on 1.7 s and is
+  off by 1.9 s, the index comes once a revolution, and sector 5 read at the
+  index ends when it has passed under the head. Mutation-checked, each of
+  the four fails its own line;
 - `rtc` first checks that F2 announces the time: the hours, then the minutes
   once the hours have been said.  Both are spoken from the conversion buffer
   by `.spconv`, not by `.speak`, so a speech capture that loses that entry
@@ -328,11 +348,26 @@ A genuine `READ.COM` ships with the Technical Manual's development disk, which
 is third-party material and therefore **not in this repository** -- see
 `ROM-NOTICE.txt`.  Point `EUREKATECH` at your copy of that folder (the default
 is `C:\b\eurekatech`) and `run-tests.bat` copies the file in for you.
+`BEEP.BAS` it does not copy, and nothing else does: `bas` then loads nothing
+("soubor nelze najít, chyba 21") and still passes. That predates the drive
+sound work and is noted in HANDOFF 6.54, step 4a.
+
+With `EA4_BEZ_SKRATKY` set (any value) `integration_test` and `diag_probe`
+send every disk call through the ROM's own driver and the controller instead
+of the BIOS bypass (HANDOFF 6.54, step 4a); the whole suite passes that way
+too. The driver is far slower and pauses for over half a second in the middle
+of a load, so `com`, `wp`, `trap` and `bas` wait for what they expect -- the
+prompt, the goodbye, the firmware waiting for a key after LOAD -- rather than
+for the first quiet.
 
 Without it the `com` and `wp` modes are skipped and the suite reports
-twenty `PASS` lines instead of twenty-two, saying so as it goes.  Both modes run that
+twenty-two `PASS` lines instead of twenty-four, saying so as it goes.  Both modes run that
 same `READ.COM`: `com` to start it, `wp` to show a write-protected diskette
-still reads (`CheckProtectedDiskStillReads`).  Nothing else needs the manual.
+still reads (`CheckProtectedDiskStillReads`).  `wp` also holds that the
+drive events see ordinary file I/O, which never reaches the controller: the
+load has to report its reads and a seek out from the directory (HANDOFF 6.54;
+a BIOS read that leaves the head where it was fails it).  Without the manual
+nothing holds that.  Nothing else needs the manual.
 Copy the file yourself only if you are running `integration_test.exe` by hand
 -- and keep it byte for byte as it came off the original diskette, because
 both modes depend on that.
@@ -478,7 +513,11 @@ swung, which is the one report no hole in the speech capture can fool.
 sound from silence and nothing else, while a crackle is a shape that has to be
 looked at.  What comes out is the model alone -- no device, no queue, no
 steered clock -- so a defect that survives into the file is in the model and
-one that does not is in the real time path.  `dac:N` asks the other half of
+one that does not is in the real time path.  `wavm:FILE` is the same with the
+drive sound mixed in (HANDOFF 6.54) and runs on until the drive has stopped,
+because the drive keeps a slower timeline of its own; with
+`EA4_ZVUKY_MECHANIKY` naming a folder of recordings it plays those instead
+of the synthesized drive.  `dac:N` asks the other half of
 the question, how the DAC is being driven: the gaps between **writes** (always
 540 cycles while a tune plays; twice that would be a lost PRT0 interrupt) and
 how far the value moves when they come (a jump near 256 would be the

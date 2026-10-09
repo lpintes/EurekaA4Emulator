@@ -1237,6 +1237,100 @@ bool CheckPhoneLine(EurekaMachine& machine) {
 // RAM4B tells the two apart.  With it both answer as one bank, by CPU and by
 // DMA, and neither lands in the standard RAM at 7xxxxh.  Removing the module
 // has to take its contents with it.  Leaves the machine without it.
+// The WD1772's timing with the BIOS bypass off (HANDOFF 6.54, step 4b): the
+// controller driven directly through its ports while the CPU sits on DI;
+// JR $, so no firmware touches it in between.  What it holds is what nothing
+// else would notice -- with the timing broken the suite only runs faster:
+// a stopped motor spins up for six revolutions, the motor bit stays on for
+// nine after the last command, the index comes round once a revolution, and
+// a sector read ends when that sector has passed under the head.
+bool CheckDriveTiming(EurekaMachine& machine) {
+  constexpr uint16_t kScratch = 0x8000;
+  constexpr uint64_t kRev = EurekaMachine::kCpuHz / 5;
+  // One pass of the waiting loop is a few dozen cycles; the margins are wider
+  // than that and far narrower than anything they tell apart.
+  constexpr uint64_t kSlack = 2000;
+  machine.SetBiosDiskBypass(false);
+  machine.debug_poke(kScratch, 0xf3);      // di
+  machine.debug_poke(kScratch + 1, 0x18);  // jr $
+  machine.debug_poke(kScratch + 2, 0xfe);
+  machine.debug_set_pc(kScratch);
+  auto status = [&machine] { return machine.debug_in(hw::kFdcStatus); };
+  auto run = [&machine](uint64_t cycles) {
+    const uint64_t end = machine.cycles() + cycles;
+    while (machine.cycles() < end) machine.Step();
+  };
+  // Cycles until BUSY drops, or ~0 after `limit`.
+  auto untilReady = [&](uint64_t limit) {
+    const uint64_t start = machine.cycles();
+    while (machine.cycles() - start < limit) {
+      if ((status() & hw::kFdcStatusBusy) == 0) return machine.cycles() - start;
+      machine.Step();
+    }
+    return ~0ull;
+  };
+  bool ok = true;
+  auto fail = [&ok](const std::string& what) {
+    std::cout << "  casovanie mechaniky: " << what << "\n";
+    ok = false;
+  };
+
+  // Let any motor still running from the boot stop, then home the head.
+  run(3 * EurekaMachine::kCpuHz);
+  machine.debug_out(hw::kFdcData, 0);
+  machine.debug_out(hw::kFdcCommand, hw::kFdcCmdSeek);
+  const uint64_t spinUp = untilReady(10 * kRev);
+  if (spinUp < 6 * kRev || spinUp > 6 * kRev + kSlack)
+    fail("roztocenie trvalo " + std::to_string(spinUp) + " cyklov namiesto 6 otacok");
+
+  // The motor bit: on 1.7 s after the command, off by 1.9 s.
+  if ((status() & hw::kFdcStatusMotorOn) == 0) fail("po prikaze motor nebezi");
+  run(EurekaMachine::kCpuHz * 17 / 10);
+  if ((status() & hw::kFdcStatusMotorOn) == 0) fail("motor zastal pred 9 otackami");
+  machine.debug_out(hw::kFdcCommand, hw::kFdcCmdSeek);  // keep it going
+  untilReady(kRev);
+
+  // The index: two rising edges, one revolution apart.
+  auto nextIndex = [&](uint64_t limit) {
+    const uint64_t start = machine.cycles();
+    bool was = (status() & hw::kFdcStatusIndex) != 0;
+    while (machine.cycles() - start < limit) {
+      machine.Step();
+      const bool now = (status() & hw::kFdcStatusIndex) != 0;
+      if (now && !was) return machine.cycles();
+      was = now;
+    }
+    return 0ull;
+  };
+  const uint64_t first = nextIndex(2 * kRev);
+  const uint64_t second = first ? nextIndex(2 * kRev) : 0;
+  if (!first || !second) {
+    fail("indexovy impulz neprisiel");
+  } else if (second - first < kRev - kSlack || second - first > kRev + kSlack) {
+    fail("index raz za " + std::to_string(second - first) + " cyklov namiesto " +
+         std::to_string(kRev));
+  }
+
+  // Sector 5 read right at the index: done when its ID (byte 151 + 4 * 607)
+  // and its data (558 bytes more) have gone by, in bytes of 6250 a turn.
+  if (second) {
+    machine.debug_out(hw::kFdcSector, 5);
+    machine.debug_out(hw::kFdcCommand, hw::kFdcCmdReadSector);
+    const uint64_t read = untilReady(2 * kRev);
+    const uint64_t want = (151 + 4 * 607 + 558) * kRev / 6250;
+    if (read == ~0ull || read + kSlack < want || read > want + kSlack)
+      fail("sektor 5 od indexu za " + std::to_string(read) + " cyklov namiesto " +
+           std::to_string(want));
+  }
+
+  // And the motor stops nine revolutions after the last command.
+  run(EurekaMachine::kCpuHz * 19 / 10);
+  if ((status() & hw::kFdcStatusMotorOn) != 0) fail("motor bezi aj 1,9 s po prikaze");
+
+  machine.SetBiosDiskBypass(true);
+  return ok;
+}
+
 bool CheckExtraRam(EurekaMachine& machine) {
   constexpr uint32_t kRomByte = 0x1d3a0;  // first SYSJUMPS entry, C3h
   constexpr uint32_t kBank4 = 0x42000;
@@ -1732,6 +1826,43 @@ bool CheckMusicStops(EurekaMachine& machine) {
 // formatting asks a question and waits for the answer to be typed.
 bool Type(EurekaMachine& machine, const std::string& text);
 
+// What the drive's mechanics went through during a format, as the drive sound
+// will hear it (HANDOFF 6.54).  Measured with diag_probe's "mechanika" before
+// it was written: one Write Track per side of every cylinder, and between
+// cylinders one Step In (50h at 19EE8) -- a step of exactly one, inward.
+// The format walks with Step In and not with Seek, and the head is recorded
+// apart from the update flag, so a model that moved it only with the track
+// register would still pass every other check here and fall silent in this
+// one.
+bool CheckFormatMovedTheHead(const std::vector<EurekaMachine::DriveEvent>& events) {
+  using Kind = EurekaMachine::DriveEvent::Kind;
+  bool formatted[80][2]{};
+  unsigned steps = 0;
+  for (const auto& event : events) {
+    if (event.kind == Kind::kFormat && event.to < 80) formatted[event.to][event.side] = true;
+    if (event.kind != Kind::kSeek) continue;
+    if (event.to != event.from + 1) {
+      std::cout << "  formatovanie pohlo hlavickou z " << unsigned(event.from) << " na "
+                << unsigned(event.to) << ", nie o jeden cylinder dnu\n";
+      return false;
+    }
+    ++steps;
+  }
+  for (unsigned cylinder = 0; cylinder < 80; ++cylinder) {
+    for (unsigned side = 0; side <= 1; ++side) {
+      if (formatted[cylinder][side]) continue;
+      std::cout << "  mechanika nehlasila formatovanie stopy " << cylinder << "/" << side
+                << "\n";
+      return false;
+    }
+  }
+  if (steps < 79) {
+    std::cout << "  pri formatovani sa hlavicka pohla len " << steps << "-krat\n";
+    return false;
+  }
+  return true;
+}
+
 // Formatting a diskette that has never been formatted.
 //
 // Until now the format routine only ever ran against a host folder, where it
@@ -1759,6 +1890,7 @@ bool CheckFormatsBlankDiskette(EurekaMachine& machine) {
   }
 
   machine.TakeSpeechInput();
+  machine.TakeDriveEvents();
   machine.QueueKey(0xd7);
   // It asks first -- "mam formatovat disk, ano nebo ne?" -- and waits.  Not a
   // detail worth skipping past: a format that started on a keystroke alone
@@ -1827,7 +1959,7 @@ bool CheckFormatsBlankDiskette(EurekaMachine& machine) {
     std::cout << "  has_format() zostalo false aj po formatovani\n";
     return false;
   }
-  return true;
+  return CheckFormatMovedTheHead(machine.TakeDriveEvents());
 }
 
 // Runs for a fixed stretch and hands back everything the machine said in it.
@@ -1865,11 +1997,16 @@ std::vector<uint8_t> RunAndListen(EurekaMachine& machine, uint64_t budget) {
 bool CheckProtectedDiskStillReads(EurekaMachine& machine) {
   machine.SetDiskWriteProtected(true);
   machine.Reset();
+  machine.TakeDriveEvents();
   const uint64_t kQuiet = EurekaMachine::kCpuHz / 2;
   std::vector<uint8_t> console;
   uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
   unsigned fed = 0;
-  while (machine.instructions() < 60'000'000) {
+  // A ceiling; the loop leaves once the prompt is there.  The ROM's own disk
+  // driver (EA4_BEZ_SKRATKY, HANDOFF 6.54) needs about twenty seconds of
+  // machine time for this load and pauses for over half a second at a time
+  // in the middle of it, so the first quiet is not the end.
+  while (machine.instructions() < 400'000'000) {
     auto chunk = machine.TakeConsoleOutput();
     if (!chunk.empty()) {
       console.insert(console.end(), chunk.begin(), chunk.end());
@@ -1883,7 +2020,9 @@ bool CheckProtectedDiskStillReads(EurekaMachine& machine) {
       ++fed;
     }
     if (!machine.Step() && machine.powered_off()) break;
-    if (fed >= 2 && machine.cycles() > lastOut + 3 * kQuiet) break;
+    if (fed >= 2 && machine.cycles() > lastOut + 3 * kQuiet &&
+        Contains(console, "Read which file?"))
+      break;
   }
   if (!Contains(console, "Read which file?")) {
     std::cout << "  READ.COM sa z chranenej diskety nespustil\n";
@@ -1895,6 +2034,28 @@ bool CheckProtectedDiskStillReads(EurekaMachine& machine) {
   if (machine.debug_bios_reads() < 150) {
     std::cout << "  chranena disketa dala len " << machine.debug_bios_reads()
               << " citani BIOSu\n";
+    return false;
+  }
+  // The same load as the drive hears it (HANDOFF 6.54).  With the bypass
+  // those reads never reach the controller -- InterceptBios answers them --
+  // so this is the one check that the drive sound is not deaf to ordinary
+  // file I/O.  Measured with diag_probe: the directory on cylinder 0, then
+  // out to the data on 1 and 2, and back.
+  //
+  // Counted in bytes, not reads: the bypass reports 196 records of 128, the
+  // ROM's own driver (EA4_BEZ_SKRATKY) 52 sectors of 512, since it keeps the
+  // last sector and takes four records out of it (step 4b).  Either way a
+  // 16K program is at least 16 KiB off the surface.
+  using Kind = EurekaMachine::DriveEvent::Kind;
+  unsigned bytes = 0;
+  unsigned outward = 0;
+  for (const auto& event : machine.TakeDriveEvents()) {
+    if (event.kind == Kind::kRead) bytes += event.bytes;
+    if (event.kind == Kind::kSeek && event.from == 0 && event.to > 0) ++outward;
+  }
+  if (bytes < 16 * 1024 || outward == 0) {
+    std::cout << "  mechanika pri nacitani programu: precitanych bajtov " << bytes
+              << ", presunov z adresara " << outward << "\n";
     return false;
   }
   return true;
@@ -2483,7 +2644,11 @@ bool CheckUndefinedOpcodeTraps(EurekaMachine& machine) {
   uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
   unsigned fed = 0;
   bool typed = true;
-  while (machine.instructions() < 40'000'000) {
+  // A ceiling; the loop leaves once the machine has said goodbye.  Through
+  // the ROM's own disk driver (EA4_BEZ_SKRATKY, HANDOFF 6.54) the load has
+  // pauses longer than a quiet of its own, so silence alone ended it early.
+  const std::string goodbye = "ahoj";
+  while (machine.instructions() < 400'000'000) {
     const auto said = machine.TakeSpeechInput();
     if (!said.empty()) {
       spoken.insert(spoken.end(), said.begin(), said.end());
@@ -2500,7 +2665,10 @@ bool CheckUndefinedOpcodeTraps(EurekaMachine& machine) {
       ++fed;
     }
     if (!machine.Step() && machine.powered_off()) break;
-    if (fed >= 2 && machine.cycles() > lastOut + 3 * kQuiet) break;
+    if (fed >= 2 && machine.cycles() > lastOut + 3 * kQuiet &&
+        std::search(spoken.begin(), spoken.end(), goodbye.begin(), goodbye.end()) !=
+            spoken.end())
+      break;
   }
   fs::remove_all(dir, ec);
   if (!typed) return false;
@@ -2930,9 +3098,76 @@ std::optional<std::pair<std::wstring, std::wstring>> ComPairFromEnvironment() {
   return std::make_pair(text.substr(0, comma), text.substr(comma + 1));
 }
 
+// The faithful drive switched on a running machine (HANDOFF 6.54, step 4c),
+// as the window does it: RequestBiosDiskBypass.  Run after the com mode has
+// brought READ.COM to its prompt, so the machine is waiting for a key and the
+// switch has to go through at once.  Then READ again, asked back half way
+// through the load: the switch must wait until the last disk access is over
+// -- taken in the middle, a driver would be handed a transfer for a track it
+// was never told -- and the program must still load.  The suite runs both
+// ways (EA4_BEZ_SKRATKY), so each direction is covered by one of the runs.
+bool CheckFaithfulSwitch(EurekaMachine& machine, eureka::Session& session) {
+  using eureka::Budget;
+  const bool before = machine.bios_disk_bypass();
+  bool ok = true;
+  auto fail = [&ok](const std::string& what) {
+    std::cout << "  prepnutie mechaniky: " << what << "\n";
+    ok = false;
+  };
+
+  machine.RequestBiosDiskBypass(!before);
+  if (!session.TryWaitUntil([&] { return machine.bios_disk_bypass() != before; },
+                            Budget::Instructions(5'000'000)))
+    fail("pri cakani na klaves sa neprepol");
+
+  session.Pc(eureka::pc::Esc);
+  if (!session.TryWaitIdle(Budget::Instructions(100'000'000))) fail("READ sa neukoncil");
+  machine.QueueKey(0xd6);
+  if (!session.TryWaitIdle(Budget::Instructions(100'000'000))) fail("nepytal sa na program");
+  if (!ok) return false;
+  machine.TakeDriveEvents();
+  session.TakeConsole();
+  if (!Type(machine, "READ\r")) return false;
+
+  std::vector<EurekaMachine::DriveEvent> events;
+  auto collect = [&] {
+    for (const auto& event : machine.TakeDriveEvents()) events.push_back(event);
+  };
+  if (!session.TryWaitUntil([&] { collect(); return !events.empty(); },
+                            Budget::Instructions(100'000'000))) {
+    fail("nacitanie nesiahlo na disketu");
+    return false;
+  }
+  machine.RequestBiosDiskBypass(before);
+  uint64_t switchedAt = 0;
+  std::vector<uint8_t> console;
+  const bool prompted = session.TryWaitUntil(
+      [&] {
+        collect();
+        if (!switchedAt && machine.bios_disk_bypass() == before) switchedAt = machine.cycles();
+        auto chunk = session.TakeConsole();
+        console.insert(console.end(), chunk.begin(), chunk.end());
+        return switchedAt && Contains(console, "Read which file?") && session.WaitingForKey();
+      },
+      Budget::Instructions(400'000'000));
+  unsigned bytes = 0;
+  for (const auto& event : events)
+    if (event.kind == EurekaMachine::DriveEvent::Kind::kRead) bytes += event.bytes;
+  if (!prompted) fail("READ sa po druhom spusteni neozval alebo sa neprepol");
+  if (bytes < 16 * 1024) fail("precitanych len " + std::to_string(bytes) + " bajtov");
+  if (switchedAt && switchedAt < events.back().cycle)
+    fail("prepol uprostred nacitania, " + std::to_string(events.back().cycle - switchedAt) +
+         " cyklov pred poslednym pristupom na disketu");
+  return ok;
+}
+
 }  // namespace
 
 int wmain(int argc, wchar_t** argv) {
+  // Every mode through the ROM's own disk driver instead of the BIOS bypass
+  // (HANDOFF 6.54, step 4a).  A variable rather than a mode, because the
+  // question is whether the modes that exist pass that way.
+  if (_wgetenv(L"EA4_BEZ_SKRATKY")) EurekaMachine::SetDefaultBiosDiskBypass(false);
   if (argc != 4 ||
       (std::wstring(argv[3]) != L"com" && std::wstring(argv[3]) != L"bas" &&
        std::wstring(argv[3]) != L"kbd" && std::wstring(argv[3]) != L"power" &&
@@ -3064,9 +3299,10 @@ int wmain(int argc, wchar_t** argv) {
     const bool mirror = CheckRamMirror(*machine);
     const bool line = CheckPhoneLine(*machine);
     const bool extra = CheckExtraRam(*machine);
+    const bool drive = CheckDriveTiming(*machine);
     const bool passed = settles && aliases && internal && highByte &&
                         blockFlags && waits && refresh && sampling && mirror &&
-                        line && extra;
+                        line && extra && drive;
     std::cout << (passed ? "PASS" : "FAIL") << " mode=DC"
               << " ticho=" << (settles ? "ok" : "chyba")
               << " porty=" << (aliases ? "ok" : "chyba")
@@ -3078,7 +3314,8 @@ int wmain(int argc, wchar_t** argv) {
               << " vzorkovanie=" << (sampling ? "ok" : "chyba")
               << " zrkadlo=" << (mirror ? "ok" : "chyba")
               << " linka=" << (line ? "ok" : "chyba")
-              << " banka4=" << (extra ? "ok" : "chyba") << "\n";
+              << " banka4=" << (extra ? "ok" : "chyba")
+              << " mechanika=" << (drive ? "ok" : "chyba") << "\n";
     return passed ? 0 : 1;
   }
 
@@ -3133,19 +3370,32 @@ int wmain(int argc, wchar_t** argv) {
   // Nahradou je ticho: dalsi klaves ide az ked stroj pol sekundy nic nevypisal.
   const uint64_t kQuiet = EurekaMachine::kCpuHz / 2;
   const unsigned kSteps = basic ? 3u : 2u;
+  // Stepped through a session only for WaitingForKey: it is what tells when
+  // LOAD is over.  Console, speech and audio come from the session too, since
+  // its Step takes them out of the machine.
+  eureka::Session session(*machine);
   std::vector<uint8_t> console;
   uint64_t lastOut = EurekaMachine::kCpuHz * 3;  // nechaj stroj nabehnut
   unsigned fed = 0;
   bool typed = true;
   uint64_t runStarted = 0;
-  constexpr uint64_t kLimit = 60'000'000;
+  // RUN waits for LOAD to be over -- the firmware waiting for a key again --
+  // not for a pause.  Through the ROM's own disk driver (EA4_BEZ_SKRATKY,
+  // HANDOFF 6.54) a load has pauses of its own, over half a second each, and
+  // BASIC says "hotovo" for the typed line before it has even searched, so
+  // neither silence nor that word marks the end.
+  std::size_t runConsoleAt = 0;
+  // A ceiling for a machine that never gets there; the loop leaves as soon as
+  // it has what it waits for, so the BIOS bypass is no slower for it.
+  constexpr uint64_t kLimit = 400'000'000;
   while (machine->instructions() < kLimit) {
-    auto chunk = machine->TakeConsoleOutput();
+    auto chunk = session.TakeConsole();
     if (!chunk.empty()) {
       console.insert(console.end(), chunk.begin(), chunk.end());
       lastOut = machine->cycles();
     }
-    if (fed < kSteps && machine->cycles() > lastOut + kQuiet) {
+    const bool loaded = fed != 2 || session.WaitingForKey();
+    if (fed < kSteps && machine->cycles() > lastOut + kQuiet && loaded) {
       lastOut = machine->cycles();
       if (fed == 0) machine->QueueKey(basic ? 0xc5 : 0xd6);
       else if (fed == 1)
@@ -3153,6 +3403,7 @@ int wmain(int argc, wchar_t** argv) {
       else {
         typed = Type(*machine, "RUN\r");
         runStarted = machine->instructions();
+        runConsoleAt = console.size();
       }
       if (!typed) break;
       ++fed;
@@ -3160,14 +3411,27 @@ int wmain(int argc, wchar_t** argv) {
     // A machine that has switched itself off never executes again, so the
     // instruction and cycle counters stop moving: without this the loop's own
     // deadlines can never come due and the test hangs instead of failing.
-    if (!machine->Step() && machine->powered_off()) break;
-    if (basic && runStarted && machine->instructions() > runStarted + 5'000'000)
+    if (!session.Step() && machine->powered_off()) break;
+    // Five million after RUN once BASIC has said "hotovo" to it, up to fifty
+    // if it has not: the ROM's own disk driver (EA4_BEZ_SKRATKY) takes
+    // longer.  The search runs only once five million have passed, not on
+    // every instruction.
+    if (basic && runStarted) {
+      const uint64_t after = machine->instructions() - runStarted;
+      if (after > 50'000'000) break;
+      if (after > 5'000'000 &&
+          Contains(std::vector<uint8_t>(console.begin() + runConsoleAt, console.end()), "hotovo"))
+        break;
+    }
+    // Done once the program has asked its question and gone quiet -- not at
+    // the first quiet, which the ROM's own driver has in the middle of a load.
+    if (!basic && fed >= kSteps && machine->cycles() > lastOut + 3 * kQuiet &&
+        Contains(console, "Read which file?"))
       break;
-    if (!basic && fed >= kSteps && machine->cycles() > lastOut + 3 * kQuiet) break;
   }
 
-  const auto speech = machine->TakeSpeechInput();
-  const auto audio = machine->TakeAudio();
+  const auto speech = session.TakeSpeech();
+  const auto audio = session.TakeAudio();
   // The console is checked by content, not by length.  A byte count passed
   // happily while every character was being emitted twice ("hhoottoovvoo").
   const bool passed = typed && (basic
@@ -3177,12 +3441,14 @@ int wmain(int argc, wchar_t** argv) {
       : fed >= 2 && machine->debug_bios_reads() >= 150 &&
             Contains(speech, "Read which file?") &&
             Contains(console, "Read which file?"));
-  std::cout << (passed ? "PASS" : "FAIL")
+  const bool switched = basic || (passed && CheckFaithfulSwitch(*machine, session));
+  std::cout << (passed && switched ? "PASS" : "FAIL")
             << " mode=" << (basic ? "BAS" : "COM")
+            << (basic ? "" : switched ? " prepnutie=ok" : " prepnutie=chyba")
             << " instructions=" << machine->instructions()
             << " bios_reads=" << machine->debug_bios_reads()
             << " console=" << console.size()
             << " speech=" << speech.size()
             << " audio=" << audio.size() << "\n";
-  return passed ? 0 : 1;
+  return passed && switched ? 0 : 1;
 }

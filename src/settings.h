@@ -111,6 +111,20 @@ class Settings {
   // is in Nastavenia.
   bool check_updates() const { return checkUpdates_; }
   void SetCheckUpdates(bool check) { checkUpdates_ = check; }
+
+  // The faithful drive (HANDOFF 6.54, step 4c): the drive heard, and the
+  // disk at its real pace through the ROM's own driver -- one switch, because
+  // the owner found either half without the other strange.  Default off, and
+  // only an explicit "1" turns it on: it is a new noise under the machine's
+  // voice, which is the whole of its user interface, and it makes every disk
+  // operation slower, so nobody gets it without asking.  The switch is in
+  // Nastavenia.
+  bool faithful_drive() const { return faithfulDrive_; }
+  void SetFaithfulDrive(bool on) { faithfulDrive_ = on; }
+  // A folder of the user's own drive sounds, by the same portable/roaming
+  // rule as FindFile, used instead of the set built into the EXE when it
+  // exists.  Empty when there is nowhere to look.
+  static std::filesystem::path DriveSoundsDirectory();
   // The day the last check got an answer, "YYYY-MM-DD", so the start-up asks
   // at most once a day.  Kept as written; update::CheckDue interprets it.
   const std::wstring& last_update_check() const { return lastUpdateCheck_; }
@@ -171,6 +185,7 @@ class Settings {
   int speechRate_ = sliders::kRateDefault;
   int volume_ = sliders::kVolumeDefault;
   bool checkUpdates_ = true;
+  bool faithfulDrive_ = false;
   std::wstring lastUpdateCheck_;
   std::wstring skippedVersion_;
   std::wstring cablePort_;

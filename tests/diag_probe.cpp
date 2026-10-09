@@ -18,6 +18,8 @@
 // "vypni"/"zapni"/"studeno" for the power switch and the two ways back on,
 // "cas:+7d" to move the clock the RTC answers with, "budik" to print it
 // beside the alarm the firmware armed, "zvuk" for what the loudspeaker got,
+// "mechanika" for what the drive's head and surface went through since it
+// was last asked,
 // "wav:SUBOR" to write those samples out as a WAV instead of counting them,
 // "rychlost:N" and "hlasitost:N" to move the two sliders (sliders.h),
 // "+banka4"/"-banka4" to fit or remove the extra RAM at 40000h,
@@ -52,6 +54,7 @@
 #include <utility>
 #include <vector>
 
+#include "drive_sound.h"
 #include "eureka_session.h"
 #include "machine.h"
 #include "virtual_disk.h"
@@ -85,6 +88,31 @@ std::string Label(const std::wstring& token) {
 
 using eureka::Readable;
 
+// 16-bit mono PCM at the machine's rate.  False if the file could not be made.
+bool WriteWav(const std::wstring& path, const std::vector<int16_t>& samples) {
+  FILE* out = _wfopen(path.c_str(), L"wb");
+  if (!out) return false;
+  const uint32_t rate = EurekaMachine::kAudioHz;
+  const uint32_t bytes = static_cast<uint32_t>(samples.size() * 2);
+  auto put32 = [out](uint32_t value) { std::fwrite(&value, 4, 1, out); };
+  auto put16 = [out](uint16_t value) { std::fwrite(&value, 2, 1, out); };
+  std::fwrite("RIFF", 1, 4, out);
+  put32(36 + bytes);
+  std::fwrite("WAVEfmt ", 1, 8, out);
+  put32(16);
+  put16(1);
+  put16(1);
+  put32(rate);
+  put32(rate * 2);
+  put16(2);
+  put16(16);
+  std::fwrite("data", 1, 4, out);
+  put32(bytes);
+  std::fwrite(samples.data(), 1, bytes, out);
+  std::fclose(out);
+  return true;
+}
+
 // Runs until the console has been quiet for half a second or the budget is
 // spent.  It used to run until the BIOS blocked on console input, but the CPU
 // is not parked there any more -- the ROM waits for a key by spinning, as the
@@ -112,6 +140,11 @@ int wmain(int argc, wchar_t** argv) {
     return 2;
   }
   const std::wstring mode = argv[3];
+  // The ROM's own disk driver instead of the BIOS bypass (HANDOFF 6.54).
+  if (_wgetenv(L"EA4_BEZ_SKRATKY")) {
+    EurekaMachine::SetDefaultBiosDiskBypass(false);
+    std::printf("disk: ovladac z ROM, bez skratky BIOS-u\n");
+  }
   const uint64_t budget = argc > 4 ? _wcstoui64(argv[4], nullptr, 10) : 4'000'000;
 
   auto machine = std::make_unique<EurekaMachine>();
@@ -126,6 +159,17 @@ int wmain(int argc, wchar_t** argv) {
   }
   machine->diagnostics().set_enabled(true);
   eureka::Session session(*machine);
+  DriveSound drive;
+  // A timed controller reports the moments the drive acts, so the sound
+  // follows them as they happen (HANDOFF 6.54, step 4c).
+  drive.SetRealTime(_wgetenv(L"EA4_BEZ_SKRATKY") != nullptr);
+  // The recorded drive sounds are not in the tree; a folder of them is named
+  // here, and without one wavm: plays the synthesized drive (HANDOFF 6.54).
+  if (const wchar_t* folder = _wgetenv(L"EA4_ZVUKY_MECHANIKY")) {
+    std::string why;
+    if (drive.LoadSamples(folder, why)) std::printf("zvuky mechaniky: nahravky\n");
+    else std::printf("zvuky mechaniky: nahravky sa nenacitali (%s), syntetizovane\n", why.c_str());
+  }
 
   if (mode == L"seq") {
     session.Reset();
@@ -378,33 +422,42 @@ int wmain(int argc, wchar_t** argv) {
         // steered -- so a defect that survives into the file is in the model,
         // and one that does not is in the real time path (HANDOFF 6.37).
         const std::vector<int16_t> samples = session.TakeAudio();
-        const std::wstring path = token.substr(4);
-        FILE* out = _wfopen(path.c_str(), L"wb");
-        if (!out) {
+        const uint32_t rate = EurekaMachine::kAudioHz;
+        if (!WriteWav(token.substr(4), samples)) {
           std::printf("%s -> [nepodarilo sa zapisat]\n", Label(token).c_str());
           continue;
         }
-        const uint32_t rate = EurekaMachine::kAudioHz;
-        const uint32_t bytes = static_cast<uint32_t>(samples.size() * 2);
-        auto put32 = [out](uint32_t value) { std::fwrite(&value, 4, 1, out); };
-        auto put16 = [out](uint16_t value) { std::fwrite(&value, 2, 1, out); };
-        std::fwrite("RIFF", 1, 4, out);
-        put32(36 + bytes);
-        std::fwrite("WAVEfmt ", 1, 8, out);
-        put32(16);
-        put16(1);
-        put16(1);
-        put32(rate);
-        put32(rate * 2);
-        put16(2);
-        put16(16);
-        std::fwrite("data", 1, 4, out);
-        put32(bytes);
-        std::fwrite(samples.data(), 1, bytes, out);
-        std::fclose(out);
         std::printf("%s -> [vzoriek=%zu, %.2f s pri %u Hz]\n", Label(token).c_str(),
                     samples.size(),
                     double(samples.size()) / double(rate), unsigned(rate));
+        continue;
+      }
+      if (token.starts_with(L"wavm:")) {
+        // The same samples with the drive mixed in (HANDOFF 6.54), the way the
+        // emulator will play them -- "wav:" stays the model's own output.  The
+        // drive keeps its own, slower timeline, so the file runs on past the
+        // machine's samples until the drive has stopped, or for two minutes.
+        std::vector<int16_t> samples = session.TakeAudio();
+        uint64_t end = machine->cycles();
+        drive.Mix(machine->TakeDriveEvents(), samples, end);
+        const std::size_t machineSamples = samples.size();
+        constexpr std::size_t kChunk = EurekaMachine::kAudioHz / 10;
+        constexpr uint64_t kCyclesPerChunk =
+            kChunk * (EurekaMachine::kCpuHz / EurekaMachine::kAudioHz);
+        for (int chunk = 0; chunk < 1200 && !drive.Idle(); ++chunk) {
+          std::vector<int16_t> tail(kChunk, 0);
+          end += kCyclesPerChunk;
+          drive.Mix({}, tail, end);
+          samples.insert(samples.end(), tail.begin(), tail.end());
+        }
+        const uint32_t rate = EurekaMachine::kAudioHz;
+        if (!WriteWav(token.substr(5), samples)) {
+          std::printf("%s -> [nepodarilo sa zapisat]\n", Label(token).c_str());
+          continue;
+        }
+        std::printf("%s -> [%.2f s stroja, %.2f s spolu, mechanika %s]\n",
+                    Label(token).c_str(), double(machineSamples) / rate,
+                    double(samples.size()) / rate, drive.Idle() ? "stoji" : "este bezi");
         continue;
       }
       if (token == L"zvuk") {
@@ -422,6 +475,49 @@ int wmain(int argc, wchar_t** argv) {
         }
         std::printf("%s -> [vzoriek=%zu, rozkmit %d..%d]\n", Label(token).c_str(),
                     samples.size(), low, high);
+        continue;
+      }
+      if (token == L"mechanika") {
+        // What the drive's mechanics did since the last time this was asked
+        // (HANDOFF 6.54): the ground truth a drive sound is built on.  A run
+        // of transfers on one cylinder and side is folded into one line with
+        // a count -- a file load is dozens of reads, and what the sound turns
+        // on is where the head went between them and how long it took.
+        using Kind = EurekaMachine::DriveEvent::Kind;
+        const auto events = machine->TakeDriveEvents();
+        std::printf("%s -> [udalosti=%zu]\n", Label(token).c_str(), events.size());
+        uint64_t previous = events.empty() ? 0 : events.front().cycle;
+        for (std::size_t i = 0; i < events.size();) {
+          const auto& event = events[i];
+          std::size_t run = 1;
+          if (event.kind != Kind::kSeek) {
+            while (i + run < events.size() && events[i + run].kind == event.kind &&
+                   events[i + run].to == event.to && events[i + run].side == event.side)
+              ++run;
+          }
+          const unsigned long long gap = event.cycle - previous;
+          if (event.kind == Kind::kSeek) {
+            std::printf("  +%llu presun %u -> %u, rychlost %u\n", gap, event.from, event.to,
+                        event.stepRate);
+          } else if (event.kind == Kind::kSpinUp) {
+            std::printf("  +%llu roztocenie motora\n", gap);
+          } else {
+            std::printf("  +%llu %s cylinder %u strana %u x%zu\n", gap,
+                        event.kind == Kind::kRead    ? "citanie"
+                        : event.kind == Kind::kWrite ? "zapis"
+                                                     : "formatovanie",
+                        event.to, event.side, run);
+          }
+          previous = events[i + run - 1].cycle;
+          i += run;
+        }
+        // The gaps above leave out the time inside a folded run, so they do
+        // not add up to how long the drive worked; this does.
+        if (events.size() > 1) {
+          const uint64_t span = events.back().cycle - events.front().cycle;
+          std::printf("  spolu %llu cyklov = %.2f s\n", static_cast<unsigned long long>(span),
+                      static_cast<double>(span) / EurekaMachine::kCpuHz);
+        }
         continue;
       }
       if (token == L"budik") {

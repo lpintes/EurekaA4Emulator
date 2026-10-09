@@ -1143,6 +1143,12 @@ sektory sú číslované **1 až 40**, kým `VirtualDisk::ReadRecord` berie
 ale program, ktorý si volá `bios_setsec` sám, by mal u nás všetko
 posunuté o jeden záznam a sektor 40 by skončil chybou.
 
+**Rozhodnuté 3. 10. 2026 (6.54, krok 4a), `ea4-ary` zavretý.** Vlastný
+ovládač z ROM berie sektory **od nuly**: s vypnutou skratkou BIOS-u dostal
+od BDOS-u `bios_setsec` 0 až 39 a záznam 0 čítal zo začiatku stopy (logický
+512-bajtový sektor 0). „1 až 40“ v `BIOS.9` je len spôsob, akým kapitola
+počíta v texte; model nemá chybu o jeden.
+
 ### 6.13 Časové funkcie — vyriešené
 
 **Uzavreté 26. 8. 2026, celé znenie v `HANDOFF-archiv.md`.** Budík,
@@ -2136,6 +2142,16 @@ ktorá by sa tam dostala, by emulátor zavesila natvrdo. Nepresný stav, z
 ktorého sa firmvér spamätá, je lacnejší než zaseknutý stroj. Rozdiel, ktorý
 používateľ počuje, robí `DiskFailure`. **Verify je iné** a BUSY tam zostáva:
 vydáva sa jediným miestom, a to cez `EA00`, ktorý limit má.
+
+**Odsek vyššie už neplatí (3. 10. 2026, 6.54 krok 4a).** Read Sector aj
+Write Sector bez média teraz zostávajú BUSY ako na 1772. S vypnutou skratkou
+BIOS-u ide každé čítanie cez ovládač z ROM a RNF z neho robilo „vadný disk“
+na všetkých piatich prázdnych mechanikách režimu `hlaseni`; s BUSY ich
+`EA00` vytimeoutuje a firmvér povie „disk není založen“ sám. Čakanie na
+`19EF3` patrí overovaciemu čítaniu formátovania, ku ktorému sa prázdna
+mechanika nedostane — formátovanie ju odmietne skôr. Vysunutie diskety
+uprostred formátovania by hosťa nechalo čakať, ako na hardvéri; okno aj
+reset idú ďalej. `DiskFailure` ostáva pre cestu so skratkou.
 
 **Čo drží zásah.** Nový režim `hlaseni` v `integration_test`: tri prípady,
 každý s vlastným bootom, a v každom sa okrem očakávanej vety kontroluje aj to,
@@ -4085,6 +4101,511 @@ oba len s `EA4_COM_PAIR`. **Neoverené:** strata portu (vytiahnutý USB adaptér
 (com0com bez `EmuBR=yes` posiela bajty, ako prišli) a skutočná tlačiareň či
 Eureka na druhom konci. Skúška dvoch okien rukou zostáva na majiteľovi.
 
+### 6.54 Zvuk disketovej mechaniky — krok 1: stroj hlási, čo robí mechanika
+
+Prianie majiteľa (1. 10. 2026): počuť mechaniku tak ako na skutočnom stroji —
+kroky hlavičky, presuny, točenie diskety — a nakoniec aj so skutočným
+časovaním, teda s čakaním na disketu. Ide sa postupne, od najmenšieho
+kompromisu k najvernejšiemu: (1) stroj hlási udalosti mechaniky bez zmeny
+správania, (2) syntetizovaný zvuk ako kulisa s vlastnou hlasitosťou
+a vypínačom, (3) ladenie zvukov podľa sluchu majiteľa, (4) voliteľné skutočné
+časovanie radiča. Nahrávky nemáme; zvuky sa budú **syntetizovať**, lebo
+nahrávky tretích strán by do zverejneného stromu nepatrili.
+
+**Prečo dve cesty.** Bežné čítanie a zápis súborov radič vôbec nevidí —
+BIOS 13 a 14 vybavuje `InterceptBios` sám. Radičom ide len formátovanie,
+`fdc_ctl_disk_test` (verify) a `fdc_ctl_disk_in`. Udalosti preto hlásia obe
+cesty jedným slovníkom mechaniky (`EurekaMachine::DriveEvent`: presun, čítanie,
+zápis, formátovanie, s časom v cykloch), nie príkazmi radiča.
+
+**Hlavička je vlastný stav, nie `fdcTrack_`.** Register stopy je to, čo si
+myslí radič, a za obídením BIOS-u zostáva stáť. Poloha hlavičky
+(`headCylinder_`) sa hýbe aj pri kroku bez príznaku update, Seek ide na cieľ
+a nie o rozdiel voči registru, Restore na nulu (na nule krok nie je, TR00 je
+už aktívne), cesta BIOS-u na `stopa / 2` (logická stopa je cylinder × 2 +
+strana). Hostiteľ nič z toho nečíta, správanie stroja sa nemení.
+
+**Čip je WD1772-02** (`SERVICE.3`, U14) a rýchlosť kroku r1r0 je vo firmvéri
+vždy `00`, teda 6 ms na krok: `fdc_home`, `fdc_seek` a `fdc_stepin`
+v `SYSEQU.LIB` ju nenastavujú. Udalosť nesie r1r0 surovo
+(`hw::kFdcStepRate`), prevod na milisekundy patrí jednému miestu v kroku 2.
+
+**Zmerané sondou** (token `mechanika`):
+
+- **Formátovanie** nenaformátovanej diskety: na každom cylindri Write Track
+  na oboch stranách, za každým desať čítaní (overenie) a medzi cylindrami
+  jeden Step In o jeden cylinder dnu. Firmvér formátuje **81 cylindrov**
+  (0 až 80) a hlavička skončí na **81**; späť na nulu ide až pri ďalšom
+  prístupe. Na nenaformátovanej diskete sa stroj pýta len raz — „disk je už
+  naformátován“ nepríde. Spolu 162 formátovaní, 163 čítaní, 81 presunov.
+- **Kontrola „už naformátován“** na naformátovanej diskete je jediné verify
+  na cylindri 0, hlavička sa nepohne. Hlási sa ako čítanie, lebo radič pri
+  ňom číta hlavičku sektora.
+- **Načítanie programu** (`Shift+F7`, `READ`): adresár na cylindri 0,
+  dáta na 1 a 2, návrat na 0 a znova na 2 — 196 čítaní cez BIOS.
+- **`F8`** (adresár): 65 čítaní, všetky na cylindri 0.
+
+**Časovanie je teraz okamžité.** Celé formátovanie trvá v emulátore asi
+milión cyklov, desatinu sekundy; na skutočnom stroji je to rádovo minúta
+(otáčka 200 ms na stopu aj s overením). Zvuk v kroku 2 preto pôjde ako kulisa
+za strojom, verné tempo prinesie až krok 4.
+
+**Opravené pri kroku 2a:** „desatina sekundy“ bola zle prepočítaná. Takt
+je 6,144 MHz (`kCpuHz`), takže milión cyklov je asi 0,16 s a zmeraných asi
+0,9 M cyklov formátovania asi 0,15 s.
+
+**Drží to** `integration_test format` (`CheckFormatMovedTheHead`: formátovanie
+hlásené na každej stope 0–79/0–1, každý presun presne o jeden dnu, aspoň 79
+presunov) a `wp` (načítanie `READ.COM`: aspoň 150 čítaní a presun z cylindra
+0 von). Overené mutáciou: krok bez pohybu hlavičky zhodí `format`, čítanie
+BIOS-u bez presunu zhodí `wp`. `wp` bez manuálu nebeží, takže cestu BIOS-u
+vtedy nedrží nič.
+
+#### Krok 2a: syntetizovaný zvuk, zatiaľ len v sonde (1. 10. 2026, `ea4-tvd.2`)
+
+Aby majiteľ počul zvuk skôr, než sa siahne na okno, je krok 2 rozdelený:
+2a je `src/drive_sound.*` a token sondy `wavm:SUBOR`, 2b zapojenie do
+emulátora s vypínačom podľa toho, čo majiteľ na nahrávke povie.
+
+**Udalosť nesie veľkosť prenosu** (`DriveEvent::bytes`): záznam BIOS-u 128 B,
+sektor radiča 512, verify a Read Address 6 (`hw::kIdFieldBytes`), Write
+Track a Read Track celá surová stopa, 6250 B (`hw::kRawTrackBytes`). Bez nej
+by jeden čas na udalosť bol na jednej z ciest štyrikrát zle.
+
+**Čo sa syntetizuje** (`DriveSound`, čisté C++ bez hostiteľa):
+
+- **Krok hlavičky** — jedno cvaknutie, 12 ms: tri tlmené rezonancie (1800,
+  650 a 3900 Hz) a krátky výbuch šumu, každý krok trochu inak silný. Presun
+  je rad krokov po 6 ms (r1r0 = 00 na WD1772), takže dlhý presun bzučí.
+- **Točenie** — šum v pásme okolo 380 Hz, modulovaný raz za otáčku (5 Hz),
+  a slabé pískanie motora, oboje podľa rýchlosti vretena; roztočenie
+  a dobeh majú zotrvačnosť.
+- **Čas práce** — prenos trvá svoj podiel otáčky (200 ms na 6250 B), po
+  presune sa čaká v priemere pol otáčky na sektor. Motor sa po príkaze
+  roztáča 6 otáčok (1,2 s) a vypne sa 9 otáčok (1,8 s) po poslednej práci;
+  obe čísla sú správanie WD1772 s príznakom h v nule, ktorý firmvér nikdy
+  nenastavuje.
+- **Mechanika nepracuje, kým hrá DAC.** Majiteľ si pamätá zo skutočného
+  stroja (1. 10. 2026): počas reči aj inej hry na DAC disketa stála a len
+  motor dobiehal; keď reč skončila dosť skoro, alebo ju používateľ prerušil
+  Shiftom, disketa sa rozbehla bez roztáčania. Jeden procesor obsluhuje oboje.
+  Model: práca nezačne, kým výstup stroja neutíchne aspoň na 50 ms (prah 64);
+  motor medzitým dobieha a po 1,8 s sa zastaví.
+- **Motor nasleduje činnosť, nie `pol_disk`.** Je to predpoklad, nie meranie
+  (pozri Otvorené).
+
+Šum má pevné semienko, tá istá sekvencia dá bajtovo ten istý WAV (overené).
+Hladiny sú prvý odhad na ladenie v kroku 3: na nahrávke načítania `READ` má
+reč špičky 20 000 – 30 000, cvaknutia okolo 7 000 (asi o 10 dB nižšie)
+a točenie efektívnu hodnotu okolo 180 proti 5 000 pri reči (asi −29 dB).
+Načítanie dá 5,8 s stroja a 12,3 s spolu, formátovanie 6,8 s stroja a 79 s
+spolu — mechanika hrá ešte vyše minúty po „formátování skončeno“, čo je
+kompromis kulisy, nie chyba.
+
+**Ladenie s majiteľom, 1. 10. 2026 — popis točenia a kroku vyššie už
+neplatí.** Päť kôl nahrávok `nacitanie-N.wav` a `formatovanie-N.wav`:
+
+- Šum s hlbokým vlnením raz za otáčku znel pri formátovaní „ako vlak“;
+  stíšený o 12 dB „ako veľký pevný disk alebo osempalcová mechanika bez
+  krytu“. Majiteľ: na pozadí bolo vždy **vrčanie motorčeka**, šum diskety
+  v obale bolo počuť len pri poškodenej diskete alebo uvoľnenom okienku.
+  Točenie je preto teraz pílovitý tón **140 Hz so šiestimi harmonickými**,
+  výška nasleduje rýchlosť vretena (rozvrčí sa a dovrčí), jemné vlnenie raz
+  za otáčku; šum zostal len ako stopa (0,002). Po zosilnení o 6 dB má
+  samotné točenie efektívnu hodnotu okolo 92.
+- Krok s rezonanciami 1800 a 3900 Hz znel ako tikanie hlavičky pevného
+  disku; teraz 420, 1100 a 2600 Hz, 20 ms, menej šumu.
+- „Pozadie pri formátovaní silnie“ — v súbore nie: efektívna hodnota
+  pozadia 43 – 44 po celý čas. Pripísané automatickému vyrovnávaniu
+  hlasitosti pri prehrávaní; majiteľ odvtedy počúva iným prehrávačom.
+- **Roztočenie motora po prerušení reči pred formátovaním majiteľ označil
+  za dokonalé.** Pravidlo „mechanika stojí, kým hrá DAC“ teda sedí s jeho
+  pamäťou.
+
+**Prvé točenie si treba pamätať — „poškodená disketa“.** Majiteľ (1. 10.
+2026): šum z prvej verzie znel ako disketa, ktorá sa v obale drhne, a mohol
+by sa pre zábavu primiešať, napríklad náhodne pri jednej z desiatich
+vložených diskiet. Parametre tej verzie, keďže v kóde sú už iné: šum
+(xorshift32) cez pásmovú priepusť RBJ 380 Hz, Q 0,8, úroveň **0,05** plnej
+škály, vlnenie raz za otáčku `0,4 + 0,6 · (0,5 + 0,5 · sin)`, k tomu
+pískanie 420 Hz na 0,006; všetko násobené rýchlosťou vretena. Eviduje to
+`ea4-tvd.5`.
+
+**Nahrávky namiesto syntézy (pokus, 1. 10. 2026).** Syntéza majiteľa
+neuspokojila, z voľne licencovaných nahrávok sa mu priblížili dve:
+
+- **Flopster** (Shiru, mechanika NEC FD1231H, vzorky pod **CC-BY**):
+  `spindle.wav` je vrčanie, ktoré majiteľ označil za výborné, a nesie
+  značky slučky (`smpl`: 48707 – 181012 pri 44,1 kHz), takže sa delí na
+  rozbeh 1,10 s, slučku 3,00 s a dobeh 0,50 s; `step_00` až `step_79` sú
+  kroky na každý cylinder zvlášť.
+- **BigSoundBank** 1396 „Floppy disk (3.5"), reading“ (**CC0**): úsek
+  4,5 – 8 s je to „hrabanie“, ktoré si majiteľ pamätá pri načítaní
+  dlhších programov. Rozbor: nárazy 40 – 240 ms, vnútri rad krokov asi po
+  8 ms — teda rýchle presuny hlavičky cez mnoho cylindrov. Dlhý rovnomerný
+  úsek 8 – 23 s to **nie je**.
+
+`DriveSound::LoadSamples` berie priečinok so súbormi `motor-rozbeh`,
+`motor-slucka`, `motor-dobeh`, `krok-00` … `krok-79` a `presun` (48 kHz,
+mono, 16 bit; iné odmietne). Jeden krok hrá vzorku daného cylindra, presun
+o viac cylindrov hrá `presun` tak dlho, koľko krokov trvá, a dozvoní 15 ms.
+Motor: rozbeh prejde do slučky, vypnutie do dobehu, zmena inde sa prelína
+10 ms; motor zachytený ešte v dobehu ide rovno do slučky. Všetko jedným
+ziskom 0,25. Sonda ich načíta z `EA4_ZVUKY_MECHANIKY`; bez nej hrá syntéza.
+Vzorky zatiaľ ležia mimo stromu (`%TEMP%\ea4-zvuk\vzory\eureka-test`);
+kam patria a ako sa uvedie autor, sa rozhodne v 2b.
+
+**Zvolená sada, verzia 8 (1. – 2. 10. 2026) — odsek vyššie už neplatí
+v dvoch veciach:** kroky nie sú z Flopsteru po cylindroch a slučka motora
+nie je surová. Majiteľovi Flopster vo verzii 7 „klapal ako ochodená
+disketa“ a hrabanie v nahrávke načítania nepočul (`READ` leží na začiatku
+diskety, presuny sú o 1 – 2 cylindre, hrabanie teda trvá ~12 ms).
+Verziu 8 prijal: „hrabanie je úchvatné, ale kroky tiež“; zvuky sú
+podľa neho hlučnejšie a tvrdšie, než mala Eureka — jej mechanika bola
+jemnejšia —, ale **radšej verná nahrávka jednej mechaniky než
+upravovaná**. Majiteľ je v kontakte s niekým, kto by mohol nahrať
+skutočnú mechaniku Eureky; sada sa potom len vymení.
+
+Recept, z ktorého sa sada dá zopakovať (priečinok `eureka-test-2`, 48 kHz):
+
+- **Motor** — Flopster `spindle.wav` cez `lowpass=f=1500,acompressor=
+  threshold=0.05:ratio=8:attack=0.1:release=20:makeup=1` (ffmpeg), až
+  potom rozdelený podľa značiek slučky na `motor-rozbeh` (0 – 1,104467 s),
+  `motor-slucka` (do 4,104580 s) a `motor-dobeh`. Klapanie je zhluk štyroch
+  ťuknutí raz za otáčku (200 ms); úprava ho zníži zo 4,2× na 1,7× nad
+  bežnú úroveň. Majiteľ vybral z troch ukážok túto (B). `adeclick` na tie
+  dlhé ťuknutia nezaberie — výsledok bol bajtovo rovnaký ako originál.
+  Surovú slučku si treba nechať pre „opotrebovanú“ disketu (`ea4-tvd.5`).
+- **Kroky** — Wikimedia Commons `Floppy drive sounds.ogg` (AlepouTheFox,
+  **CC0**), kde sa od 5,5 s do 15 s opakuje jeden krok presne každých
+  1,199 s. Krok je len ~12 dB nad šumom točiacej sa diskety a trvá ~40 ms;
+  vystrihnutý sám znel ako ďalší šum, a afftdn (ffmpeg) ho od šumu
+  neoddelil. `tools/drive_steps.py commons.wav krok 7.0 7.6 6.730 9.125
+  12.722` šum odčíta po frekvenciách (profil z 7,0 – 7,6 s) — o ~20 dB,
+  krok ostane. Tri zábery `krok-1` až `krok-3` sa striedajú.
+- **Hrabanie** — BigSoundBank 1396 (**CC0**), úseky 4,88 – 5,13 s
+  a 7,22 – 7,52 s spojené `acrossfade=d=0.02` do `presun.wav` (0,53 s).
+- Zisk 0,25 pre všetko.
+
+**Ako hrabanie počuť v sonde.** Po formátovaní stojí hlavička na cylindri
+81; prvý kláves len opustí formátovanie („ahoj“), druhý sa stratí počas
+znelky hlavného menu. Funguje `... ?skonceno . kD6 . spin:6000000 . kD6
+?programu READ~ . .` — `mechanika` potom ukáže `presun 81 -> 0`. Samotné
+`F8` (adresár) disketu nečíta, kým sa v aplikácii nestlačí ďalší kláves.
+V nahrávke `navrat-hlavicky-8.wav` je hrabanie až po reči (~25,9 s), lebo
+mechanika stojí, kým hrá DAC, a stroj disketu prečíta okamžite — súbeh
+hrabania s načítaním, ako si ho majiteľ pamätá, prinesie až krok 4.
+
+Vlastný test 2a nemá; plánovanie by mal pribiť test bez ROM v kroku 2b.
+Vypnutý stroj nevyrába zvuk, takže zvuk mechaniky by s ním zamrzol — rieši
+sa v 2b.
+
+#### Krok 2b: zvuk v emulátore (2. 10. 2026, `ea4-tvd.2`)
+
+Obe vety tesne nad týmto nadpisom už platia len ako história: test je
+(`drive_sound_test`) a vypnutý stroj zvuk mechaniky nezamrazí. Neplatí ani
+„vzorky zatiaľ ležia mimo stromu“ z odseku o nahrávkach — sada verzie 8 je
+v `src/res/zvuky-mechaniky` a v EXE.
+
+Rozhodnuté s majiteľom: **sada ako zdroj EXE, možnosť vlastného priečinka,
+predvolene vypnuté** (keby mal autor upstreamu iný názor, mení sa jedno
+slovo v `settings.cpp`).
+
+- **Kde sú zvuky.** Sedem WAV v `src/res/zvuky-mechaniky` (536 kB, EXE
+  narástlo o pol megabajtu) s `PUVOD.md` — pôvod a licencie, CC BY pre motor
+  z Flopsteru vyžaduje uviesť autora aj zmeny; uvedené aj v README
+  (Licencie). V `eureka.rc` ako pomenované RCDATA (`MOTOR_ROZBEH`… `KROK_3`):
+  meno je kmeň súboru veľkými písmenami s `_` namiesto `-`, takže zoznam mien
+  je pre EXE aj vlastný priečinok jeden. `*.wav binary` v `.gitattributes`.
+  `Makefile` má WAV ako prerekvizity `eureka_res.o`, lebo `.d` súbory ich
+  nesledujú.
+- **Načítanie** (`LoadDriveSound` v `main.cpp`, pred štartom vlákna):
+  vlastný priečinok `zvuky-mechaniky` vedľa `nastavenia.txt`
+  (`Settings::DriveSoundsDirectory`), inak zdroje EXE. `DriveSound` sa učí
+  sadu cez `Fetch` (kmeň → bajty WAV), takže zostáva bez hostiteľa. Priečinok,
+  ktorý existuje a nenačíta sa, ohlási `Warn` s dôvodom a hrajú vstavané —
+  inak by vyzeral presne ako úspech. Hlási sa len so zapnutým zvukom.
+- **Nastavenie** `zvuk-mechaniky=`, len `1` zapína (ako `rozsirena-ram`),
+  v Nastaveniach skupina „Zvuk“ s políčkom „Zvuk disketovej &mechaniky“,
+  ohraničená `WS_GROUP` ako ostatné (6.27). Platí hneď (`PostSetDriveSound`).
+- **Vlákno.** Zvuk mechaniky ide pod vzorky stroja ešte pred `Submit`, takže
+  ladenie latencie vidí jeden prúd. Udalosti sa berú vždy, aj pri vypnutom
+  zvuku. Zapnutie začína od čistej mechaniky (kópia nehranej predlohy), takže
+  po vypnutí nedohráva stará fronta. Pri **vypnutom stroji** stroj nedáva
+  vzorky vôbec; vlákno vtedy dorobí ticho do zásoby zariadenia (22 ms)
+  a `DriveSound::Continue` v ňom mechaniku dohrá. `Mix` potom čas mechaniky
+  nikdy nevráti dozadu.
+- **Overené.** Na hotovom EXE sú všetky reťazce v UTF-16 a všetkých sedem
+  zdrojov; pokusný program mimo repozitára načítal sadu zo zdrojov hotového
+  EXE (`LoadLibraryEx` ako dáta) cez tú istú cestu ako `main.cpp` — 7 súborov,
+  bez chyby — a zahral z nej presun. `settings_test` drží kľúč (mutácia
+  `== L"1"` → `!= L"0"` ho zhodí), `drive_sound_test` správanie (tri mutácie).
+  Klávesové kruhy v dialógu (`IsDialogMessage`) **merané neboli**; skupina
+  má rovnakú stavbu ako tri nad ňou.
+- **Neoverené rukou:** v bežiacom okne zvuk zatiaľ nikto nepočul. Je na
+  majiteľovi.
+
+  *Doplnené 3. 10. 2026:* majiteľ zvuk v okne počul — „hodně dobrý“, ako
+  imitácia mechaniky veľmi vydarený. **Vydávať sa to nemá, kým nebude
+  časovanie (krok 4):** veľký súbor sa načíta okamžite, hlas to oznámi
+  hneď a mechanika potom ešte hrá — to je podľa majiteľa mätúce. Práca
+  na zvuku mechaniky žije vo vlastnej vetve `zvuk-mechaniky`; `main`
+  zostáva na kóde upstreamu a pull request príde, až bude hotová.
+
+#### Krok 4: skutočné časovanie — rozhodnuté 3. 10. 2026 (`ea4-tvd.4`)
+
+**Prečo ovládač z ROM a nie odhad.** `A4DOS.6` (r. 77 – 86): štandardná
+Eureka drží v pamäti posledný 512-bajtový sektor (ďalšie záznamy z neho sú
+okamžite) a celú stopu prečíta **najmenej za tri otáčky**; „Advanced
+English“ s AUO za jednu. `BIOS 15` (`bios_sectran`) na Eureke nerobí nič
+(`BIOS.9`) — prekladanie teda dáva poradie sektorov, ktoré zapíše
+formátovanie, a to, či ovládač stihne požiadať o ďalší sektor skôr, než
+prejde pod hlavičkou. Model, ktorý tempo spočíta sám, by to všetko musel
+uhádnuť; ovládač z ROM nad časovaným radičom to urobí sám.
+
+Rozhodnutia majiteľa:
+
+- **Cesta:** skutočný ovládač z ROM (bez `InterceptBios` pre disk) nad
+  časovaným WD1772 — otáčka 1 228 800 cyklov, index raz za otáčku, sektory
+  v poradí z formátovania, krok 6 ms, roztočenie 6 otáčok, prenos ~32 µs na
+  bajt.
+- **Jedna voľba, nie dve.** „Buď rýchla Eureka bez zvuku, alebo všetko podľa
+  reálu, so zvukom aj pomalosťou; všetko medzi tým je prinajmenšom divné.“
+  Dnešné políčko „Zvuk disketovej mechaniky“ sa v 4c zmení na voľbu vernej
+  mechaniky, ktorá zapne oboje. Zvuk ako kulisa za rýchlym strojom potom
+  zanikne.
+- **Testy:** bežná sada zostáva rýchla so skratkou; skutočné časovanie
+  dostane vlastné kontroly.
+
+Poradie: **4a** skutočný ovládač bez časovania — vypínateľná skratka a celá
+sada aj bez nej (overí čítanie, zápis, strany, kopírovanie cez ROM);
+**4b** časovaný radič; **4c** zvuk podľa skutočného času a jedna voľba.
+
+#### Krok 4a: ovládač z ROM bez skratky (3. 10. 2026)
+
+`EurekaMachine::SetBiosDiskBypass(false)` pustí všetky diskové volania BIOS-u
+(8, 10 – 14, 16) do ROM naraz; predvolene je skratka zapnutá. Testy a sonda
+ju vypnú premennou **`EA4_BEZ_SKRATKY`** (`SetDefaultBiosDiskBypass` pre
+každý nový stroj). **Celá sada prejde oboma cestami, 24 z 24.** Čo sa cestou
+ukázalo:
+
+- **Ovládač z ROM prekladá sektory sám, po troch.** Logický 512-bajtový
+  sektor *k* (záznamy 4k – 4k+3) leží vo fyzickom **(3k + 1) mod 10 + 1**,
+  teda 0 – 9 na 2, 5, 8, 1, 4, 7, 10, 3, 6, 9. Zmerané dočasným výpisom
+  `bios_settrk`/`bios_setsec` vedľa príkazov radiča; logická stopa *t* je
+  cylinder t/2, strana t mod 2. To je tých „najmenej tri otáčky na stopu“
+  z `A4DOS.6`. Obraz to nepoznal, ovládač čítal všetko z cudzieho miesta
+  a **nenačítal sa ani jeden program** („v programe 0,00 s“ po 291 s).
+  Oprava: `SectorOffset` vo `virtual_disk.cpp` — obraz zostáva v logickom
+  poradí (skratka, import a export sa nemenia), len pohľad radiča ide cez
+  prekladanie. Drží to `disk_test` (adresár je fyzický sektor 2; mutácia na
+  bez prekladania zhodí 22 kontrol).
+- **Sektory číslované od nuly** — `ea4-ary` rozhodnutý, viď 6.12.
+- **Ovládač číta fyzický sektor znova pre každý 128-bajtový záznam** a medzi
+  skupinami čítaní čaká vo vlastnej slučke na `19CD9` (~3,8 M cyklov, 0,6 s).
+  `READ.COM` cez ROM: 196 čítaní BIOS-u ako so skratkou, ale 19,4 s času
+  stroja namiesto ~1 s — a to radič ešte nečasuje.
+- **Pred každým príkazom radiču zapíše firmvér `ADh` do DAC** (`OUT (88h),A`
+  na `19A01`). Pre zvuk mechaniky (4c) to treba vyšetriť — môže to byť
+  zámerné cvaknutie.
+  *Doplnené 4. 10. 2026: neplatí, cvaknutie to nie je.* Vysvetlenie stálo
+  celý čas v `hardware-map.md` (Poznámky pre emulátor): `ADh` je prah
+  komparátora na stráženie batérie počas diskovej operácie. Kód to potvrdzuje
+  — čakacia slučka na `19A13` číta `A8h` bit 1 (`vm2_mask`). Výstup stroja
+  počas načítania cez ovládač z ROM je nula (`wav:`), takže ani v emulátore to
+  počuť nie je.
+- **Prázdna mechanika:** Read/Write Sector bez média zostávajú BUSY
+  (6.30 dovetok); `hlaseni` prejde oboma cestami.
+- **Testy čakali na ticho.** `com`, `bas`, `wp` a `trap` končili pri prvom
+  tichu konzoly, ktoré ovládač z ROM má uprostred načítania. Teraz čakajú na
+  výsledok („Read which file?“, „ahoj“, a `bas` posiela RUN, až keď firmvér po
+  LOAD znova čaká na kláves — cez `EurekaSession::WaitingForKey`). Stropy
+  inštrukcií sú vyššie, so skratkou bežia rovnako rýchlo ako predtým.
+  `debug_bios_reads` počíta aj čítania cez ROM (na stube, raz).
+- **Mimo zadania, nahlásené:** v režime `bas` na testovacej diskete
+  **chýba `BEEP.BAS`** — `run-tests` kopíruje len `READ.COM`. `LOAD` končí
+  „soubor nelze najít, chyba 21“, RUN „chyba 26“, a test napriek tomu
+  prechádza (oboma cestami rovnako). Majiteľ ho má v
+  `D:\eureka\Diskety\basapl2\beep.bas`.
+- **Do budúcna (majiteľ, mimo tejto vetvy):** načítanie obrazov diskety
+  v surovom fyzickom poradí (2, 5, 8, …) — prekladanie v `SectorOffset` je
+  presne to, čo na to bude treba.
+
+**Dve vety vyššie už neplatia (3. 10. 2026, krok 4b):** „ovládač číta
+fyzický sektor znova pre každý záznam“ a „19,4 s“. Obe boli chyba modelu,
+nie firmvéru — majiteľ to tušil: firmvér drží posledný sektor v RAM
+a z mechaniky číta, až keď mu záznamy v ňom dôjdu. Viď nižšie.
+
+#### Krok 4b, prvá časť: motor beží 9 otáčok (3. 10. 2026)
+
+Kto čakal: dočasný výpis na vstupe do čakacích rutín `192E4`/`192EC`
+(logicky `E2E4`/`E2EC`, B = počet jednotiek) pri načítaní `READ.COM` cez
+ROM ukázal **23 × 300 jednotiek z `EA9F` a 23 × 300 z `EAAE`** — takmer celých
+19,4 s. Je to **zapnutie mechaniky** (`19A84`, logicky `EA84`): keď je
+`pol_disk` (kópia `C43Ah` bit 0) už zapnutý, vráti sa hneď; inak odpojí
+výber, čaká 300, zapne `pol_disk`, čaká 300 a vyberie mechaniku.
+
+Kto vypína: **šetrič na `1D0D4`** — keď mechanika nepracuje (`C8DFh` = 0)
+a je napájaná, prečíta stav radiča a pri **bite 7 (motor beží)** ju nechá
+(`JP M`), inak vypne `pol_disk` aj výber. WD1772 drží motor 9 indexových
+impulzov (1,8 s) po poslednom príkaze a celý ten čas hlási bit 7 — model
+ho nehlásil nikdy, takže šetrič vypínal mechaniku po každom čítaní,
+každé ďalšie ju 0,6 s zapínalo a posledný sektor v pamäti sa zahodil.
+
+Oprava: každý príkaz okrem Force Interrupt nastaví `fdcMotorUntil_` na
+9 otáčok (`kFdcMotorRun`, 11 059 200 cyklov) a čítanie stavu pridá bit 7,
+kým neuplynie. Výsledok cez ROM: **`READ.COM` za 2,09 s** stroja a **52
+čítaní sektora** (196 záznamov / 4) namiesto 327. Otáčanie diskety ešte
+v čase nie je — to je zvyšok 4b. Kontrola `wp` z kroku 1 rátala udalosti
+čítania (≥ 150 záznamov) a cez ROM ich je 52 sektorov; počíta sa teraz
+v bajtoch (≥ 16 KiB). Sada 24/24 oboma cestami. **Samotný bit motora zatiaľ
+žiadny test nedrží** — jeho vypnutie by sadu iba spomalilo; patrí to ku
+kontrolám časovania vo zvyšku 4b.
+
+*Doplnené 4. 10. 2026:* bit motora už drží režim `dc` (nižšie).
+
+#### Krok 4b: disketa sa otáča (4. 10. 2026)
+
+**Rozloženie stopy, zmerané** dočasným výpisom identifikačných polí
+z dát, ktoré formátovanie posiela do Write Track (značka `F5 F5 F5 FE`, za ňou
+C H R N): na každej stope sú sektory **1 až 10 za sebou, bez prekladania**,
+identifikačné pole sektora *n* na bajte **151 + 607 (n − 1)** zo 6250. Prekladanie
+po troch je teda len v ovládači (krok 4a).
+
+**Model** (`machine.cpp`): s vypnutou skratkou (`FdcTimed`) príkaz v
+`StartFdcCommand` len nastaví BUSY a spočíta okamih, keď by WD1772 skončil
+(`FdcCommandTime`); `Step` ho potom vykoná doterajším kódom
+(`ExecuteFdcCommand`) aj s DMA, INTRQ a udalosťami mechaniky — tie tak majú
+skutočný čas. Čo sa počíta:
+
+- otáčka 1 228 800 cyklov (300 ot/min), poloha disku = `cycles_` mod otáčka;
+- **roztočenie 6 otáčok**, keď motor stál a príznak h je nula
+  (`kFdcFlagNoSpinUp`; firmvér ho nenastavuje nikdy);
+- kroky 6 / 12 / 2 / 3 ms podľa r1r0, overenie (verify) 15 ms usadenie
+  a najbližšie identifikačné pole; pri type II bit 2 (E) 15 ms;
+- čítanie a zápis sektora: čakanie, kým jeho identifikačné pole príde pod
+  hlavičku, a 558 bajtov ID, medzery a dát;
+- Read Address najbližšie ID; Read/Write Track od indexu jednu otáčku;
+- **index raz za otáčku** (~125 bajtov) v stave po type I; predtým svietil
+  stále. `fdc_ctl_disk_in` (19834) naň čaká ~240 ms, o niečo viac než otáčku,
+  takže firmvér počíta presne s týmto;
+- Force Interrupt a prázdna mechanika sú hneď ako predtým.
+
+**Výsledky cez ovládač z ROM:** `READ.COM` za **6,33 s** stroja (bez otáčania
+2,09 s), formátovanie celej diskety **52,8 s**. Sada 24/24 oboma cestami.
+Drží to nová kontrola v režime **`dc`** (`CheckDriveTiming`): roztočenie
+6 otáčok, bit motora 1,7 s áno a 1,9 s nie, index raz za otáčku, sektor 5 od
+indexu po prechode pod hlavičkou. Overené mutáciou — bez roztočenia, motor
+20 otáčok, index stále a sektor bez polohy zhodia každý svoj riadok.
+
+**Nepresnosť, vedome:** zápis sektora sa dokončí, keď DMA naplní buffer,
+hneď po príchode sektora — samotný prechod 512 bajtov pod hlavičkou (~16 ms)
+sa po ňom nepočíta.
+
+*Doplnené 4. 10. 2026: formátovanie netrvá 52,8 s, ale **82,5 s**.* Tých
+52,8 s bol súčet odstupov z výpisu `mechanika`, ktorý zlučuje rovnaké
+udalosti do riadku „x10“ a čas vnútri behu nevypisuje — súčet ho teda
+vynechal. Výpis má teraz na konci riadok `spolu` od prvej po poslednú
+udalosť; 82,5 s súhlasí s nahrávkou (koniec „ano“ 5,9 s, „formátování
+skončeno“ 88,5 s). Rovnaké číslo stojí aj v správe commitu `d273d1e` a tam
+zostáva nesprávne. `READ.COM` 6,33 s platí — meralo ho `@`, nie súčet.
+
+#### Krok 4c: zvuk v skutočnom čase (rozpracované)
+
+- Nová udalosť **`kSpinUp`**: stroj ju zaznamená na začiatku príkazu, keď
+  motor stál. Presun hlavičky nesie čas, keď hlavička **začala** krokovať
+  (`fdcStepsAt_` → `seekEventAt_`), nie keď príkaz skončil.
+- `DriveSound::SetRealTime`: udalosti sa hrajú v okamihu, keď sa stali —
+  bez čakania na ticho DAC (firmvér počas reči na disk nesiaha sám) a bez
+  vlastného roztočenia (to už odčakal radič). Bez neho hrá kulisa z kroku 2
+  ako predtým. Sonda ho zapína s `EA4_BEZ_SKRATKY`.
+- **Krok je tichší než zvyšok sady: `kStepGain` = 0,3.** Pri formátovaní
+  v skutočnom čase majiteľ počul, že krok na chvíľu prekryje otáčanie a
+  znie „nahrane“ — nahrávky kroku sú očistené od mechaniky, na ktorej
+  vznikli, a v pomere sady stál krok vyše 20 dB nad slučkou motora. Z
+  variantov 1; 0,5 a 0,3 (špička kroku 2700, 1500 a 1000 pri slučke ~440)
+  vybral 0,3; pri 0,5 už motor prekrýval. Hrabanie (`presun`) zostáva na
+  úrovni sady, majiteľovi znie dobre. `drive_sound_test` hlasitosť drží
+  (`kLoopAndStep`); hodnota 0,5 zhodí dve kontroly.
+- **Krátky presun zatiaľ nikto nepočul.** Presun o 2 cylindre pri 6 ms za
+  krok hrá hrabanie len 12 ms a 15 ms doznievania. Pri `READ.COM` sú dva
+  také (2 → 0 → 2, jeden sektor na cylindri 0, dôvod zatiaľ nevyšetrený).
+  Patrí to k ladeniu v kroku 3. *Dôvod je vyšetrený, viď doplnok na konci
+  4c: druhý extent súboru.*
+- **Jedna voľba v okne** (rozhodnutie majiteľa): políčko „Verná disketová
+  &mechanika (zvuk aj rýchlosť)“ v skupine „Disketa“ (skupina bola „Zvuk“),
+  kľúč `verna-mechanika=` (bol `zvuk-mechaniky=`, nikdy nevydaný). Zapnutá
+  hrá zvuk a vypne skratku BIOS-u; vlákno hrá zvuk v skutočnom čase, len čo
+  stroj skratku naozaj opustil (`!bios_disk_bypass()`).
+- **Prepnutie za behu: `RequestBiosDiskBypass`.** Stroj ho prevezme až na
+  kontrole klávesu `18675h` (tá beží len pri čakaní na kláves, nie pri reči,
+  formátovaní ani štarte — `tests/eureka_session.cpp`), bez rozbehnutého
+  príkazu radiča a bez zápisu; vypnutý stroj hneď. Dôvod je v komentári pri
+  `SetBiosDiskBypass`: prepnutie medzi volaniami „nastav stopu“ a „čítaj“ by
+  ovládaču z ROM podstrčilo prenos bez stopy. **Že ovládač medzi operáciami
+  nič nedrží, je zmerané:** po výmene diskety za prázdnu povie „soubor nelze
+  najít“ a adresár číta znovu, a dve načítania `READ.COM` po sebe majú tých
+  istých 52 sektorov vrátane posledného na cylindri 2, ktorý ovládač
+  v pamäti mal. Prepnutie v pokoji je teda bezpečné rovnako ako výmena
+  diskety. Drží to režim `com` (`CheckFaithfulSwitch`); mutácia bez čakania
+  ho zhodí v oboch smeroch („prepol uprostred nacitania“).
+- **`ADh` do DAC nie je cvaknutie** (oprava pod krokom 4a): prah komparátora
+  batérie, výstup stroja počas načítania je nula.
+
+**Zostáva v 4c:** skutočný čas nedrží `drive_sound_test`; overené len
+nahrávkami (`nacitanie-9`, `formatovanie-krok-30`) a uchom majiteľa.
+Vyskúšať v okne naživo.
+
+*Doplnené 4. 10. 2026:* oboje je hotové. Majiteľ vyskúšal v okne
+prepínanie, načítanie, adresár aj ďalšie operácie, vrátane reči, ktorú
+umlčí do 1,8 s a mechanika nadviaže na bežiaci motor; v správaní nepozná
+rozdiel, len zvuk. Skutočný čas drží `drive_sound_test`
+(`PlaysInRealTime`), viď CLAUDE.md. Otvorené zostáva len ladenie (krok 3:
+krátky presun, prípadne skutočné nahrávky Eureky) a 2 → 0 → 2 na konci
+načítania.
+
+*Doplnené 4. 10. 2026: 2 → 0 → 2 je vysvetlené, je to CP/M, nie mechanika.*
+`READ.COM` nemá 16 KB, ale **16 512 B = 129 záznamov**, teda dva extenty
+(128 + 1). Po 128. zázname BDOS otvára druhý extent: číta záznam 0 adresára
+(stopa 0) a potom posledný záznam súboru (stopa 4, záznam 32). Zmerané
+dočasným programom v scratchpade, ktorý pri skratke vypisoval
+`debug_bios_track()`/`debug_bios_sector()` pri každom čítaní (198 čítaní):
+celý adresár (stopa 0 a 24 záznamov stopy 1 = 64 záznamov, prihlásenie
+diskety pri každom spustení programu — preto stroj vymenenú disketu hneď
+spozná), dvakrát záznam 0 adresára (vyhľadanie a otvorenie súboru), dáta na
+stopách 1 až 4, a druhý extent. Skratka aj ovládač z ROM robia to isté,
+takže skutočná Eureka tiež. Otvorené z 4c zostáva len ladenie v kroku 3.
+
+#### Sada zvukov v balíku vydania (8. 10. 2026)
+
+Priečinok `src/res/zvuky-mechaniky` ide celý do ZIP-u vydania
+(`vydanie.yml`, krok „Balík“), aby ľudia, ktorí chcú vlastné zvuky, mali
+vzor na počúvanie. Pribudol v ňom `NAVOD.md` pre tvorcov: kam priečinok dať,
+formát, čo ktorý súbor robí a kedy sa hrá (roztočenie 1,2 s, slučka
+dookola, motor 1,8 s po práci, krok len pri presune o jednu stopu, hrabanie
+toľko, koľko presun trvá) a hlasitosti (sada × 0,25, krok × 0,3). Čísla sú
+z `drive_sound.cpp`; **keď sa tam zmenia, patrí to aj do `NAVOD.md`.**
+
+Druhý dôvod je licencia: motor je CC BY a EXE ho nesie zabudovaný, ale
+`PUVOD.md` v ZIP-e doteraz nebol a README naň odkazovalo cestou v
+zdrojákoch. Rozbaľovanie sady z emulátora sa zvážilo a zamietlo — nová
+položka ponuky a kód na to, čo urobí priečinok v balíku. Zmena workflowu
+**nie je vyskúšaná** — overí ju až najbližšie vydanie (v ZIP-e má byť
+priečinok `zvuky-mechaniky` s deviatimi súbormi).
+
+#### Otvorené
+
+- **Motor.** `pol_disk` (`A0h` bit 0, `IOPORT.LIB`: „high to power up fdc
+  and disk drive“) firmvér pri formátovaní dvakrát zapne a vypne — je to
+  kandidát na točenie diskety v kroku 2. WD1772 má vlastný výstup motora
+  (stavový bit 7, `kFdcStatusMotorOn`), ktorý model nevedie. Ktorý z nich
+  točí motor na Eureke, nie je zmerané. Krok 2 ho nepoužil: motor sa riadi
+  prácou mechaniky (predpoklad).
+- Krok 3 (ladenie, `ea4-tvd.3`), krok 4 (časovanie, `ea4-tvd.4`)
+  a „poškodená disketa“ (`ea4-tvd.5`).
+- Skutočné nahrávky mechaniky Eureky — majiteľ je v kontakte s niekým, kto
+  ich môže nahrať; sada sa potom len vymení v `src/res/zvuky-mechaniky`.
+
 ### 6.55 Dump ROM z anglickej Eureky — program, ktorý rozozná stroj
 
 4. 10. 2026. Majiteľ dostane na chvíľu anglickú Eureku a chce z nej ROM.
@@ -4150,6 +4671,7 @@ V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.
 | `latches.py` | všetky odkazy na tiene latchov + súhrn po bitoch |
 | `melodies.py` | vyrenderuje melódie z ROM do `audio/melodie/` |
 | `check_io_names.py` | overí `src/eureka_io.h` proti `IOPORT.LIB`, `IOREG.LIB`, `SYSEQU.LIB` a `KB.H` |
+| `drive_steps.py IN OUT T0 T1 KROK…` | vystrihne kroky hlavičky z nahrávky mechaniky a odčíta z nich šum točenia (6.54) |
 
 Príklad:
 

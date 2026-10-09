@@ -256,6 +256,51 @@ void ExtraRamSwitchRoundTrips() {
   }
 }
 
+void FaithfulDriveSwitchRoundTrips() {
+  // Like rozsirena-ram: absent means off and only "1" turns it on (HANDOFF
+  // 6.54).  The faithful drive is a new noise under the machine's voice and
+  // a slower disk, so a file from before the key existed -- or a typo -- must
+  // not switch it on.
+  {
+    Settings settings(FileNamed("neexistuje.txt"));
+    settings.Load();
+    Check(!settings.faithful_drive(), "chybajuci subor: verna mechanika je vypnuta");
+  }
+  const fs::path file = FileNamed("verna-mechanika.txt");
+  std::wstring error;
+  {
+    Settings settings(file);
+    settings.SetFaithfulDrive(true);
+    Check(settings.Save(error), "ulozenie s vernou mechanikou prejde", Narrow(error));
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(loaded.faithful_drive(), "verna mechanika prezije zapis aj citanie");
+  }
+  Check(ReadRaw(file).find("verna-mechanika=1") != std::string::npos,
+        "zapnutie je v subore ako verna-mechanika=1");
+  {
+    Settings settings(file);
+    settings.Load();
+    settings.SetFaithfulDrive(false);
+    settings.Save(error);
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(!loaded.faithful_drive(), "verna mechanika sa da vypnut");
+  }
+  Check(ReadRaw(file).find("verna-mechanika=0") != std::string::npos,
+        "vypnutie je v subore ako verna-mechanika=0");
+  WriteRaw(file, "verna-mechanika=ano\r\n");
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(!loaded.faithful_drive(), "ine slovo nez 1 vernu mechaniku nezapne");
+  }
+}
+
 void KeyboardModeRoundTrips() {
   // Absent means the PC keyboard, which is where this program has always
   // started: a file from a version that never knew the key must not move the
@@ -678,6 +723,7 @@ int main() {
   MissingFileIsDefaults();
   KeepRamSwitchRoundTrips();
   ExtraRamSwitchRoundTrips();
+  FaithfulDriveSwitchRoundTrips();
   UpdateKeysRoundTrip();
   CableAnswersRoundTrip();
   KeyboardModeRoundTrips();

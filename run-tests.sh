@@ -1,5 +1,5 @@
 #!/bin/sh
-# Zostaví testy a pustí všetkých dvadsaťtri naraz. Náprotivok run-tests.bat.
+# Zostaví testy a pustí všetkých dvadsaťštyri naraz. Náprotivok run-tests.bat.
 #
 # Volanie:  ./run-tests.sh                (ROM z premennej A4ROM)
 #           ./run-tests.sh /cesta/k/a4rom.dmp
@@ -137,7 +137,7 @@ else
   echo "Nenašiel som \$EUREKATECH/TECHMAN1/READ.COM, preskakujem com a wp."
   echo "Je to súbor z Technical Manuálu, ktorý leží mimo repozitára."
   echo "Cestu k priečinku zadajte premennou EUREKATECH."
-  echo "Testov bude dvadsaťjeden a nie je to regresia."
+  echo "Testov bude dvadsaťdva a nie je to regresia."
   SKIP_MODES="com wp"
 fi
 export SKIP_MODES
@@ -157,7 +157,7 @@ if make -j"$JOBS" -k --output-sync=target \
      ROM="$ROM_WIN" \
      DISK="$TESTDISK_MAKE" \
      check; then
-  # Značka len za všetkých dvadsaťtri -- bez manuálu beh úplný nie je.
+  # Značka len za všetkých dvadsaťštyri -- bez manuálu beh úplný nie je.
   if [ -z "$SKIP_MODES" ] && [ -n "$TESTED_TREE" ]; then
     printf '%s\n' "$TESTED_TREE" > build/otestovany-strom
   fi

@@ -227,7 +227,7 @@ slučka, `NVDA+Ctrl+F3` ho načíta znovu. Pozor, v scratchpade nefunguje
 
 Sonda a testy: `build-tests.bat`. Zostaví `bin\diag_probe.exe`,
 `bin\integration_test.exe`, `bin\codec_test.exe`, `bin\disk_test.exe`,
-`bin\settings_test.exe`, `bin\update_test.exe` a `bin\link_test.exe`, a linkuje ich proti objektom z `build\`. Zostaví aj `bin\zex_test.exe`, ktorý
+`bin\settings_test.exe`, `bin\update_test.exe`, `bin\link_test.exe` a `bin\drive_sound_test.exe`, a linkuje ich proti objektom z `build\`. Zostaví aj `bin\zex_test.exe`, ktorý
 púšťa ZEXDOC na holom jadre; program je mimo repozitára
 v `C:\b\z80-tests`, preto nie je v `run-tests.bat` (`tests/README.md`,
 HANDOFF 6.33 bod 8). Keď siahneš na `z80.c`, pusti ho — trvá dve minúty.
@@ -326,6 +326,14 @@ veľkosťou písmen skončia v dvoch súboroch vo Windows, nie v jednom. Na týc
 bitoch stojí ochrana EUŠOU a Sokobanu a ich strata je **tichá** — program
 len povie, že disketa nie je originál. Overené mutáciou.
 
+Drží aj **prekladanie sektorov** (HANDOFF 6.54, krok 4a): ovládač z ROM
+ukladá logický 512-bajtový sektor *k* do fyzického (3k + 1) mod 10 + 1 a
+`VirtualDisk::ReadPhysicalSector`/`WritePhysicalSector` idú cez rovnaké
+prekladanie (`SectorOffset`). Adresár je preto **fyzický sektor 2**, nie 1 —
+test to má v `PhysicalSector` a `kDirectorySector`. Bez prekladania sa cez
+ovládač z ROM nenačíta ani jeden program a so skratkou to nie je počuť;
+mutácia na poradie bez prekladania zhodí 22 kontrol.
+
 Drží aj **klasifikáciu typov súborov pri exporte**, a to je jediné, čo ju
 drží. `VirtualDisk::IsTextType` je allowlist a jeho dve chyby stoja rôzne:
 typ zle označený za textový sa oreže na prvom `1Ah` a **stratí dáta
@@ -355,6 +363,26 @@ naň aj prvá stránka sprievodcu, aby ho používateľ počul pred plánom, nie
 ňom. Do zdroja zapisuje jediná funkcia, `WriteSpolu`, a len na výslovný pokyn.
 Overené mutáciou: vypnutá kontrola prázdneho cieľa zhodí dve kontroly.
 
+
+Režim `dc` drží medzi kontrolami hardvéru aj **časovanie radiča WD1772**
+(HANDOFF 6.54, krok 4b), a je jediné, čo ho drží: s pokazeným časovaním by
+sada len bežala rýchlejšie. Radič ovláda priamo cez porty, procesor stojí na
+`DI; JR $`, takže firmvér do toho nesiahne: zastavený motor sa roztáča
+6 otáčok, bit motora svieti 1,7 s po príkaze a o 1,9 s nie, index príde raz
+za otáčku a sektor 5 čítaný od indexu skončí, keď prejde pod hlavičkou.
+Časovanie platí len **bez skratky BIOS-u** (`FdcTimed`); so skratkou sú
+príkazy okamžité ako predtým. Overené mutáciou: každá zo štyroch vecí zhodí
+svoj riadok.
+
+Režim `com` drží aj **prepnutie vernej mechaniky za behu**
+(`RequestBiosDiskBypass`, HANDOFF 6.54, krok 4c) — tak, ako ho robí okno.
+Pri otázke `READ.COM` sa musí prepnúť hneď; pri druhom spustení, požiadané
+uprostred načítania, až po poslednom prístupe na disketu, a program sa musí
+načítať. Stroj prepína len na kontrole klávesu `18675h`, ktorá uprostred
+diskovej operácie nebeží — prepnutie medzi „nastav stopu“ a „čítaj“ by
+ovládaču podstrčilo prenos bez stopy. Sada beží oboma spôsobmi
+(`EA4_BEZ_SKRATKY`), takže každý smer drží jeden z behov. Overené mutáciou:
+prepnutie bez čakania zhodí `prepnutie=` v oboch behoch.
 
 Režim `zvuk` (`integration_test ROM DISK zvuk`) drží **rekonštrukciu DAC**,
 a je jediné, čo ju drží. Firmvér v ňom nebeží vôbec: cez `debug_feed_dac`
@@ -428,6 +456,12 @@ Drží aj **aktualizácie** (`aktualizacie=`, `posledna-kontrola=`,
 `preskocena-verzia=`, `ea4-hg9.4`): rovnako ako zachovanie RAM chýbajúci kľúč
 aj iné slovo než `0` znamenajú zapnuté — súbor spred aktualizácií ich nesmie
 ticho vypnúť. Overené mutáciou (`!= L"0"` → `== L"1"`).
+Drží aj **vernú mechaniku** (`verna-mechanika=`, HANDOFF 6.54, krok 4c; do
+4. 10. 2026 `zvuk-mechaniky=`, nikdy nevydané) — ako rozšírenú RAM:
+chýbajúci kľúč aj iné slovo než `1` znamenajú vypnuté, lebo je to nový zvuk
+pod hlasom stroja aj pomalšia disketa a nikto ich nemá dostať bez toho, aby
+si ich zapol.
+Overené mutáciou (`== L"1"` → `!= L"0"`).
 Drží aj **posledné odpovede sériového kábla** (`kabel-port=`, `kabel-adresa=`,
 `ea4-7zw.4`, a `kabel-com=`, `ea4-7zw.3`): že adresa s dvojbodkami, zátvorkami aj diakritikou príde späť
 tak, ako bola napísaná, a že zrušená zo súboru zmizne. Sú to texty, nie čísla —
@@ -463,15 +497,36 @@ dostane RTS aj formát, ktoré stroj nastavil pred ním** — stroj ich hlási l
 pri zmene, takže kábel zastrčený neskôr by ich inak nepočul nikdy a druhá
 strana by ticho neposielala. Overené mutáciou: vynechané RTS pri `Plug`.
 
+`drive_sound_test` drží **zvuk disketovej mechaniky** (`src/drive_sound.*`,
+HANDOFF 6.54) bez ROM a bez zvukovej karty. Nahrávky nepoužíva: postaví si
+vlastnú sadu WAV, kde je každý súbor jedna stála úroveň, takže z výstupu
+mixu je počuť, čo práve hrá, a úrovne porovnáva so slučkou motora, nie
+s číslami — zisk sa ešte bude ladiť. Drží to, čo by inak nikto nespozoroval:
+že mechanika **mlčí, kým hrá DAC** (inak by hovorila Eureke do reči), že
+motor sa rozbehne, krok padne až po 1,2 s roztočenia a motor **zastane** 1,8 s
+po práci (inak by vrčal pod každou výzvou), že `Continue` nechá mechaniku
+dobehnúť aj bez stroja, že presun cez veľa cylindrov hrá hrabanie, že tie isté
+udalosti dajú ten istý zvuk, a že sada so zlou vzorkovacou frekvenciou alebo
+bez kroku sa odmietne s dôvodom, ktorý menuje súbor. Overené mutáciou:
+mechanika bez čakania na DAC, motor, ktorý nezastane, a prázdne `Continue`
+zhodia každé svoje kontroly. Zapnutie a vypnutie zvuku žije vo vlákne
+emulátora a toto ho nedrží. Drží aj **hlasitosť jedného kroku** voči slučke
+(`kStepGain` = 0,3, výber majiteľa, HANDOFF 6.54 krok 4c); 0,5 zhodí dve
+kontroly. Drží aj **skutočný čas** (`SetRealTime`, verná mechanika,
+`PlaysInRealTime`): mechanika mlčí do prvej udalosti, krok zaznie hneď —
+bez vlastného roztáčania a aj pod rečou, lebo to už odčakal radič a firmvér
+— a motor zastane 1,8 s po poslednej udalosti. Overené mutáciou: čakanie na
+DAC aj vlastné roztáčanie v skutočnom čase zhodia po dve kontroly.
+
 ## Spustenie testov
 
-`run-tests.bat` zostaví testy a pustí všetkých dvadsaťtri naraz — päť
-samostatné testy a osemnásť režimov `integration_test`. Sú to nezávislé
+`run-tests.bat` zostaví testy a pustí všetkých dvadsaťštyri naraz — šesť
+samostatných testov a osemnásť režimov `integration_test`. Sú to nezávislé
 procesy, nič nezdieľajú. Priečinok diskety si vyrobí čerstvý v
 `build\testdisk` a skopíruje doň `TECHMAN1\READ.COM` z manuálu, bez
 ktorého režim `com` zlyhá. ROM berie z argumentu, inak z `%A4ROM%`, inak
 `C:\b\a4rom.dmp`; manuál z `%EUREKATECH%`, inak `C:\b\eurekatech`. Po
-úspechu všetkých dvadsiatich troch zapíše `build\otestovany-strom`, na ktorý
+úspechu všetkých dvadsiatich štyroch zapíše `build\otestovany-strom`, na ktorý
 sa pýta `./release` (viď `### Vydanie navrhni`); bez manuálu ho nezapíše.
 
 Vo WSL robí to isté `run-tests.sh` a líši sa v troch veciach, všetky
@@ -507,7 +562,17 @@ tri `PASS` a dvanásť zlyhaní, ktoré vyzerali ako chyba emulátora, hoci to
 bola pokazená cesta. Keď na `to_unix` v `run-tests.sh` siahneš, drž sa
 tvaru cesty.
 
-**Keď manuál nie je po ruke, je `PASS` dvadsaťjeden a nie je to regresia.**
+**Sada má prejsť aj bez skratky BIOS-u.** Premenná `EA4_BEZ_SKRATKY`
+(ľubovoľná hodnota; z WSL aj s `WSLENV=EA4_BEZ_SKRATKY/w`) pustí v
+`integration_test` aj v sonde všetko čítanie a zápis diskety cez vlastný
+ovládač z ROM a radič, namiesto `InterceptBios` (HANDOFF 6.54, krok 4a).
+Tak bude bežať verná mechanika, takže keď siahneš na radič, obraz diskety
+alebo test, ktorý z diskety niečo spúšťa, pusti sadu oboma spôsobmi — 24
+`PASS` v oboch. Ovládač z ROM je pomalší a robí uprostred načítania pauzy
+dlhšie než pol sekundy; test, ktorý by bral ticho za koniec, so skratkou
+prejde a bez nej nie.
+
+**Keď manuál nie je po ruke, je `PASS` dvadsaťdva a nie je to regresia.**
 Dávka vynechá cez `SKIP_MODES` režimy `com` **aj `wp`** a napíše, prečo.
 Že sú to dva a nie jeden, ukázalo až meranie 20. 9. 2026: `wp` spúšťa ten
 istý `READ.COM` a overuje ním, že z chránenej diskety sa dá čítať
@@ -524,7 +589,7 @@ najprv bolo a bolo tiché — `make` implicitné ani vzorové pravidlá na
 `.PHONY` cieľoch nehľadá, takže všetky režimy zostali bez receptu, make ich
 vyhlásil za splnené a `run-tests.bat` ohlásil úspech bez toho, aby čokoľvek
 z nich bežalo. Keď na tú časť siahneš, over počet riadkov `PASS` — musí ich
-byť dvadsaťtri, alebo dvadsaťjeden bez manuálu — a raz to skús s nezmyselnou ROM
+byť dvadsaťštyri, alebo dvadsaťdva bez manuálu — a raz to skús s nezmyselnou ROM
 aj s nezmyselným `EUREKATECH`, či poistky naozaj zvonia.
 
 ## Diagnostická sonda
@@ -585,6 +650,12 @@ Tokeny sekvencie:
 - `stav` — vypíše, čo je naozaj na diskete v mechanike (médium, počet
   súborov, zámok). Reč hovorí, čo si stroj myslí; toto hovorí, čo je na
   médiu, a práve ten rozdiel odhalil 6.24.
+- `mechanika` — čo prežila mechanika od posledného opýtania: presuny hlavičky
+  (z cylindra na cylinder, s rýchlosťou kroku), čítania, zápisy
+  a formátovania, s odstupom v cykloch. Hlási obe cesty, radič aj obídený
+  BIOS, takže aj bežné čítanie súborov. Je to podklad pre zvuk mechaniky
+  (HANDOFF 6.54). Čakaj na dokončenie (`?text` alebo viac `.`), inak výpis
+  príde prázdny skôr, než firmvér na disketu siahne.
 - `zvuk` — koľko vzoriek dostal reproduktor a aký majú rozkmit. **Prepis reči
   nie je dôkaz ticha:** záznam berie `.speak` a `.spconv`, ale kliky a ozvenu
   klávesu cez `.spchar` zámerne nie (HANDOFF sekcia 3). Kým bral len
@@ -595,6 +666,15 @@ Tokeny sekvencie:
   výstup samotného modelu — bez zariadenia, bez fronty, bez steerovaného
   taktu — takže chyba, ktorá prežije do súboru, je v modeli, a tá, ktorá
   neprežije, je v real-time ceste (HANDOFF 6.38).
+- `wavm:SUBOR` — to isté so zvukom mechaniky (`src/drive_sound.*`, HANDOFF
+  6.54) a so všetkými udalosťami mechaniky od posledného opýtania. Mechanika
+  má vlastný, pomalší čas, takže súbor pokračuje za koncom vzoriek stroja,
+  kým sa motor nezastaví (najviac dve minúty). `wav:` zostáva čistý model.
+  Šum má pevné semienko: tá istá sekvencia dá bajtovo ten istý súbor, takže
+  ladenie zvuku sa dá porovnávať. Premenná `EA4_ZVUKY_MECHANIKY` s cestou
+  k priečinku nahrávok (`DriveSound::LoadSamples`) prepne syntézu na ne;
+  sonda na začiatku vypíše, ktoré zvuky hrá. Z WSL ju treba pustiť cez
+  `WSLENV=EA4_ZVUKY_MECHANIKY/w`, inak ju EXE nedostane.
 - `dac:N` — prebehne N inštrukcií a vypíše dva histogramy o tom, ako je DAC
   naozaj poháňaný: rozostupy medzi **zápismi** (pri melódii vždy 540 cyklov;
   dvojnásobok by znamenal stratené prerušenie PRT0) a veľkosti skokov hodnoty
@@ -1030,7 +1110,7 @@ toto je jedno z miest, ktoré by ho zaseklo.
 Kým toto neplatí, nehlás hotovo — a nehlás ani „malo by to fungovať“:
 
 1. `build.bat` prejde bez jediného varovania.
-2. `run-tests.bat` dá **dvadsaťtri** riadkov `PASS` — alebo dvadsaťjeden, keď na
+2. `run-tests.bat` dá **dvadsaťštyri** riadkov `PASS` — alebo dvadsaťdva, keď na
    stroji nie je Technical Manual a dávka to ohlási. Že sa to preložilo, nie je
    výsledok merania.
 3. Dokumentácia dobehla **v tom istom kroku**, nie „potom“. README, keď sa
@@ -1079,7 +1159,7 @@ prípony, preto má v `.gitattributes` vlastné pravidlo LF): pushne, spustí
 Artefakt z pushu sa použiť nedá — EXE v ňom nesie vývojovú verziu, nie číslo
 vydania. Testy s ROM nepúšťa ani CI, ani skript; stoja na „Čo znamená hotovo“
 pred commitom. Skript sa preto pred pushom pozrie do `build\otestovany-strom`:
-`run-tests` doň po úspešnom behu všetkých dvadsiatich troch zapíše hash
+`run-tests` doň po úspešnom behu všetkých dvadsiatich štyroch zapíše hash
 stromu, ktorý testoval, a `./release` ho porovná so stromom `HEAD`. Keď
 nesedí alebo chýba, spýta sa, či vydať aj tak. Je to hash **obsahu**, nie
 commitu, lebo testuje sa pred commitom; počíta sa cez dočasný index

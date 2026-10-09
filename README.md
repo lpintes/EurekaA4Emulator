@@ -302,6 +302,36 @@ Disketa je nepovinná:
   ukončení nejaké súbory sú, emulátor sa spýta sám; ak odmietnete alebo
   výber zrušíte, obsah zanikne.
 
+## Verná disketová mechanika
+
+Predvolene emulátor číta a zapisuje disketu **okamžite a potichu**: program
+sa načíta, len čo ho pomenujete. Skutočná Eureka je pomalšia a počuť ju —
+motor sa roztočí, hlavička krokuje po stopách a pri presune cez veľa stôp
+hrabe. Ak chcete stroj taký, aký bol, zapnite v **Nastaveniach** (`F11`,
+`Ctrl+N`), v skupine „Disketa“, políčko **Verná disketová mechanika (zvuk aj
+rýchlosť)**. Zapne obe veci naraz: polovica bez druhej by bola zvláštna.
+
+S vernou mechanikou disketu obsluhuje vlastný ovládač Eureky, tak ako na
+skutočnom stroji, a disketa sa otáča skutočnou rýchlosťou. Program ako
+`READ.COM` (16 KB) sa načíta asi za šesť sekúnd namiesto okamihu,
+formátovanie celej diskety trvá asi minútu a pol. Zvuk ide presne s tým, čo
+mechanika robí. A ako na skutočnej Eureke, mechanika **nepracuje, kým stroj
+hovorí**; motor medzitým len dobieha.
+
+Zvuk sa zmení hneď a emulátor si voľbu pamätá. Rýchlosť diskety sa prepne vo
+chvíli, keď stroj najbližšie čaká na kláves, teda nikdy uprostred čítania
+alebo zápisu.
+
+Zvuky sú nahrávky skutočných 3,5" mechaník, nie mechaniky Eureky; tú zatiaľ
+nikto nenahral. Vstavané zvuky sú v balíku emulátora aj ako súbory, v
+priečinku **`zvuky-mechaniky`**, spolu s návodom `NAVOD.md` (čo ktorý
+zvuk robí, aký musí mať formát a hlasitosť) a s pôvodom a licenciami
+v `PUVOD.md`. Ak máte vlastné nahrávky, nahraďte nimi súbory v tom
+priečinku a celý ho dajte vedľa súboru s nastaveniami (viď [Čo si emulátor
+pamätá](#čo-si-emulátor-pamätá)); emulátor ich pri ďalšom štarte použije
+namiesto vstavaných. Keď sa ich nepodarí načítať a verná mechanika je
+zapnutá, emulátor povie prečo a hrá vstavané.
+
 ## Telefónna linka
 
 Eureka vedela vytáčať telefónne čísla z telefónneho zoznamu. Pred
@@ -1019,7 +1049,7 @@ s návratovým kódom 2 a povie to.
 
 ### Licencie
 
-Emulátor je pod licenciou MIT; pozrite `LICENSE.txt`. Tri veci k tomu:
+Emulátor je pod licenciou MIT; pozrite `LICENSE.txt`. Štyri veci k tomu:
 
 - **ROM nie je súčasťou licencie zdrojového kódu** a v repozitári nie je;
   pozrite `ROM-NOTICE.txt`.
@@ -1027,6 +1057,15 @@ Emulátor je pod licenciou MIT; pozrite `LICENSE.txt`. Tri veci k tomu:
   za odvodené dielo; pozrite `nvda-addon\COPYING.txt`.
 - Použité jadro Z80 má vlastné MIT oznámenie
   v `src\LICENSE.superzazu-z80.txt`.
+- **Zvuky disketovej mechaniky** majú licencie svojich autorov; pozrite
+  `zvuky-mechaniky\PUVOD.md` v balíku. Motor je zo vzoriek
+  [Flopster](https://github.com/linuxmao-org/shiru-plugins) od autora
+  **Shiru** pod licenciou [CC BY](https://creativecommons.org/licenses/by/4.0/),
+  upravený (stlmené výšky a klapanie). Kroky sú z nahrávky
+  [Floppy drive sounds](https://commons.wikimedia.org/wiki/File:Floppy_drive_sounds.ogg)
+  od autora AlepouTheFox a hrabanie z nahrávky
+  [Floppy disk (3.5"), reading](https://bigsoundbank.com/detail-1396-floppy-disk-3-5-reading.html)
+  od Josepha Sardina, obe pod CC0.
 
 Technické referencie k procesoru: [Hitachi HD64180 User's Manual](https://www.bitsavers.org/components/hitachi/64180/HD64180_Users_Manual_Oct85.pdf),
 [Zilog Z180 User Manual](https://www.zilog.com/docs/z180/um0050.pdf) a

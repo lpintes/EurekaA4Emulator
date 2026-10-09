@@ -32,4 +32,4 @@ make -j"$JOBS" \
   RC="${TOOLPREFIX}windres" \
   tests
 
-echo "Vytvorené: bin/codec_test.exe, bin/disk_test.exe, bin/settings_test.exe, bin/update_test.exe, bin/link_test.exe, bin/zex_test.exe, bin/diag_probe.exe, bin/integration_test.exe"
+echo "Vytvorené: bin/codec_test.exe, bin/disk_test.exe, bin/settings_test.exe, bin/update_test.exe, bin/link_test.exe, bin/drive_sound_test.exe, bin/zex_test.exe, bin/diag_probe.exe, bin/integration_test.exe"

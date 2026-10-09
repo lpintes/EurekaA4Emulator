@@ -15,6 +15,7 @@ bool SettingsDialog::OnInit() {
   SetChecked(IDC_DIAGNOSTICS, diagnostics_);
   SetChecked(IDC_KEEP_RAM, keepRam_);
   SetChecked(IDC_CHECK_UPDATES, checkUpdates_);
+  SetChecked(IDC_FAITHFUL_DRIVE, faithfulDrive_);
   // false: let the dialog manager focus the first tab stop, which is the radio
   // group.  It then announces the whole group, not just one button.
   return false;
@@ -25,6 +26,7 @@ bool SettingsDialog::OnOk() {
   diagnostics_ = IsChecked(IDC_DIAGNOSTICS);
   keepRam_ = IsChecked(IDC_KEEP_RAM);
   checkUpdates_ = IsChecked(IDC_CHECK_UPDATES);
+  faithfulDrive_ = IsChecked(IDC_FAITHFUL_DRIVE);
   return true;
 }
 
