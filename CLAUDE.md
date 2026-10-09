@@ -619,6 +619,12 @@ Tokeny sekvencie:
   preto, aby sa čakalo, je odpoveď na otázku, ktorú stroj ešte nepoložil,
   a mne raz takto `k00` uprostred formátovania podsunulo hlásenie, ktoré
   tam inak nepatrí. Keď meriaš dialóg, čakaj `.`, nie klávesom.
+  Pozor, `.` čaká len na ticho **konzoly** (`TryWaitIdle(Quiet::kConsole)`),
+  nie reproduktora. Program, ktorý po reči prehráva digitalizovaný zvuk (PCM
+  cez ROM `001A5h`, napr. demo EUŠOU), beží ďalej aj po návrate bodky —
+  `spin:` potom ukáže čakanie na voľné miesto v kruhu `C6E1h` (ROM `00213h`),
+  čo vyzerá ako zaseknutie, ale nie je. Na pokračovanie takého programu
+  čakaj `?text` alebo dlhým `spin:` (odmerané 9. 10. 2026 pri rozbore PR 7).
 - `?text` — čaká, kým stroj **nepovie** daný text. Reč chodí oneskorene za
   dejom, takže pevné čakanie vymení disketu uprostred kroku namiesto pri
   výzve, ktorá si o ňu povedala. Od 24. 9. 2026 sa diakritika pri
