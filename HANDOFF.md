@@ -4085,7 +4085,7 @@ oba len s `EA4_COM_PAIR`. **Neoverené:** strata portu (vytiahnutý USB adaptér
 (com0com bez `EmuBR=yes` posiela bajty, ako prišli) a skutočná tlačiareň či
 Eureka na druhom konci. Skúška dvoch okien rukou zostáva na majiteľovi.
 
-### 6.54 Dump ROM z anglickej Eureky — program, ktorý rozozná stroj
+### 6.55 Dump ROM z anglickej Eureky — program, ktorý rozozná stroj
 
 4. 10. 2026. Majiteľ dostane na chvíľu anglickú Eureku a chce z nej ROM.
 Mal na to `dumprom.pas` (disketa `C:\b\englishrom`), ktorý na našom stroji

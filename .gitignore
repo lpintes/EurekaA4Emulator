@@ -34,3 +34,4 @@ p.md
 # .beads/dolt.gate.lock.info a .beads/embeddeddolt.gate.lock.info. Jeden
 # vzor ich berie vsetky, lebo git ho hlada v kazdej urovni.
 *.gate.lock.info
+SESSION.md

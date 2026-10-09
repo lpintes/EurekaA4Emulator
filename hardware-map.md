@@ -120,7 +120,7 @@ v ROM častý — napr. 19332 si `IN0` odloží CBR aj CBAR, prepne ich a skoč�
 Všetko vyššie platí pre náš stroj. Príloha D (`MEMMAP.E`) a kapitola 5
 (`MEMORY.5`) opisujú ďalšie rozloženia, ktoré sa od neho líšia práve tým,
 na čo sa programy z diskety najčastejšie spoliehajú. Nič z toho nie je
-modelované ani zmerané na skutočnom stroji (HANDOFF 6.54).
+modelované ani zmerané na skutočnom stroji (HANDOFF 6.55).
 
 - **Standard English s EPROM 27C256** — ROM na 00000h–1FFFFh **a ešte na
   40000h–4FFFFh** (`ROM 4`: BIOS, BDOS, FILEIO, aplikácie; `ROM 5`:
