@@ -58,6 +58,10 @@
 #define ID_KEYBOARD_TOGGLE   40022
 #define ID_KEYBOARD_RELEASE  40023
 #define ID_KEYBOARD_PASSONCE 40024
+// Which row the braille dots are on (HANDOFF 6.56); consecutive, because
+// CheckMenuRadioItem takes them as a range.
+#define ID_KEYBOARD_HOME_ROW  40032
+#define ID_KEYBOARD_UPPER_ROW 40033
 // F11 and F12 are the guest's keys too -- the ROM's own table for the PC
 // keyboard maps scan codes 57h and 58h to CAh and CBh (1DF05) -- so the two
 // the host took have to be reachable some other way.  A menu item costs no

@@ -350,6 +350,50 @@ void KeyboardModeRoundTrips() {
   }
 }
 
+void DotRowRoundTrips() {
+  // Absent means the home row, where the dots have always been (HANDOFF
+  // 6.56); only the one word moves them.
+  {
+    Settings settings(FileNamed("neexistuje.txt"));
+    settings.Load();
+    Check(!settings.upper_row_dots(), "chybajuci subor: body na domovskom rade");
+  }
+  const fs::path file = FileNamed("rad-bodov.txt");
+  std::wstring error;
+  {
+    Settings settings(file);
+    settings.SetUpperRowDots(true);
+    Check(settings.Save(error), "ulozenie s radom vyssie prejde", Narrow(error));
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(loaded.upper_row_dots(), "rad vyssie prezije zapis aj citanie");
+  }
+  Check(ReadRaw(file).find("rad-bodov=vyssi") != std::string::npos,
+        "rad vyssie je v subore ako rad-bodov=vyssi");
+  {
+    Settings settings(file);
+    settings.Load();
+    settings.SetUpperRowDots(false);
+    Check(settings.Save(error), "ulozenie s domovskym radom prejde",
+          Narrow(error));
+  }
+  {
+    Settings loaded(file);
+    loaded.Load();
+    Check(!loaded.upper_row_dots(), "domovsky rad sa da vratit");
+  }
+  Check(ReadRaw(file).find("rad-bodov=domovsky") != std::string::npos,
+        "domovsky rad je v subore ako rad-bodov=domovsky");
+  {
+    WriteRaw(file, "rad-bodov=nezmysel\r\n");
+    Settings loaded(file);
+    loaded.Load();
+    Check(!loaded.upper_row_dots(), "nezname slovo necha domovsky rad");
+  }
+}
+
 void SlidersRoundTrip() {
   // Absent means both sliders in the middle, where a first run starts too.
   {
@@ -727,6 +771,7 @@ int main() {
   UpdateKeysRoundTrip();
   CableAnswersRoundTrip();
   KeyboardModeRoundTrips();
+  DotRowRoundTrips();
   SlidersRoundTrip();
   SliderPositionsMapToTheHardware();
   RoundTripKeepsDiacritics();

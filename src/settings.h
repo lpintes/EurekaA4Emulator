@@ -96,6 +96,14 @@ class Settings {
   bool braille_keyboard() const { return brailleKeyboard_; }
   void SetBrailleKeyboard(bool braille) { brailleKeyboard_ = braille; }
 
+  // Where the braille keyboard's dots are: the row above the home row, R E W
+  // and U I O, instead of F D S and J K L (HANDOFF 6.56).  It belongs to the
+  // user's own PC keyboard -- one that cannot report five keys of the home
+  // row at once -- so it outlives the run.  Absent or any other word means
+  // the home row, where the dots have always been.
+  bool upper_row_dots() const { return upperRowDots_; }
+  void SetUpperRowDots(bool upper) { upperRowDots_ = upper; }
+
   // Where the two sliders were left, as positions (sliders.h).  A missing line
   // or one that is not a number means the default, and a number past either
   // end is pulled back to that end, so a hand edit cannot give the machine a
@@ -182,6 +190,7 @@ class Settings {
   bool keepRam_ = true;
   bool extraRam_ = false;
   bool brailleKeyboard_ = false;
+  bool upperRowDots_ = false;
   int speechRate_ = sliders::kRateDefault;
   int volume_ = sliders::kVolumeDefault;
   bool checkUpdates_ = true;

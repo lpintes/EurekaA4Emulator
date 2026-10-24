@@ -4800,6 +4800,50 @@ prehodené hlavy zhodia `dumprom_obraz_ma_jeden_subor`. Workflow „Zostavenie�
 má úlohu `dumprom`, ktorá COM aj obraz zostaví na Ubuntu 24.04 (binutils-z80
 2.38, tá istá verzia ako lokálne) a porovná ich s repozitárom.
 
+### 6.56 Rad bodov na klávesnici PC (22. 10. 2026)
+
+Prevzaté z emulátora GINa (jeho HANDOFF 7.5 a 7.6). Lacná klávesnica PC
+nemusí ohlásiť päť klávesov domovského radu naraz. Záznam klávesov
+v emulátore GINa ukázal, že niektorý kláves neohlási vôbec alebo až po
+pustení ostatných; Poznámkový blok aj tento emulátor sa na nej správali
+rovnako. Rad nad domovským ohlásil akordy spoľahlivo.
+
+Ponuka Klávesnica preto volí body na domovskom rade (`F D S`, `J K L`,
+predvolené) alebo o rad vyššie (`R E W`, `U I O`):
+
+- Kláves sa pozná podľa scan kódu, teda podľa miesta, nie podľa
+  virtuálneho kódu: body sú tvar pod prstami a rozloženie Windows ich
+  nesmie presunúť. Česky sa píše na QWERTZ aj na US QWERTY a ľudia
+  medzi nimi prepínajú; na AZERTY by podľa písmena nebolo W nad S.
+  Rozšírené klávesy bodom nie sú.
+- **Mení to aj domovský rad.** Ten sa do 6.56 poznal podľa virtuálneho
+  kódu. Na QWERTZ a QWERTY je výsledok rovnaký, na rozložení, kde
+  `F D S J K L` ležia inde (Dvorak), sú body odteraz pod prstami a nie
+  pod písmenami. Kláves bez scan kódu vložil program, nie prst, takže
+  miesto nemá a rozhoduje jeho písmeno ako predtým — inak by vložené
+  `F D S J K L` prestali byť bodmi.
+- `DotsByPlace` v `emulator_thread.cpp` prepíše udalosť na písmeno
+  domovského radu, ktoré pozná `BrailleBit`. Držaná matica a všetko za
+  ňou zostáva bez zmeny; písmeno, ktoré vo zvolenom rade bodom nie je,
+  nie je žiadny kláves. Len v braillovskom režime, na externej
+  klávesnici je písmeno písmenom.
+- Záznam klávesov v diagnostike ukazuje oba kódy, keď sa líšia: R na
+  rade vyššie je `vk=46 (stlačené 52) sc=13`, skutočné F tam
+  `vk=00 (stlačené 46)` a končí ako ignorované.
+- Prepnutie pustí všetky držané klávesy, inak by bod držaný počas
+  prepnutia prišiel späť ako iný kláves a zostal stlačený.
+- Voľba je v `nastavenia.txt`, riadok `rad-bodov=domovsky` alebo
+  `rad-bodov=vyssi`. Chýbajúci riadok aj neznáme slovo znamenajú
+  domovský rad (`settings_test`). Kľúč nie je `rozlozenie` — to je
+  rozloženie klávesnice Windows a to sa tu nemení — ani `body`, čo by
+  sľubovalo voľbu jednotlivých klávesov, kým sa volí len rad. Do vlákna
+  ide pri štarte v `Start` spolu s režimom klávesnice.
+
+**Vyskúšané v okne** majiteľom 24. 10. 2026 (`ea4-1es`): funguje podľa
+očakávania. Je to jediné doloženie — `emulator_thread.o` nie je v žiadnom
+teste, takže 24 `PASS` o tomto preklade nehovorí nič a pri zásahu do
+`DotsByPlace` treba skúšku v okne zopakovať.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

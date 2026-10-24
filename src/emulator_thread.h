@@ -176,8 +176,9 @@ class EmulatorThread {
 
   // Takes a machine that already has its ROM loaded and its disk mounted --
   // both can fail, and they must fail before there is a window to fail behind.
+  // upperRowDots is the row of the braille dots, as PostSetUpperRowDots.
   void Start(std::unique_ptr<EurekaMachine> machine, HWND notify,
-             InputMode startMode, bool diagnostics);
+             InputMode startMode, bool upperRowDots, bool diagnostics);
   // Asks the worker to finish, waits for it, and gives the machine back so the
   // caller can flush the disk and read the diagnostics.  Safe to call twice.
   std::unique_ptr<EurekaMachine> Stop();
@@ -193,6 +194,9 @@ class EmulatorThread {
   void PostReset();
   void PostSetMode(InputMode mode);
   void PostToggleMode();
+  // The braille keyboard's dots on the row above the home row, R E W and
+  // U I O, or on F D S and J K L (HANDOFF 6.56).
+  void PostSetUpperRowDots(bool on);
   void PostSetDiagnostics(bool on);
   // The faithful drive (HANDOFF 6.54, step 4c).  The sound set is handed over
   // before Start and the worker owns it from then on.  Switching on starts a
@@ -345,7 +349,7 @@ class EmulatorThread {
  private:
   struct Command {
     enum class Type {
-      kKey, kReset, kSetMode, kToggleMode, kSetDiagnostics,
+      kKey, kReset, kSetMode, kToggleMode, kSetUpperRowDots, kSetDiagnostics,
       kDumpDiagnostics, kPowerOff, kPowerOn, kFocusLost, kSaveDiskAs,
       kMountDisk, kEjectDisk, kCreateEmptyDisk, kInsertSlot, kAssignSlot,
       kSetWriteProtect, kSetSlotWriteProtect, kEnsureSlotDisk, kSetSpeechRate,
@@ -392,6 +396,9 @@ class EmulatorThread {
   SerialSocket socket_;
 
   std::atomic<InputMode> mode_{InputMode::kPc};
+  // Not atomic, unlike mode_: nobody but the worker asks, and it reads this
+  // once, after Start has set it and before the thread exists.
+  bool startUpperRowDots_ = false;
   std::atomic<bool> diagnostics_{false};
   std::atomic<bool> running_{false};
   std::atomic<bool> poweredOff_{false};

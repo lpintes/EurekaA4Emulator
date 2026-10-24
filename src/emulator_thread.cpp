@@ -81,6 +81,9 @@ struct HostKeyboard {
   // comes up in time it was a tap.  See applyKey.
   bool ctrlTapArmed = false;
   ULONGLONG ctrlTapStamp = 0;
+  // The six dots are the row above the home row, R E W and U I O, instead of
+  // F D S and J K L (see DotsByPlace).
+  bool upperRowDots = false;
 };
 
 // Longest press of Ctrl that still counts as a tap.  A Ctrl held longer was
@@ -141,6 +144,44 @@ uint8_t BrailleBit(WORD virtualKey) {
     case VK_SPACE: return hw::kBkbSpace;
     default: return 0;
   }
+}
+
+// Which PC keys are the six dots, after the GIN emulator (its HANDOFF 7.5
+// and 7.6, HANDOFF 6.56 here).  A cheap keyboard need not report five keys
+// of the home row at once -- the owner's drops one or reports it only once
+// the others are up, Notepad included -- while it reports them on the row
+// above.  So the dots can be that row instead.
+//
+// By scan code, that is by where the key is, on the home row too, which went
+// by letter before: the dots are a shape under the fingers, and the layout --
+// Czech QWERTZ one day, US QWERTY the next, or AZERTY, where W is not above
+// S -- must not move them.  The event is rewritten to the home-row letter
+// BrailleBit knows, so the held matrix and everything after it stay as they
+// were; a letter that is not a dot in the row in force becomes no key at all.
+// Extended keys are never dots, so the keypad cannot pass for one.  A key with
+// no scan code was put in by a program, not pressed, so it has no place and
+// its letter decides, as it always did.  Braille mode only: on the PC
+// keyboard a letter is a letter.
+constexpr uint8_t kHomeRowScans[6] = {0x21, 0x20, 0x1F, 0x24, 0x25, 0x26};
+constexpr uint8_t kUpperRowScans[6] = {0x13, 0x12, 0x11, 0x16, 0x17, 0x18};
+constexpr WORD kDotKeys[6] = {'F', 'D', 'S', 'J', 'K', 'L'};
+
+HostKeyEvent DotsByPlace(const HostKeyEvent& typed, bool upperRow) {
+  HostKeyEvent key = typed;
+  if (key.scanCode == 0) return key;
+  const uint8_t* scans = upperRow ? kUpperRowScans : kHomeRowScans;
+  if (!key.extended) {
+    for (int dot = 0; dot < 6; ++dot) {
+      if (scans[dot] == key.scanCode) {
+        key.virtualKey = kDotKeys[dot];
+        return key;
+      }
+    }
+  }
+  for (WORD letter : kDotKeys) {
+    if (key.virtualKey == letter) key.virtualKey = 0;
+  }
+  return key;
 }
 
 // Which row of HoldMembrane's live matrix one physically held key of the
@@ -338,12 +379,19 @@ void SendScanCode(EurekaMachine& machine, const HostKeyEvent& key) {
 // With diagnostics on, every key event is echoed with what the emulator made
 // of it.  A keyboard that does nothing is otherwise impossible to tell apart
 // from a key that never arrived: both are silence.
-void TraceKey(const HostKeyEvent& key, InputMode mode, const wchar_t* took) {
-  wchar_t line[220];
-  swprintf(line, 220,
-           L"[kláves %ls vk=%02X sc=%02X stav=%04X%ls režim=%ls -> %ls]\r\n",
+// typedKey is the virtual key as it came from the window.  DotsByPlace may
+// have rewritten it -- R to F on the upper row, F to nothing -- and a line
+// naming only the result would name a key nobody pressed.
+void TraceKey(const HostKeyEvent& key, InputMode mode, const wchar_t* took,
+              WORD typedKey = 0) {
+  wchar_t typed[24] = L"";
+  if (typedKey != 0 && typedKey != key.virtualKey)
+    swprintf(typed, 24, L" (stlačené %02X)", static_cast<unsigned>(typedKey));
+  wchar_t line[240];
+  swprintf(line, 240,
+           L"[kláves %ls vk=%02X%ls sc=%02X stav=%04X%ls režim=%ls -> %ls]\r\n",
            key.down ? L"dole" : L"hore",
-           static_cast<unsigned>(key.virtualKey),
+           static_cast<unsigned>(key.virtualKey), typed,
            static_cast<unsigned>(key.scanCode),
            static_cast<unsigned>(key.modifiers),
            key.autoRepeat ? L" opak." : L"", ModeName(mode), took);
@@ -399,7 +447,8 @@ HostKeyEvent SyntheticKey(bool down, WORD virtualKey, bool alt) {
 EmulatorThread::~EmulatorThread() { Stop(); }
 
 void EmulatorThread::Start(std::unique_ptr<EurekaMachine> machine, HWND notify,
-                           InputMode startMode, bool diagnostics) {
+                           InputMode startMode, bool upperRowDots,
+                           bool diagnostics) {
   machine_ = std::move(machine);
   notify_ = notify;
   cable_.SetListener([this, notify](TcpLink::Event event, const std::wstring& detail) {
@@ -419,6 +468,7 @@ void EmulatorThread::Start(std::unique_ptr<EurekaMachine> machine, HWND notify,
   machine_->SetSerialLink(&socket_);
   socket_.Plug(&cable_);
   mode_.store(startMode, std::memory_order_relaxed);
+  startUpperRowDots_ = upperRowDots;
   diagnostics_.store(diagnostics, std::memory_order_relaxed);
   running_.store(true, std::memory_order_relaxed);
   poweredOff_.store(false, std::memory_order_relaxed);
@@ -465,6 +515,13 @@ void EmulatorThread::PostSetMode(InputMode mode) {
 }
 
 void EmulatorThread::PostToggleMode() { PostType(Command::Type::kToggleMode); }
+
+void EmulatorThread::PostSetUpperRowDots(bool on) {
+  Command command;
+  command.type = Command::Type::kSetUpperRowDots;
+  command.flag = on;
+  Post(std::move(command));
+}
 
 void EmulatorThread::PostSetDiagnostics(bool on) {
   Command command;
@@ -667,6 +724,7 @@ void EmulatorThread::Run() {
   EurekaMachine& machine = *machine_;
   HostKeyboard host;
   host.mode = mode_.load(std::memory_order_relaxed);
+  host.upperRowDots = startUpperRowDots_;
   const HWND notify = notify_;
 
   DriveSound drive = driveTemplate_;
@@ -706,7 +764,10 @@ void EmulatorThread::Run() {
 
   // One host key event, already off the queue.  Split out of the command loop
   // only because it is long; it runs on the worker like everything else.
-  const auto translateKey = [&](const HostKeyEvent& key, bool trace) {
+  const auto translateKey = [&](const HostKeyEvent& typed, bool trace) {
+    const HostKeyEvent key = host.mode == InputMode::kBraille
+                                 ? DotsByPlace(typed, host.upperRowDots)
+                                 : typed;
     if (!key.down) {
       if (host.mode == InputMode::kPc) {
         if (trace) TraceKey(key, host.mode, L"scan kód");
@@ -754,7 +815,7 @@ void EmulatorThread::Run() {
     const uint8_t wanted = WantedModifiers(key.modifiers);
     const bool ctrl = (wanted & kModCtrl) != 0;
     const bool shift = (wanted & kModShift) != 0;
-    if (trace) TraceKey(key, host.mode, L"do Eureky");
+    if (trace) TraceKey(key, host.mode, L"do Eureky", typed.virtualKey);
 
     if (host.mode == InputMode::kPc) {
       SyncModifiers(machine, host, wanted);
@@ -824,7 +885,8 @@ void EmulatorThread::Run() {
     // are silence.
     if (trace)
       TraceKey(key, host.mode,
-               L"ignorované, braillovská klávesnica text nepíše — píšte bodmi");
+               L"ignorované, braillovská klávesnica text nepíše — píšte bodmi",
+               typed.virtualKey);
   };
 
   // A bare tap on Ctrl -- down and up with nothing in between -- taps the
@@ -1039,6 +1101,13 @@ void EmulatorThread::Run() {
         if (notify) PostMessageW(notify, WM_EMU_STATE, 0, 0);
         break;
       }
+      case Command::Type::kSetUpperRowDots:
+        if (command.flag == host.upperRowDots) break;
+        host.upperRowDots = command.flag;
+        // A dot held now would come up as another key and stay down.
+        host.heldKeys.fill(false);
+        RecomputeHeldMembrane(machine, host);
+        break;
       case Command::Type::kSetDiagnostics:
         diagnostics_.store(command.flag, std::memory_order_relaxed);
         machine.diagnostics().set_enabled(command.flag);

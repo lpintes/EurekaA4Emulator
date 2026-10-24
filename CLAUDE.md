@@ -467,6 +467,12 @@ chýbajúci kľúč aj iné slovo než `1` znamenajú vypnuté, lebo je to nový
 pod hlasom stroja aj pomalšia disketa a nikto ich nemá dostať bez toho, aby
 si ich zapol.
 Overené mutáciou (`== L"1"` → `!= L"0"`).
+Drží aj **rad bodov** braillovskej klávesnice (`rad-bodov=`, HANDOFF 6.56)
+— ako rozšírenú RAM: chýbajúci kľúč aj iné slovo než `vyssi` znamenajú
+domovský rad `F D S`, `J K L`, kde body boli vždy, a `domovsky` sa píše tiež.
+Overené mutáciou (`== kDotRowUpper` → `!= kDotRowHome`). Samotné body podľa
+scan kódu (`DotsByPlace`) nedrží žiadny test, len skúška majiteľa v okne
+(HANDOFF 6.56) — keď na ne siahneš, treba ju zopakovať.
 Drží aj **posledné odpovede sériového kábla** (`kabel-port=`, `kabel-adresa=`,
 `ea4-7zw.4`, a `kabel-com=`, `ea4-7zw.3`): že adresa s dvojbodkami, zátvorkami aj diakritikou príde späť
 tak, ako bola napísaná, a že zrušená zo súboru zmizne. Sú to texty, nie čísla —

@@ -97,6 +97,9 @@ class MainWindow : public win::Window {
   // already off -- then closing loses nothing.
   bool ConfirmClosingWithoutPowerDown();
   void SaveSettings();
+  // Klávesnica -> the row the braille dots are on, told to the worker and
+  // remembered (HANDOFF 6.56).
+  void SetUpperRowDots(bool upper);
   // Pomocník -> Skontrolovať aktualizácie (ea4-hg9.5).
   void CheckForUpdates();
   // Moves the two sliders to these positions, clamped to their travel, and

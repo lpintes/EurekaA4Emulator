@@ -191,7 +191,9 @@ constexpr wchar_t kShortcutHelp[] =
     L"sebekontrolu, Shift+F7 spustí program z disku.\r\n"
     L"\r\n"
     L"V braillovskom režime sú F D S body 1 2 3, J K L body 4 5 6\r\n"
-    L"a medzerník je medzerník. Shift robí veľké písmeno a so samotným\r\n"
+    L"a medzerník je medzerník. Keď klávesnica PC neohlási päť klávesov\r\n"
+    L"naraz, ponuka Klávesnica presunie body o rad vyššie: R E W sú body\r\n"
+    L"1 2 3, U I O body 4 5 6. Shift robí veľké písmeno a so samotným\r\n"
     L"medzerníkom je Escape — kláves Esc stlačí presne ten akord, takže\r\n"
     L"funguje aj on. Enter stlačí F8 a Backspace F6 — stroj tie dva\r\n"
     L"klávesy nemá a ich prácu na ňom robia práve F8 a F6. Písmená sa\r\n"
@@ -362,6 +364,8 @@ void MainWindow::RegisterCommands() {
   OnCommand(ID_KEYBOARD_PC,
             [this] { emulator_.PostSetMode(InputMode::kPc); });
   OnCommand(ID_KEYBOARD_TOGGLE, [this] { emulator_.PostToggleMode(); });
+  OnCommand(ID_KEYBOARD_HOME_ROW, [this] { SetUpperRowDots(false); });
+  OnCommand(ID_KEYBOARD_UPPER_ROW, [this] { SetUpperRowDots(true); });
   OnCommand(ID_KEYBOARD_RELEASE, [this] { SetReleased(!released_); });
   // Pressing F11 again changes your mind rather than arming it twice.
   OnCommand(ID_KEYBOARD_PASSONCE, [this] { SetPassOnce(!passOnce_); });
@@ -855,6 +859,15 @@ void MainWindow::SaveSettings() {
     MessageBoxW(hwnd_, error.c_str(), L"Eureka A4", MB_OK | MB_ICONWARNING);
 }
 
+// The settings are the window's copy of the choice, for the radio mark; the
+// worker has its own, the one the keys go through (HANDOFF 6.56).
+void MainWindow::SetUpperRowDots(bool upper) {
+  if (settings_.upper_row_dots() == upper) return;
+  settings_.SetUpperRowDots(upper);
+  emulator_.PostSetUpperRowDots(upper);
+  SaveSettings();
+}
+
 // Asked for by name, so unlike the start-up check it always answers: "máte
 // najnovšiu", the reason it failed, or the offer -- even of a version skipped
 // before, since asking is the user changing their mind.  The machine keeps
@@ -1099,6 +1112,12 @@ void MainWindow::RefreshMenu() const {
   CheckMenuRadioItem(menu, ID_KEYBOARD_BRAILLE, ID_KEYBOARD_PC,
                      mode == InputMode::kBraille ? ID_KEYBOARD_BRAILLE
                                                  : ID_KEYBOARD_PC,
+                     MF_BYCOMMAND);
+  // Not greyed on the PC keyboard either, for the same reason as the mode:
+  // which row the dots will be on is worth choosing before switching to them.
+  CheckMenuRadioItem(menu, ID_KEYBOARD_HOME_ROW, ID_KEYBOARD_UPPER_ROW,
+                     settings_.upper_row_dots() ? ID_KEYBOARD_UPPER_ROW
+                                                : ID_KEYBOARD_HOME_ROW,
                      MF_BYCOMMAND);
   // The mode is deliberately *not* greyed out while the keyboard is released.
   // Choosing which keyboard it comes back as is a real thing to want, Ctrl+K

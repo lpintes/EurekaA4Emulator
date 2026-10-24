@@ -25,6 +25,12 @@ constexpr char kExtraRamKey[] = "rozsirena-ram";
 constexpr char kKeyboardKey[] = "klavesnica";
 constexpr wchar_t kKeyboardBraille[] = L"braillovska";
 constexpr wchar_t kKeyboardPc[] = L"externa";
+// Spelt out for the same reason: "rad-bodov=vyssi" puts the braille dots on
+// R E W and U I O, "domovsky" on F D S and J K L.  Not "rozlozenie": that is
+// the word for the Windows keyboard layout, which this does not change.
+constexpr char kDotRowKey[] = "rad-bodov";
+constexpr wchar_t kDotRowUpper[] = L"vyssi";
+constexpr wchar_t kDotRowHome[] = L"domovsky";
 constexpr char kSpeechRateKey[] = "rychlost-reci";
 constexpr char kVolumeKey[] = "hlasitost";
 constexpr char kCheckUpdatesKey[] = "aktualizacie";
@@ -227,6 +233,11 @@ void Settings::Load() {
       brailleKeyboard_ = value == kKeyboardBraille;
       continue;
     }
+    if (key == kDotRowKey) {
+      // The same rule: only the one word moves the dots off the home row.
+      upperRowDots_ = value == kDotRowUpper;
+      continue;
+    }
     if (key == kSpeechRateKey || key == kVolumeKey) {
       // Plain digits only.  Anything else is skipped rather than read as zero,
       // which for the volume would start a machine that says nothing and
@@ -285,6 +296,8 @@ bool Settings::Save(std::wstring& error) const {
   text += std::wstring(L"rozsirena-ram=") + (extraRam_ ? L"1" : L"0") + L"\r\n";
   text += std::wstring(L"klavesnica=") +
           (brailleKeyboard_ ? kKeyboardBraille : kKeyboardPc) + L"\r\n";
+  text += std::wstring(L"rad-bodov=") +
+          (upperRowDots_ ? kDotRowUpper : kDotRowHome) + L"\r\n";
   text += L"rychlost-reci=" + std::to_wstring(speechRate_) + L"\r\n";
   text += L"hlasitost=" + std::to_wstring(volume_) + L"\r\n";
   // Written at its default, like zachovat-ram, so the switch can be found.

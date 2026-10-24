@@ -139,6 +139,9 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "&Prepnúť\tF11, Ctrl+K",                       ID_KEYBOARD_TOGGLE
         MENUITEM SEPARATOR
+        MENUITEM "Body na &domovskom rade: F D S, J K L",       ID_KEYBOARD_HOME_ROW
+        MENUITEM "Body o rad &vyššie: R E W, U I O",            ID_KEYBOARD_UPPER_ROW
+        MENUITEM SEPARATOR
         MENUITEM "&Uvoľniť klávesnicu\tShift+F11",              ID_KEYBOARD_RELEASE
         MENUITEM "&Jeden kláves do Windows alebo skratka\tF11",  ID_KEYBOARD_PASSONCE
         MENUITEM SEPARATOR

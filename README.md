@@ -222,6 +222,8 @@ Prepína sa `F11`, `Ctrl+K` alebo v ponuke Klávesnica:
   nezhiftovaná číselná rada dáva `ěščřžýáíé` a číslice sú až so shiftom.
 - **braillovská klávesnica** — dvadsať klávesov, ktoré stroj naozaj mal.
   `F D S` sú body 1, 2, 3 a `J K L` body 4, 5, 6, medzerník je medzerník;
+  keď klávesnica PC neohlási päť klávesov naraz, ponuka Klávesnica
+  presunie body o rad vyššie, na `R E W` a `U I O`, a zapamätá si to;
   akord sa vydá pri pustení posledného prsta. Shift patrí do akordu: robí
   veľké písmeno a so samotným medzerníkom je Escape — kláves `Esc` stlačí
   presne ten akord, takže funguje aj on. `Enter` stlačí `F8` a `Backspace`
