@@ -366,9 +366,9 @@ void RecomputeHeldMembrane(EurekaMachine& machine, const HostKeyboard& host) {
 // slowest legitimate chord never goes stale just because a different key on
 // the matrix happened to sit still.
 //
-// The window now also reports WM_KILLFOCUS, which clears this outright and is
-// exact where the timer only guesses; the timer stays as the backstop for a
-// release lost some other way.
+// The window now also reports WM_KILLFOCUS and an opening menu, which clear
+// this outright and are exact where the timer only guesses; the timer stays
+// as the backstop for a release lost some other way.
 void ForgetStaleHeld(HostKeyboard& host, EurekaMachine& machine) {
   const ULONGLONG now = GetTickCount64();
   if (now - host.heldStamp > 2000) {

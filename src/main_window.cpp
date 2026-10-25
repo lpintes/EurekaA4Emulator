@@ -1361,6 +1361,16 @@ LRESULT MainWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
       if (released_ || passOnce_) break;
       return 0;
 
+    case WM_ENTERMENULOOP:
+      // A menu keeps the focus, so WM_KILLFOCUS does not come, but its own
+      // loop takes the keyboard and the releases of whatever is still down go
+      // to it, not here.  A key left held is not harmless: a cursor key
+      // repeats through the ROM's typematic for as long as it sits there
+      // (measured, about 7.5 a second after the first), and a dot joins the
+      // next chord typed.  Let go now, as for a lost focus.
+      emulator_.PostFocusLost();
+      return 0;
+
     case WM_KILLFOCUS:
       // The releases of whatever is held will be delivered to whoever took the
       // focus, so tell the machine to let go now rather than let a key sit
