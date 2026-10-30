@@ -160,7 +160,7 @@ $(BUILD)/eureka_res.o: src/res/eureka.rc src/res/resource.h \
 # ws2_32 je seriovy kabel medzi emulatormi (tcp_link.cpp).
 $(EMU): $(EMU_OBJS) | $(BIN)
 	$(CXX) -municode -mwindows $(STATIC) -Wl,--gc-sections -s -o $@ \
-	    $(EMU_OBJS) -lwinmm -lole32 -lshell32 -luuid -lcomctl32 -lwinhttp -lbcrypt -lws2_32
+	    $(EMU_OBJS) -lole32 -lshell32 -luuid -lcomctl32 -lwinhttp -lbcrypt -lws2_32
 
 # codec_test a disk_test maju obycajny main, preto bez -municode; s nim
 # linker spadne na chybajucom wWinMain.

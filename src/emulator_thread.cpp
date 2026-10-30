@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
+#include <cwchar>
 #include <optional>
 
 #include "audio_player.h"
@@ -60,7 +62,103 @@ class PreciseTimer {
 // buffering becomes the floor, the controller pushes against it and
 // overshoots instead, and the spread measured 10-48 ms.  Measured here at 22:
 // 24 ms average while speaking, never closer than 16 ms to running dry.
-constexpr double kTargetLatencyMs = 22.0;
+// That was through waveOut, whose own layer still starved the engine at 22
+// on the owner's machine -- a gap every 2.4 s in music, none from 50.  Through
+// WASAPI the queue is the engine's buffer itself, and 22 got through 265 s of
+// reading text and the whole piece without one (HANDOFF 6.61).
+constexpr double kDefaultLatencyMs = 22.0;
+
+// EA4_ZVUK_MS overrides the target for one run, so that the same build can be
+// measured at two depths on the machine where the sound stutters (HANDOFF
+// 6.61).  A diagnostic, not a setting: read once, clamped well inside the
+// player's 120 ms ceiling, and anything that is not a number is ignored.
+double TargetLatencyMs() {
+  wchar_t buffer[16];
+  const DWORD length = GetEnvironmentVariableW(L"EA4_ZVUK_MS", buffer, 16);
+  if (length == 0 || length >= 16) return kDefaultLatencyMs;
+  wchar_t* end = nullptr;
+  const double value = std::wcstod(buffer, &end);
+  // wcstod also takes "nan" and "inf", and std::clamp passes a NaN through.
+  if (end == buffer || *end != L'\0' || !std::isfinite(value))
+    return kDefaultLatencyMs;
+  return std::clamp(value, 10.0, 100.0);
+}
+
+// One second of how the sound fared, for the diagnostics dump.
+struct AudioSecond {
+  AudioPlayer::Stats stats;
+  double longestPassMs;
+  uint64_t slowPasses;
+  // Seconds since the last dump, so that the label stays right once the
+  // oldest seconds have been dropped from the front.
+  uint64_t number;
+};
+// Ten minutes: a whole piece of music and then some.
+constexpr std::size_t kAudioTimelineSeconds = 600;
+
+// A summary first and then only the seconds where something happened: a
+// line per second for ten minutes is more than anyone reads through a
+// screen reader, and the quiet seconds say nothing the summary does not.
+void PrintAudioTimeline(const std::deque<AudioSecond>& timeline,
+                        double targetMs) {
+  // The sound card's clock and the PC's never run exactly together, and a
+  // card a tenth of a percent slow looks like a millisecond of gap every
+  // second.  That shows as the same small figure in most seconds, so the
+  // median is taken as drift and only what rises above it counts -- over the
+  // seconds that played, or a long stretch switched off would make it zero.
+  std::vector<double> perSecond;
+  for (const AudioSecond& second : timeline)
+    if (second.stats.maxQueueMs > 0.0) perSecond.push_back(second.stats.gapMs);
+  double drift = 0.0;
+  if (!perSecond.empty()) {
+    std::nth_element(perSecond.begin(), perSecond.begin() + perSecond.size() / 2,
+                     perSecond.end());
+    drift = perSecond[perSecond.size() / 2];
+  }
+  const auto excess = [drift](const AudioSecond& second) {
+    return std::max(0.0, second.stats.gapMs - drift);
+  };
+  double gapMs = 0.0;
+  double minQueue = 0.0;
+  uint64_t dry = 0;
+  uint64_t dropped = 0;
+  std::size_t gapSeconds = 0;
+  bool any = false;
+  for (const AudioSecond& second : timeline) {
+    gapMs += excess(second);
+    dry += second.stats.dry;
+    dropped += second.stats.dropped;
+    if (excess(second) >= 1.0 || second.stats.dry > 0) ++gapSeconds;
+    if (second.stats.meanQueueMs > 0.0 && (!any || second.stats.minQueueMs < minQueue)) {
+      minQueue = second.stats.minQueueMs;
+      any = true;
+    }
+  }
+  wchar_t line[320];
+  std::swprintf(line, 320,
+                L"\r\n[Zvuk: cieľ %.0f ms, %zu s záznamu, sekúnd s medzerou %zu, "
+                L"medzery spolu %.1f ms, vyschlo %llu-krát, zahodené bloky %llu, "
+                L"najnižšia fronta %.1f ms, posun hodín karty %.2f ms/s]\r\n",
+                targetMs, timeline.size(), gapSeconds, gapMs,
+                static_cast<unsigned long long>(dry),
+                static_cast<unsigned long long>(dropped), minQueue, drift);
+  host::Print(line);
+  for (const AudioSecond& second : timeline) {
+    const AudioPlayer::Stats& s = second.stats;
+    if (excess(second) < 1.0 && s.dry == 0 && s.dropped == 0 &&
+        second.slowPasses == 0)
+      continue;
+    std::swprintf(line, 320,
+                  L"  sekunda %llu: medzery %.1f ms, vyschla %llu-krát, fronta "
+                  L"%.1f / %.1f ms (min / priemer), najdlhší priechod %.1f ms, "
+                  L"zahodené %llu\r\n",
+                  static_cast<unsigned long long>(second.number), excess(second),
+                  static_cast<unsigned long long>(s.dry),
+                  s.minQueueMs, s.meanQueueMs, second.longestPassMs,
+                  static_cast<unsigned long long>(s.dropped));
+    host::Print(line);
+  }
+}
 
 // Perkins entry on a QWERTY keyboard: the six dot keys under the fingers,
 // pressed as a chord.  Nothing here turns dots into letters -- the machine
@@ -736,10 +834,21 @@ void EmulatorThread::Run() {
   machine.RequestBiosDiskBypass(!driveOn);
 
   AudioPlayer audio;
+  const double targetLatencyMs = TargetLatencyMs();
+  // The loop's side of the audio statistics; AudioPlayer keeps the queue's.
+  // Both go into audioTimeline once a second, so that the dump -- which
+  // stalls this thread for a third of a second printing the rest of the
+  // diagnostics -- is taken once afterwards, not in the middle of what it
+  // measures (HANDOFF 6.61).
+  double longestPassMs = 0.0;
+  uint64_t slowPasses = 0;
+  std::deque<AudioSecond> audioTimeline;
+  auto audioSecondStart = std::chrono::steady_clock::now();
+  uint64_t audioSecondNumber = 0;
   // Told to the window rather than printed: there is no console unless the
   // user asked for one, and this is the least losable message the emulator
   // has -- without sound this machine has no user interface at all.
-  if (!audio.Open(EurekaMachine::kAudioHz) && notify)
+  if (!audio.Open(EurekaMachine::kAudioHz, targetLatencyMs) && notify)
     PostMessageW(notify, WM_EMU_NO_AUDIO, 0, 0);
 
   using Clock = std::chrono::steady_clock;
@@ -1072,7 +1181,7 @@ void EmulatorThread::Run() {
         host.heldKeys.fill(false);
         host.mods = 0;
         audio.Close();
-        audio.Open(EurekaMachine::kAudioHz);
+        audio.Open(EurekaMachine::kAudioHz, targetLatencyMs);
         lastTick = Clock::now();
         guestClock = 0.0L;
         host::Print(L"\r\n[Eureka bola resetovaná]\r\n");
@@ -1138,6 +1247,9 @@ void EmulatorThread::Run() {
         // it posts this, because saying "they are off" is a message for the
         // user and would be lost in a console nobody has opened.
         host::Print(machine.diagnostics().Report());
+        PrintAudioTimeline(audioTimeline, targetLatencyMs);
+        audioTimeline.clear();
+        audioSecondNumber = 0;
         break;
       case Command::Type::kPowerOff:
         // Sent as a key rather than faked, so the firmware does its own
@@ -1168,7 +1280,7 @@ void EmulatorThread::Run() {
         // go on talking over the boot tones.
         if (wasRunning) {
           audio.Close();
-          audio.Open(EurekaMachine::kAudioHz);
+          audio.Open(EurekaMachine::kAudioHz, targetLatencyMs);
           lastTick = Clock::now();
         }
         // The user's writing mode is theirs and survives; a key caught
@@ -1319,19 +1431,23 @@ void EmulatorThread::Run() {
     const auto now = Clock::now();
     double delta = std::chrono::duration<double>(now - lastTick).count();
     lastTick = now;
+    // For the diagnostics dump: a pass normally takes the timer's 2 ms and a
+    // little work, and one that takes longer than the queue holds is a gap.
+    longestPassMs = std::max(longestPassMs, delta * 1000.0);
+    if (delta > 0.010) ++slowPasses;
     // A scheduling stall is the host's problem, not the guest's; letting one
     // through unclamped would turn into a sprint through the speech engine.
     if (delta > 0.25) delta = 0.25;
 
     // Slewing the emulated clock by at most two percent is how the audio
-    // buffer is held at kTargetLatencyMs.  It is the right knob rather than
+    // buffer is held at targetLatencyMs.  It is the right knob rather than
     // dropping or repeating samples: the DAC output stays coherent, and two
     // percent of 6.144 MHz is a third of a semitone nobody can hear.  Without
     // it nothing ever drains the queue the device started out with, because
     // producer and consumer both run at exactly real time.
     double rate = static_cast<double>(EurekaMachine::kCpuHz);
     if (audio.Ready()) {
-      const double audioError = audio.QueuedMs() - kTargetLatencyMs;
+      const double audioError = audio.QueuedMs() - targetLatencyMs;
       rate *= 1.0 - std::clamp(audioError * 0.002, -0.02, 0.02);
     }
     guestClock += static_cast<long double>(rate) * delta;
@@ -1384,7 +1500,7 @@ void EmulatorThread::Run() {
       } else if (machine.powered_off() && !drive.Idle() && audio.Ready()) {
         // Switched off, the machine gives no samples at all, but the drive
         // finishes: just enough to keep the device at its usual latency.
-        const double missing = kTargetLatencyMs - audio.QueuedMs();
+        const double missing = targetLatencyMs - audio.QueuedMs();
         if (missing > 0) {
           samples.assign(static_cast<std::size_t>(missing * EurekaMachine::kAudioHz / 1000.0), 0);
           drive.Continue(samples);
@@ -1392,11 +1508,19 @@ void EmulatorThread::Run() {
       }
     }
     audio.Submit(std::move(samples));
+    if (now - audioSecondStart >= std::chrono::seconds(1)) {
+      audioSecondStart = now;
+      audioTimeline.push_back(
+          {audio.TakeStats(), longestPassMs, slowPasses, ++audioSecondNumber});
+      if (audioTimeline.size() > kAudioTimelineSeconds) audioTimeline.pop_front();
+      longestPassMs = 0.0;
+      slowPasses = 0;
+    }
 
     // The machine switched itself off: the four cursor keys from the Main
     // Menu, or five minutes of nobody touching it.  It says "konec" first, and
     // that announcement is still inside the sound device when the strobe fires
-    // -- AudioPlayer::Close() calls waveOutReset and would throw it away -- so
+    // -- AudioPlayer::Close() stops the stream and would throw it away -- so
     // wait for it to play out.  Two seconds is a ceiling for a device that
     // stops reporting progress, not a pause.
     //
@@ -1467,6 +1591,9 @@ void EmulatorThread::Run() {
     timer.Wait(2.0);
   }
 
+  // The dump at exit is main.cpp's, which has no way to the timeline.
+  if (diagnostics_.load(std::memory_order_relaxed))
+    PrintAudioTimeline(audioTimeline, targetLatencyMs);
   audio.Close();
   running_.store(false, std::memory_order_relaxed);
 }

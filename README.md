@@ -931,7 +931,7 @@ neprepísal obsah pripojeného obrazu.
 - WD1772 na úrovni sektorov a CP/M BIOS na úrovni 128-bajtových záznamov;
 - RTC, napäťové komparátory, napájacie a výstupné registre;
 - 8-bitový DAC s rekonštrukčným filtrom, pôvodný syntetizátor, hudba
-  a zvuky cez Windows `waveOut`;
+  a zvuky cez zdieľané WASAPI na predvolenom výstupe Windows;
 - sériový port RS-232 (kanál ASCI 1), cez ktorý Eureka tlačí a Komunikácia
   posiela a prijíma súbory: rýchlosť a formát podľa nastavenia v stroji,
   signály RTS a CTS, prerušenie od prijatého znaku;
@@ -963,6 +963,14 @@ Prepínač `--diag` zapne záznam hardvérových prístupov, ktoré model neobsl
   To je jediný spôsob, ako odlíšiť kláves, ktorý sa zámerne ignoruje —
   napríklad písmeno v braillovskom režime — od klávesu, ktorý vôbec
   neprišiel. Oboje je inak ticho.
+- ako sa darilo zvuku, sekundu po sekunde od posledného výpisu (najviac
+  desať minút): súhrn a potom len sekundy, v ktorých zvukovej karte
+  chýbal zvuk (medzera, ktorú počuť ako prasknutie), fronta vyschla, bloky
+  sa zahodili alebo sa slučka emulátora oneskorila. Výpis sám emulátor na
+  chvíľu zastaví a zvuk tým pokazí, takže ho treba dať **raz, po** tom, čo
+  sa meralo, nie počas toho. Premenná prostredia `EA4_ZVUK_MS` (10 – 100)
+  na jedno spustenie zmení cieľovú hĺbku fronty z predvolených 22 ms, aby
+  sa dali porovnať.
 
 Výpis: `F11`, `Ctrl+D` počas behu, a tiež pri ukončení. Zapnúť sa dá aj
 za behu v Nastaveniach (`F11`, `Ctrl+N`); vtedy sa otvorí okno konzoly, do
