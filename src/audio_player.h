@@ -27,7 +27,9 @@ class AudioPlayer {
   AudioPlayer& operator=(const AudioPlayer&) = delete;
 
   // prefillMs of silence goes into every new stream, so that it starts at
-  // the depth the main loop steers to rather than empty.
+  // the depth the main loop steers to rather than empty.  False means no
+  // sound for now; Submit goes on looking for a device unless the sound
+  // system itself was not there.
   bool Open(unsigned sampleRate, double prefillMs);
   void Submit(std::vector<int16_t> samples);
   void Close();

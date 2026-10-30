@@ -5300,9 +5300,24 @@ diagnostika, ktorú si jeho zmena vynútila. `EA4_ZVUK_MS` a časová os
 zostávajú — na overenie u Jiřího používateľa a na každý ďalší stroj, kde by
 zvuk škobrtal.
 
+**Doplnené pri prehliadke PR (30. 10. 2026).** `Open` pri zlyhaní `Start` nechá
+enumerátor, takže nedostupné zariadenie sa skúša ďalej; predtým by reset
+v takej chvíli nechal stroj nemý až do reštartu. Časová os sa vypíše aj pri
+ukončení.
+
+**Zapnutie z vypnutého stavu fronta nehladuje, ale pretečie.** Prehliadka
+predpokladala opak: prúd sa pri zapnutí znovu neotvára, tak sa zdalo, že sa
+vyprázdnená fronta bude plniť sekundu. Výpis majiteľa to vyvrátil: v sekunde
+zapnutia fronta 103 – 111 ms, zahodených 37 blokov (185 ms), najdlhší priechod
+20 ms. Vypnutý stroj má `guestClock` pripnutý štvrť sekundy pred počítadlom
+cyklov (strop dlhu v `EmulatorThread::Run`), takže po zapnutí odbehne 250 ms
+hneď. Začiatok štartovacích tónov sa tak zahodí a fronta klesá k 22 ms až za
+niekoľko sekúnd. Majiteľ to nepočul ako chybu. Strop dlhu je starší než
+WASAPI, preto to PR nerieši; evidované v beade.
+
 **Čo sa malo odmerať.** Či počuteľné prasknutie sprevádza vyschnutá fronta
 alebo dlhý priechod; ak nie, príčina je inde (ovládač, mixér Windows,
-model) a hĺbka fronty ju nevyrieši. Odpoveď nižšie: ani jedno z toho, ale
+model) a hĺbka fronty ju nevyrieši. Odpoveď vyššie: ani jedno z toho, ale
 medzera za waveOut, ktorú hĺbka fronty rieši.
 
 ## 7. Nástroje

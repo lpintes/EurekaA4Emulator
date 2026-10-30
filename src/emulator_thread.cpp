@@ -1591,6 +1591,9 @@ void EmulatorThread::Run() {
     timer.Wait(2.0);
   }
 
+  // The dump at exit is main.cpp's, which has no way to the timeline.
+  if (diagnostics_.load(std::memory_order_relaxed))
+    PrintAudioTimeline(audioTimeline, targetLatencyMs);
   audio.Close();
   running_.store(false, std::memory_order_relaxed);
 }

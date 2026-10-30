@@ -73,12 +73,15 @@ bool AudioPlayer::Open(unsigned sampleRate, double prefillMs) {
   sampleRate_ = sampleRate;
   if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
                               __uuidof(IMMDeviceEnumerator),
-                              reinterpret_cast<void**>(&enumerator_))) ||
-      !Start()) {
+                              reinterpret_cast<void**>(&enumerator_)))) {
     Close();
     return false;
   }
-  return true;
+  // A device that is missing or held exclusively right now is reported, but
+  // the enumerator stays: FollowDefaultDevice keeps trying.  Dropping it here
+  // would leave a reset that hit such a moment silent until the next restart,
+  // and without sound this machine has no user interface.
+  return Start();
 }
 
 // Opens a stream on whatever the default device is now.
