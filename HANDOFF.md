@@ -4568,6 +4568,9 @@ zostáva nesprávne. `READ.COM` 6,33 s platí — meralo ho `@`, nie súčet.
   vybral 0,3; pri 0,5 už motor prekrýval. Hrabanie (`presun`) zostáva na
   úrovni sady, majiteľovi znie dobre. `drive_sound_test` hlasitosť drží
   (`kLoopAndStep`); hodnota 0,5 zhodí dve kontroly.
+  *Doplnené 24. 10. 2026: neplatí, `kStepGain` je 1* — 0,3 patrilo
+  k očisteným krokom cudzej mechaniky; nahrávky Eureky majú vlastný pomer
+  (viď „Nahrávky skutočnej Eureky“ nižšie).
 - **Krátky presun zatiaľ nikto nepočul.** Presun o 2 cylindre pri 6 ms za
   krok hrá hrabanie len 12 ms a 15 ms doznievania. Pri `READ.COM` sú dva
   také (2 → 0 → 2, jeden sektor na cylindri 0, dôvod zatiaľ nevyšetrený).
@@ -4632,7 +4635,8 @@ Druhý dôvod je licencia: motor je CC BY a EXE ho nesie zabudovaný, ale
 zdrojákoch. Rozbaľovanie sady z emulátora sa zvážilo a zamietlo — nová
 položka ponuky a kód na to, čo urobí priečinok v balíku. Zmena workflowu
 **nie je vyskúšaná** — overí ju až najbližšie vydanie (v ZIP-e má byť
-priečinok `zvuky-mechaniky` s deviatimi súbormi).
+priečinok `zvuky-mechaniky` s deviatimi súbormi). *Od 24. 10. 2026 je ich
+sedem: päť WAV zo skutočnej Eureky, `NAVOD.md` a `PUVOD.md`.*
 
 Najbližšie vydanie (9. 10. 2026, beh 37903805526, `v2026.10.3`) ju naozaj
 nepustilo: krok „Balík“ prešiel, ale **poistka proti ROM** v tom istom
@@ -4643,6 +4647,124 @@ v `zvuky-mechaniky/` — podpriečinok tam neprejde — a kontrola veľkosti
 262144 a mien `.dmp`, `.rom`, `a4rom` platí aj pre ne. Podmienka overená
 na menách z toho behu aj na šiestich, ktoré musia ďalej zlyhať; celý
 workflow overí až ďalšie vydanie.
+
+#### Nahrávky skutočnej Eureky (24. 10. 2026)
+
+Luboš Krejča nahral mechaniku skutočnej Eureky A4 (majiteľ je s ním
+v spojení; licencia MIT ako projekt, `PUVOD.md`). Surové nahrávky v strome
+nie sú — sú majiteľove, ležia v pracovnom priečinku `eureka jednotka/` mimo
+gitu. Formát mali hneď správny (WAV PCM 48 kHz mono 16 bit), treba ich bolo
+len rozstrihať; urobí to `tools/sada-mechaniky.sh` cez `ffmpeg`, bajtovo
+rovnako ako v strome (overené `cmp`).
+
+Čo nahrávky ukázali, zmerané čistým Pythonom v scratchpade:
+
+- **Hrabanie klepe podľa rýchlosti kroku WD1772.** Autokorelácia obálky
+  klepania: `pohyb1` 6 ms (rýchlosť ROM), `pohyb5` a `pohyb6` 12 ms,
+  `pohyb2` až `pohyb4` 2 až 4 ms. Dĺžky sedia s presunom cez celú disketu
+  a kus späť (0,56 s ≈ 93 krokov po 6 ms, 1,15 s ≈ 96 po 12 ms). Majiteľov
+  odhad, že ostatné nahral DiskEdit, ktorý mení rýchlosť kroku, tým sedí.
+  Emulátor podľa `stepRate` mení len dĺžku hrabania, nie jeho klepanie —
+  na to by bolo treba hrabanie pre každú rýchlosť (zatiaľ nie).
+- **Motor sa roztočí takmer hneď.** Dominantná frekvencia (~200 Hz) je od
+  začiatku „Diskove funkce“ rovnaká, ráz zapnutia je okolo 0,1 s; rozbeh
+  v sade má preto 0,3 s, nie sekundu.
+  *Doplnené 16. 11. 2026: výška sedí, hlasitosť nie — motor je prvé asi
+  3 s o 7 dB hlasnejší a utíši sa; rozbeh má teraz 3,5 s, viď „Motor, ktorý
+  sa neopakuje“.*
+- **Doběh:** tón klesne z 200 na 180 Hz asi 1,75 s po kroku (1,15 s → 2,9 s),
+  čo sedí s 9 otáčkami motora po príkaze (krok 4b). Hlasitosť však začne
+  klesať už asi 0,75 s po kroku, prečo, nie je zmerané.
+  *Doplnené 16. 11. 2026: ten pokles hlasitosti je utíšenie motora po
+  zapnutí, nie dobeh — dlhá nahrávka ho má bez jediného kroku. Motor
+  „Diskove funkce“ sa do konca nahrávky nezastavil; skutočné vypnutie je
+  rýchle (viď „Motor, ktorý sa neopakuje“).*
+- **Krok v „Diskove funkce“ sú dva údery 50 ms od seba** (1,175 s a
+  1,225 s), asi prvý pohyb po roztočení. Hraný na striedačku s obyčajným
+  krokom robil z každého druhého kroku formátovania dvojitý — majiteľ to
+  počul ako „znásobený“ krok. V sade je preto jediný krok, `Pohyb7`
+  (`pohyb8` je ten istý záber, posunutý o 209 vzoriek, rozdiel na úrovni
+  šumu). `KROK_2` a `KROK_3` zo zdrojov EXE zmizli.
+- **`pohyb9` a `pohyb10` (len motor) sú asi o 11 dB tichšie** než motor
+  v „Diskove funkce“, teda iné nastavenie nahrávania; nepoužité.
+
+**`kStepGain` je späť na 1** (zrušené 0,3 z kroku 4c): sada je jedna
+mechanika vo vlastnom pomere, tichý motor pod jasným krokom (krok asi 5×
+nad slučkou), a majiteľ ju tak pamätá. Z variantov 0,3 a 1,0 vybral 1,0.
+`drive_sound_test` to drží cez `kLoopAndStep`. Celá sada je zosilnená
+spoločným ziskom 1,4 — viac nejde, krok z „Diskove funkce“ by sa orezal —
+a `kSampleGain` 0,25 zostal; slučka (rms ~660) je blízko starej (~800).
+*Doplnené 16. 11. 2026: ustálený motor má teraz rms ~290 (utíšený), slučka
+s ~660 bola motor tesne po zapnutí.*
+
+#### Motor, ktorý sa neopakuje (16. 11. 2026)
+
+PR 11 so sadou vyššie bol zavretý pred zlúčením: Luboš Krejča (hudobník)
+počul 0,75 s slučku opakovať sa a vadil mu dvojsekundový dobeh dorobený
+stlmením. Nová nahrávka „jednotka jiná verze“ (25. 10. 2026, majiteľova,
+mimo gitu): Eureka točí motor asi 12 s bez kroku, keď sa snaží čítať
+disketu 1,44 MB z PC. Úroveň nahrávania je tá istá ako pri prvej sérii —
+jej prvá sekunda (rms ~470) sedí so slučkou z „Diskove funkce“ — takže
+zisk 1,4 platí pre celú sadu.
+
+Čo ukázala (čistý Python, `build/zvuk-analyza/`, mimo gitu):
+
+- **Motor sa po zapnutí utíši.** Rms 670 → 470 → 320 → ~205 počas prvých
+  ~3,5 s, potom stojí (± 1 dB v oknách 50 ms, výnimočne 2 dB). Výška tónu
+  sa nemení (hrubý odhad 170–175 Hz). Rozbeh v sade je preto 0–3,5 s
+  a ustálený motor 3,5–12,2 s.
+- **Otáčka je vzorec, nie cvaknutie.** Obálka (1 ms) sa opakuje po 199 ms
+  (korelácia 0,49, susedné posuny pod 0,2), ale cez dve a tri otáčky
+  slabne — perióda sa mení. Sledovanie otáčku po otáčke dalo 46 hraníc,
+  196–199 ms.
+- **Vypnutie motora je rýchle.** V 12,7 s spadne zvuk za 50 ms asi na
+  tretinu, o 0,1–0,15 s slabo cvakne a nasleduje tichý dozvuk;
+  `Jednotka.wav` (druhá dlhá nahrávka, s krokom každých 4,5 s) končí
+  rovnako v 23,75 s. Dobeh je preto 12,45 s až koniec, bez dorobeného
+  stlmenia.
+
+**Žiadna slučka nevyhovela, ani 8,7 s** — pán Krejča ju počul opakovať sa
+po deviatich sekundách. Dlhšia nahrávka by opakovanie len posunula
+a formátovanie s vystrihnutými krokmi by dalo kúsky po sekunde, teda viac
+švov. Emulátor preto ustálený motor **nehrá dookola**: `FindTurns`
+v `drive_sound.cpp` nájde pri načítaní hranice otáčok (tým istým
+sledovaním) a `RenderSampled` hrá náhodné behy 5 až 15 otáčok s 50 ms
+prelínaním na hranici otáčky, nový beh nikdy do troch otáčok od konca
+predošlého. Ukážku presne tohto (Python, `vrcanie.py`) pán Krejča schválil
+s nadšením. Náhoda má vlastné pevné semienko (`shuffleSeed_`), takže
+rovnaké udalosti dajú rovnaký zvuk aj naďalej. Krátka slučka (pod
+20 hraníc, asi 4 s) sa hrá dookola ako predtým, takže staršie sady
+fungujú bez zmeny. Prelínanie motora drží výkon (sin/cos), nie amplitúdu
+— lineárne by na každom šve kleslo.
+
+`drive_sound_test` to drží na umelej slučke 30 otáčok po 198 ms, kde má
+každá otáčka puls na začiatku a vlastnú úroveň: rozostupy pulzov musia byť
+presne otáčka (rytmus cez švy) a behy po sebe idúcich otáčok 5 až 15
+(neopakuje sa). Overené mutáciou: vypnuté hľadanie otáčok (obyčajná
+slučka) zhodí kontrolu behov, štart behu pol otáčky vedľa hranice zhodí
+obe.
+
+Overené aj sluchom na hotovom emulátore: celé formátovanie nenaformátovanej
+diskety cez vernú mechaniku (sonda, `wavm:`, `EA4_BEZ_SKRATKY`, 93 s, rms
+ustáleného motora 205–209 v 5 s oknách) pán Krejča posúdil 16. 11. 2026
+ako „oproti originálnej Eureke naprosto bez chyb“.
+
+**Review pred PR (16. 11. 2026) našlo dve cvaknutia.** Šov a prepnutie
+motora (zastavenie, rozbeh, návrat do ustáleného) zdieľali jeden
+odchádzajúci hlas, takže zastavenie uprostred 50 ms šva úsek, ktorý šov
+stlmoval, odrezalo naraz — asi raz za 20 až 40 zastavení. Šov má teraz
+vlastný hlas (`seamOut_`, `seamFade_`) a hlas, ktorý pri prepnutí
+odchádza, slabne z hlasitosti, na ktorej bol (`motorOut_.gain`,
+`MotorGain`). Druhé, staršie: vo vzorke, kde skončil rozbeh, motor
+nezahral nič, a jedna tichá vzorka uprostred motora je cvaknutie; ustálený
+motor teraz nastúpi v tej istej vzorke. Drží to `StopsCleanlyMidSeam`:
+celý motor na jednej úrovni a tichý dobeh, takže každé prelínanie je
+plynulý svah, a zastavenie posúvané po 10 ms cez 1,5 s; najväčší skok
+medzi vzorkami musí byť pod 100. Overené mutáciou: vynulovaný šov pri
+prepnutí (skok 1964), odchádzajúci hlas z plnej sily (1627) a chýbajúca
+vzorka po rozbehu (1999). Hranica, od ktorej sa motor skladá, je asi 4,2 s
+(20 hraníc otáčok plus 0,4 s na poslednú); `NAVOD.md` tvrdil 4,5 s,
+opravené na „asi 4 s, s istotou od 4,5 s“.
 
 #### Otvorené
 
@@ -4656,6 +4778,11 @@ workflow overí až ďalšie vydanie.
   a „poškodená disketa“ (`ea4-tvd.5`).
 - Skutočné nahrávky mechaniky Eureky — majiteľ je v kontakte s niekým, kto
   ich môže nahrať; sada sa potom len vymení v `src/res/zvuky-mechaniky`.
+  *Doplnené 24. 10. 2026: hotové, viď „Nahrávky skutočnej Eureky“.* Ďalšie
+  nahrávky podľa potreby — najviac by pomohol dobeh až do zastavenia
+  a motor naprázdno s nastavením nahrávania ako „Diskove funkce“.
+  *Doplnené 16. 11. 2026: oboje dodané v „jednotka jiná verze“, viď „Motor,
+  ktorý sa neopakuje“.*
 
 ### 6.55 Dump ROM z anglickej Eureky — program, ktorý rozozná stroj
 

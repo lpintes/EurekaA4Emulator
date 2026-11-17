@@ -107,8 +107,7 @@ jobs:
                     Spustit-Eureku.bat, README.md, LICENSE.txt, PRAVNE.md, `
                     tools\dumprom\DUMPROM.COM, tools\dumprom\DUMPROM.IMG $stage
           # The drive sounds built into the EXE, as a pattern for one's own
-          # (NAVOD.md) -- and PUVOD.md has to travel with the EXE anyway: the
-          # motor is CC BY, which asks for its author wherever it goes.
+          # (NAVOD.md), with their author and licence in PUVOD.md.
           Copy-Item -Recurse src\res\zvuky-mechaniky $stage
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [IO.Compression.ZipFile]::CreateFromDirectory((Resolve-Path balik).Path,

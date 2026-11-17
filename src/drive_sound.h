@@ -32,13 +32,14 @@ class DriveSound {
 
   // Recorded sounds in place of the synthesized ones, from a folder of 48 kHz
   // mono 16-bit WAVs: motor-rozbeh, motor-slucka and motor-dobeh (spin-up,
-  // loop, run-down), krok-1, krok-2 and on (takes of one head step, played in
-  // turn) and presun (the head raking across many cylinders).  Recordings
+  // steady motor, stop), krok-1, krok-2 and on (takes of one head step, played
+  // in turn) and presun (the head raking across many cylinders).  Recordings
   // because the synthesis never satisfied the owner (HANDOFF 6.54); the
-  // built-in set is a motor sampled by Shiru (CC-BY), steps cut from a
-  // Wikimedia Commons recording and the raking from BigSoundBank (both CC0).
-  // False
-  // with a reason if anything is missing; the synthesized sound then stays.
+  // built-in set is Luboš Krejča's recordings of a real Eureka A4 drive.
+  // A steady motor long enough is not looped but played in random runs of
+  // whole revolutions (see FindTurns in the .cpp); a short one loops.
+  // False with a reason if anything is missing; the synthesized sound then
+  // stays.
   // The reason is meant for the user and is UTF-8.
   bool LoadSamples(const std::filesystem::path& folder, std::string& error);
   // The same set from anywhere: `fetch` is given a sound's stem
@@ -103,6 +104,13 @@ class DriveSound {
   float Render();
   float RenderSampled();
   void SwitchMotor(Motor to);
+  // The steady motor from revolution `turn` on, for a run of a random number
+  // of revolutions -- or the whole loop over and over when it is too short to
+  // be shuffled.
+  void StartRun(std::size_t turn);
+  uint32_t Shuffle();
+  // How far motorVoice_ is faded in, by a switch and by a seam.
+  float MotorGain() const;
 
   std::deque<Job> jobs_;
   uint64_t queued_ = 0;  // samples of work in jobs_, to bound the backlog
@@ -137,8 +145,21 @@ class DriveSound {
   std::vector<std::vector<float>> steps_;
   std::size_t stepTake_ = 0;
   Motor motor_ = Motor::kOff;
-  Voice motorVoice_, motorOut_;
+  // motorOut_ fades out on a switch of the motor (start, stop, back to the
+  // steady motor), seamOut_ at a seam between two runs.  Apart, so that a
+  // switch in the middle of a seam does not cut the voice the seam is
+  // fading out; motorOut_.gain is where motorVoice_ stood when it left.
+  Voice motorVoice_, motorOut_, seamOut_;
   std::size_t motorFade_ = 0;
+  std::size_t seamFade_ = 0;
+  // Samples left of motorVoice_'s own fade in at a seam; zero once a switch
+  // has replaced the voice that came in, while seamOut_ still fades.
+  std::size_t seamIn_ = 0;
+  // Revolution boundaries in motorLoop_, as sample indices, up to the last
+  // one a seam can still be crossfaded from; empty when the loop just loops.
+  std::vector<std::size_t> turns_;
+  std::size_t runEnd_ = 0;      // turn index where the current run ends
+  uint32_t shuffleSeed_;
   bool motorWasOn_ = false;
   std::vector<Voice> heads_;
 };

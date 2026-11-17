@@ -37,10 +37,10 @@ void Check(bool passed, const std::string& name, const std::string& detail = "")
 
 constexpr uint32_t kRate = EurekaMachine::kAudioHz;
 constexpr uint64_t kCyclesPerSample = EurekaMachine::kCpuHz / EurekaMachine::kAudioHz;
-// The test step is five times the loop, and a single step plays at 0.3 of
-// the set's level (kStepGain in drive_sound.cpp), so loop and step together
-// stand at 2.5 loops.
-constexpr double kLoopAndStep = 1 + 5 * 0.3;
+// The test step is five times the loop, and a single step plays at the
+// set's own level (kStepGain in drive_sound.cpp, 1 since the recordings of a
+// real Eureka), so loop and step together stand at six loops.
+constexpr double kLoopAndStep = 1 + 5 * 1.0;
 
 std::size_t At(double seconds) { return static_cast<std::size_t>(seconds * kRate); }
 
@@ -68,6 +68,22 @@ std::vector<uint8_t> Wav(double seconds, int16_t level, uint32_t rate = kRate) {
   put("data", 4);
   put32(bytes);
   for (uint32_t i = 0; i < samples; ++i) put16(static_cast<uint16_t>(level));
+  return out;
+}
+
+// A steady motor of `turns` revolutions of kTurn samples each: a 1 ms pulse at
+// the start of every revolution, for its rhythm, then a level of its own,
+// 1000 + 100 per revolution, so the mixer's output says which one is playing.
+constexpr std::size_t kTurn = 9504;  // 198 ms, a whole number of 1 ms blocks
+constexpr int16_t kPulse = 16000;
+
+std::vector<uint8_t> Revolutions(std::size_t turns) {
+  std::vector<uint8_t> out = Wav(static_cast<double>(turns * kTurn) / kRate, 0);
+  for (std::size_t i = 0; i < turns * kTurn; ++i) {
+    const int16_t level =
+        i % kTurn < kRate / 1000 ? kPulse : static_cast<int16_t>(1000 + 100 * (i / kTurn));
+    std::memcpy(&out[44 + 2 * i], &level, 2);
+  }
   return out;
 }
 
@@ -207,6 +223,102 @@ void RakesAcrossCylinders() {
   Check(Near(out[At(1.5)], loop), "po 40 krokoch dozvoni", Show(out[At(1.5)], loop));
 }
 
+// A long enough steady motor is never looped (HANDOFF 6.54): it plays in
+// random runs of 5 to 15 whole revolutions, and every seam sits on a
+// revolution boundary.  A loop of any length was heard repeating, and a seam
+// off the boundary would break the spindle's rhythm -- neither is anything a
+// level check would see, so both are read off the pulses and levels here.
+void ShufflesTheMotor() {
+  const auto set = [](const std::string& stem, std::vector<uint8_t>& bytes) {
+    if (stem == "motor-rozbeh") bytes = Wav(0.1, 8000);
+    else if (stem == "motor-slucka") bytes = Revolutions(30);
+    else if (stem == "motor-dobeh") bytes = Wav(0.1, 12000);
+    else if (stem == "presun") bytes = Wav(0.5, 0);
+    else if (stem == "krok-1") bytes = Wav(0.05, 0);  // silent, not to blur the levels
+    else return false;
+    return true;
+  };
+  std::vector<EurekaMachine::DriveEvent> events;
+  // A step back and forth every second keeps the motor running throughout.
+  for (int i = 0; i < 30; ++i)
+    events.push_back(Seek(static_cast<uint8_t>(i % 2), static_cast<uint8_t>((i + 1) % 2), i));
+  std::string error;
+  DriveSound drive;
+  drive.LoadSamples(set, error);
+  const auto out = Run(drive, events, 30.0);
+
+  const int threshold = kPulse / 8;  // the set's gain of a quarter, and half that
+  std::vector<std::size_t> pulses;
+  for (std::size_t i = At(0.5); i < At(29.0); ++i)
+    if (out[i] >= threshold && out[i - 1] < threshold) pulses.push_back(i);
+  bool even = pulses.size() > 100;
+  for (std::size_t i = 1; i < pulses.size(); ++i)
+    even = even && pulses[i] - pulses[i - 1] + 2 >= kTurn && pulses[i] - pulses[i - 1] <= kTurn + 2;
+  Check(even, "rytmus otacok drzi aj cez svy", std::to_string(pulses.size()) + " pulzov");
+
+  // Which revolution each one was, from its level half a revolution in --
+  // past the crossfade -- and the runs of revolutions that follow on.
+  std::vector<int> played;
+  for (std::size_t p : pulses)
+    played.push_back(static_cast<int>(std::lround((out[p + kTurn / 2] * 4.0 - 1000) / 100)));
+  std::vector<int> runs{1};
+  for (std::size_t i = 1; i < played.size(); ++i) {
+    if (played[i] == played[i - 1] + 1) ++runs.back();
+    else runs.push_back(1);
+  }
+  bool lengths = runs.size() > 10;
+  for (std::size_t i = 1; i + 1 < runs.size(); ++i) lengths = lengths && runs[i] >= 5 && runs[i] <= 15;
+  std::string shown;
+  for (int r : runs) shown += std::to_string(r) + " ";
+  Check(lengths, "motor sa neopakuje, hra behy 5 az 15 otacok", shown);
+
+  DriveSound again;
+  again.LoadSamples(set, error);
+  Check(Run(again, events, 30.0) == out, "nahodne behy su pri rovnakych udalostiach rovnake");
+}
+
+// The motor stopping in the middle of a seam must not cut the run the seam
+// is fading out, nor jump the one fading in to full strength (review of
+// 16. 11. 2026).  With the whole motor at one level and the stop silent,
+// every fade is a smooth slope and any cut is a step of hundreds; the stop
+// is moved 10 ms at a time across a second and a half, so some of the stops
+// land in a seam.
+void StopsCleanlyMidSeam() {
+  constexpr int16_t kLevel = 8000;
+  const auto set = [](const std::string& stem, std::vector<uint8_t>& bytes) {
+    if (stem == "motor-rozbeh") bytes = Wav(0.1, kLevel);
+    else if (stem == "motor-slucka") bytes = Wav(30 * 0.198, kLevel);
+    else if (stem == "motor-dobeh") bytes = Wav(0.1, 0);
+    else if (stem == "presun") bytes = Wav(0.5, 0);
+    else if (stem == "krok-1") bytes = Wav(0.05, 0);
+    else return false;
+    return true;
+  };
+  int worst = 0;
+  double worstAt = 0;
+  std::size_t worstSample = 0;
+  for (int i = 0; i < 150; ++i) {
+    const double second = 1.3 + 0.01 * i;
+    DriveSound drive;
+    std::string error;
+    drive.LoadSamples(set, error);
+    const auto out = Run(drive, {Seek(0, 1, 0.0), Seek(1, 0, second)}, second + 2.5);
+    // From the second sample: the motor switched on from silence starts at
+    // once, the spin-up's own fade in is in its recording.
+    for (std::size_t s = 2; s < out.size(); ++s) {
+      const int jump = std::abs(out[s] - out[s - 1]);
+      if (jump > worst) {
+        worst = jump;
+        worstAt = second;
+        worstSample = s;
+      }
+    }
+  }
+  Check(worst < 100, "zastavenie uprostred svu necvakne",
+        "skok " + std::to_string(worst) + " pri druhom kroku v " + std::to_string(worstAt) + " s, vzorka " +
+            std::to_string(worstSample));
+}
+
 // Switched off, the machine gives no samples; Continue has to let the drive
 // finish on its own, or the motor would hum on into the next power-up.
 void FinishesWithoutTheMachine() {
@@ -241,6 +353,8 @@ int main() {
   WaitsForTheDac();
   PlaysInRealTime();
   RakesAcrossCylinders();
+  ShufflesTheMotor();
+  StopsCleanlyMidSeam();
   FinishesWithoutTheMachine();
   SameEventsSameSound();
   std::cout << (failures == 0 ? "PASS" : "FAIL") << " mode=DRIVE kontrol=" << checks

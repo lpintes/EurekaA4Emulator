@@ -385,10 +385,12 @@ Zvuk sa zmení hneď a emulátor si voľbu pamätá. Rýchlosť diskety sa prepn
 chvíli, keď stroj najbližšie čaká na kláves, teda nikdy uprostred čítania
 alebo zápisu.
 
-Zvuky sú nahrávky skutočných 3,5" mechaník, nie mechaniky Eureky; tú zatiaľ
-nikto nenahral. Vstavané zvuky sú v balíku emulátora aj ako súbory, v
-priečinku **`zvuky-mechaniky`**, spolu s návodom `NAVOD.md` (čo ktorý
-zvuk robí, aký musí mať formát a hlasitosť) a s pôvodom a licenciami
+Zvuky sú nahrávky skutočnej mechaniky Eureky A4, ktoré nahral Luboš
+Krejča. Motor sa pritom neopakuje ani pri minútovom formátovaní: emulátor
+skladá jeho vrčanie z náhodných úsekov nahrávky. Vstavané zvuky sú
+v balíku emulátora aj ako súbory, v priečinku **`zvuky-mechaniky`**, spolu
+s návodom `NAVOD.md` (čo ktorý zvuk robí, aký musí mať formát a hlasitosť
+a ako ho nahrať) a s pôvodom a licenciou
 v `PUVOD.md`. Ak máte vlastné nahrávky, nahraďte nimi súbory v tom
 priečinku a celý ho dajte vedľa súboru s nastaveniami (viď [Čo si emulátor
 pamätá](#čo-si-emulátor-pamätá)); emulátor ich pri ďalšom štarte použije
@@ -1128,15 +1130,9 @@ Emulátor je pod licenciou MIT; pozrite `LICENSE.txt`. Štyri veci k tomu:
   za odvodené dielo; pozrite `nvda-addon\COPYING.txt`.
 - Použité jadro Z80 má vlastné MIT oznámenie
   v `src\LICENSE.superzazu-z80.txt`.
-- **Zvuky disketovej mechaniky** majú licencie svojich autorov; pozrite
-  `zvuky-mechaniky\PUVOD.md` v balíku. Motor je zo vzoriek
-  [Flopster](https://github.com/linuxmao-org/shiru-plugins) od autora
-  **Shiru** pod licenciou [CC BY](https://creativecommons.org/licenses/by/4.0/),
-  upravený (stlmené výšky a klapanie). Kroky sú z nahrávky
-  [Floppy drive sounds](https://commons.wikimedia.org/wiki/File:Floppy_drive_sounds.ogg)
-  od autora AlepouTheFox a hrabanie z nahrávky
-  [Floppy disk (3.5"), reading](https://bigsoundbank.com/detail-1396-floppy-disk-3-5-reading.html)
-  od Josepha Sardina, obe pod CC0.
+- **Zvuky disketovej mechaniky** sú nahrávky skutočnej mechaniky Eureky A4
+  od **Luboša Krejču** a šíria sa pod licenciou projektu MIT; pozrite
+  `zvuky-mechaniky\PUVOD.md` v balíku.
 
 Technické referencie k procesoru: [Hitachi HD64180 User's Manual](https://www.bitsavers.org/components/hitachi/64180/HD64180_Users_Manual_Oct85.pdf),
 [Zilog Z180 User Manual](https://www.zilog.com/docs/z180/um0050.pdf) a

@@ -15,7 +15,8 @@ inak na `C:\b\a4rom.dmp`.
 | `latches.py` | odkazy na tiene riadiacich latchov + súhrn po bitoch |
 | `melodies.py` | vyrenderuje melódie z ROM do `../audio/melodie/` |
 | `speech_wav.py [ROM] [LO] [HI] [RATE]` | dáta reči (`20000h–40000h`) do `../audio/` ako 8-bit WAV pri φ/(20·41) ≈ 7493 Hz |
-| `drive_steps.py IN OUT T0 T1 KROK…` | vystrihne kroky hlavičky z nahrávky mechaniky a odčíta z nich šum točenia (HANDOFF 6.54); ROM nepotrebuje |
+| `drive_steps.py IN OUT T0 T1 KROK…` | vystrihne kroky hlavičky z nahrávky mechaniky a odčíta z nich šum točenia (HANDOFF 6.54); ROM nepotrebuje. Patril k sade z cudzích mechaník, ktorú od 24. 10. 2026 nahradili nahrávky Eureky |
+| `sada-mechaniky.sh NAHRÁVKY CIEĽ [ZISK]` | z nahrávok skutočnej Eureky (Luboš Krejča) zostaví sadu `src/res/zvuky-mechaniky` cez `ffmpeg`, bajtovo rovnakú ako v strome (HANDOFF 6.54); nahrávky v strome nie sú |
 
 ## `dumprom/` — program, ktorý ROM vyčíta zo skutočnej Eureky
 
