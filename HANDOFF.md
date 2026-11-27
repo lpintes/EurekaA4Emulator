@@ -5447,6 +5447,37 @@ alebo dlhý priechod; ak nie, príčina je inde (ovládač, mixér Windows,
 model) a hĺbka fronty ju nevyrieši. Odpoveď vyššie: ani jedno z toho, ale
 medzera za waveOut, ktorú hĺbka fronty rieši.
 
+### 6.62 Držané klávesy pri otvorení ponuky
+
+Druhá polovica Jiřího patchu 0003; prvú, zlučovanie stavov akordu, nahradila
+oprava v 6.57. Táto mala dve časti a prevzatá je len jedna.
+
+**Prevzaté: ponuka pustí, čo je držané.** Pri `F12` (alebo kliknutí do
+ponuky) okno fokus nestratí, takže `WM_KILLFOCUS` nepríde, ale klávesnicu
+si vezme slučka ponuky a pustenia klávesov, ktoré sú ešte dole, idú jej.
+Okno teraz na `WM_ENTERMENULOOP` pošle `PostFocusLost()`, tak ako pri strate
+fokusu. Že zaseknutý kláves nie je neškodný, je odmerané na modeli
+v textovom procesore: držaná šípka sa cez typematic ROM opakuje — prvý kód
+po sekunde, potom asi 7,5 za sekundu, 31 kódov za päť sekúnd — a kurzor by
+počas otvorenej ponuky ušiel. Držaný bod sám nič nenapíše (akord sa odovzdá
+až pri pustení), ale pridal by sa do ďalšieho akordu napísaného po
+zatvorení ponuky. `ForgetStaleHeld` to nezachráni: beží až na ďalšej
+klávesovej udalosti a len po dvoch sekundách ticha. Že slučka ponuky
+pustenie naozaj berie, overil majiteľ v okne (27. 11. 2026): v textovom
+procesore držať šípku vľavo, stlačiť `F12`, šípku pustiť pri otvorenej
+ponuke a počkať tri sekundy. Predchádzajúca zostava počas ponuky posúvala
+kurzor ďalej, nová mlčí. Test v sade na to nie je — okno nemá pokrytie.
+
+**Neprevzaté: zahodenie fronty pri strate fokusu a zmene režimu**
+(`ClearHeldMembrane`). V balíku riešilo, aby Eureka nedopisovala do
+otvorenej ponuky to, čo sa nahromadilo pri rýchlom písaní. Po 6.57 sa už
+nehromadí nič: stavy po ceste prejdú hneď a vo fronte čaká najviac to, čo
+stojí za bodom obratu, kým ten nevydrží 55 ms — vrchol akordu a prázdna
+matica za ním, spolu najviac asi 110 ms.
+Zahodiť ich by naopak stratilo akord, ktorý ROM ešte neprevzala, a ticho.
+Strata fokusu preto zostáva taká, ako bola: držané klávesy sa pustia
+(`RecomputeHeldMembrane` s prázdnym stavom) a čo je vo fronte, dobehne.
+
 ## 7. Nástroje
 
 V `tools/`, čistý Python 3, bez závislostí. ROM sa berie z `$A4ROM`.

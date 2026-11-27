@@ -366,9 +366,9 @@ void RecomputeHeldMembrane(EurekaMachine& machine, const HostKeyboard& host) {
 // slowest legitimate chord never goes stale just because a different key on
 // the matrix happened to sit still.
 //
-// The window now also reports WM_KILLFOCUS, which clears this outright and is
-// exact where the timer only guesses; the timer stays as the backstop for a
-// release lost some other way.
+// The window now also reports WM_KILLFOCUS and an opening menu, which clear
+// this outright and are exact where the timer only guesses; the timer stays
+// as the backstop for a release lost some other way.
 void ForgetStaleHeld(HostKeyboard& host, EurekaMachine& machine) {
   const ULONGLONG now = GetTickCount64();
   if (now - host.heldStamp > 2000) {
@@ -1482,8 +1482,19 @@ void EmulatorThread::Run() {
     // the guest's console device is a diagnostic, not the machine's output --
     // its output is speech.
     auto output = machine.TakeConsoleOutput();
-    if (!output.empty() && diagnostics_.load(std::memory_order_relaxed))
-      host::Print(DecodeKamenicky(output.data(), output.size()));
+    if (!output.empty() && diagnostics_.load(std::memory_order_relaxed)) {
+      // The guest rings its bell with 07h -- every cursor key in an empty
+      // input line does, the music editor's file name prompt for one -- and
+      // the Windows console answers BEL with the system's critical-stop
+      // sound.  A diagnostic must not sound like an error, so it is written
+      // out instead.
+      std::wstring text;
+      for (const wchar_t c : DecodeKamenicky(output.data(), output.size())) {
+        if (c == L'\a') text += L"<BEL>";
+        else text += c;
+      }
+      host::Print(text);
+    }
     // The drive goes under the machine's own samples, so the rate steering
     // above sees one stream and nothing about its latency changes.  Its
     // events are always taken, like the console, so they cannot pile up

@@ -965,6 +965,9 @@ Prepínač `--diag` zapne záznam hardvérových prístupov, ktoré model neobsl
   To je jediný spôsob, ako odlíšiť kláves, ktorý sa zámerne ignoruje —
   napríklad písmeno v braillovskom režime — od klávesu, ktorý vôbec
   neprišiel. Oboje je inak ticho.
+- čo Eureka píše na svoje konzolové zariadenie. Znak zvončeka (`07h`), ktorý
+  posiela napríklad pri šípke v prázdnom vstupnom riadku, sa vypíše ako
+  `<BEL>` — konzola Windows by naň inak zahrala zvuk kritickej chyby.
 - ako sa darilo zvuku, sekundu po sekunde od posledného výpisu (najviac
   desať minút): súhrn a potom len sekundy, v ktorých zvukovej karte
   chýbal zvuk (medzera, ktorú počuť ako prasknutie), fronta vyschla, bloky

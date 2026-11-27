@@ -224,7 +224,8 @@ class EmulatorThread {
   void PostPowerOn();
   // Everything the host believes is held goes up.  The window sends this on
   // WM_KILLFOCUS, where the real key releases are delivered to whoever took
-  // the focus instead.
+  // the focus instead, on WM_ENTERMENULOOP, where the menu's own loop takes
+  // them, and when the keyboard is released to the host.
   void PostFocusLost();
   // Save As: writes the current diskette out to a folder and keeps that folder
   // as its home.  It has to be the worker that does it: the machine is the
